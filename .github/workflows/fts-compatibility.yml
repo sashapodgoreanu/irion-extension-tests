@@ -1,0 +1,162 @@
+name: FTS compatibility - DuckDB 1.5.4
+
+on:
+  push:
+    branches:
+      - fts-ci-v1.5.4
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fts-compatibility-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DUCKDB_REF: v1.5.4
+  CI_TOOLS_REF: v1.5.4
+  FTS_REF: 4fd54aa70a5079be7e9b6fab3b810ed90699b511
+  VCPKG_URL: https://github.com/microsoft/vcpkg.git
+  VCPKG_COMMIT: 84bab45d415d22042bd0b9081aea57f362da3f35
+  DUCKDB_PLATFORM: linux_amd64
+  VCPKG_TARGET_TRIPLET: x64-linux-release
+  VCPKG_HOST_TRIPLET: x64-linux-release
+
+jobs:
+  build-and-test:
+    name: Build one runner and execute upstream FTS tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout Irion compatibility repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout DuckDB 1.5.4
+        uses: actions/checkout@v4
+        with:
+          repository: duckdb/duckdb
+          ref: ${{ env.DUCKDB_REF }}
+          path: upstream/duckdb
+          fetch-depth: 1
+
+      - name: Checkout duckdb-fts
+        uses: actions/checkout@v4
+        with:
+          repository: duckdb/duckdb-fts
+          ref: ${{ env.FTS_REF }}
+          path: upstream/fts
+          fetch-depth: 1
+          submodules: false
+
+      - name: Checkout extension-ci-tools 1.5.4
+        uses: actions/checkout@v4
+        with:
+          repository: duckdb/extension-ci-tools
+          ref: ${{ env.CI_TOOLS_REF }}
+          path: upstream/extension-ci-tools
+          fetch-depth: 1
+
+      - name: Print pinned source versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "DuckDB ref: ${DUCKDB_REF}"
+          echo "DuckDB SHA: $(git -C upstream/duckdb rev-parse HEAD)"
+          echo "CI tools ref: ${CI_TOOLS_REF}"
+          echo "CI tools SHA: $(git -C upstream/extension-ci-tools rev-parse HEAD)"
+          echo "FTS ref: ${FTS_REF}"
+          echo "FTS SHA: $(git -C upstream/fts rev-parse HEAD)"
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ccache_dir
+          key: fts-linux-amd64-${{ env.DUCKDB_REF }}-${{ env.FTS_REF }}-${{ github.sha }}
+          restore-keys: |
+            fts-linux-amd64-${{ env.DUCKDB_REF }}-${{ env.FTS_REF }}-
+            fts-linux-amd64-${{ env.DUCKDB_REF }}-
+
+      - name: Build the official DuckDB extension container
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build \
+            --build-arg "vcpkg_url=${VCPKG_URL}" \
+            --build-arg "vcpkg_commit=${VCPKG_COMMIT}" \
+            --build-arg 'extra_toolchains=;' \
+            --tag duckdb/linux_amd64:fts-poc \
+            upstream/extension-ci-tools/docker/linux_amd64
+
+      - name: Build DuckDB and run all upstream FTS tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ccache_dir build/reports
+          docker run --rm \
+            --env CI=true \
+            --env GITHUB_ACTIONS=true \
+            --env DUCKDB_REF \
+            --env CI_TOOLS_REF \
+            --env FTS_REF \
+            --env DUCKDB_PLATFORM \
+            --env VCPKG_TARGET_TRIPLET \
+            --env VCPKG_HOST_TRIPLET \
+            --env VCPKG_TOOLCHAIN_PATH=/vcpkg/scripts/buildsystems/vcpkg.cmake \
+            --env 'VCPKG_BINARY_SOURCES=clear;http,https://vcpkg-cache.duckdb.org,read' \
+            --env CCACHE_DIR=/ccache_dir \
+            --env CCACHE_MAXSIZE=1G \
+            --env CCACHE_NOCOMPRESS=1 \
+            --env BUILD_JOBS=2 \
+            --volume "${PWD}:/duckdb_build_dir" \
+            --volume "${PWD}/ccache_dir:/ccache_dir" \
+            duckdb/linux_amd64:fts-poc \
+            bash /duckdb_build_dir/scripts/run_fts_ci.sh
+
+      - name: Write job summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## FTS compatibility POC"
+            echo
+            echo "- DuckDB: \`${DUCKDB_REF}\`"
+            echo "- extension-ci-tools: \`${CI_TOOLS_REF}\`"
+            echo "- duckdb-fts: \`${FTS_REF}\`"
+            echo "- platform: \`${DUCKDB_PLATFORM}\`"
+            echo
+            if [[ -f build/reports/metadata.txt ]]; then
+              echo "### Metadata"
+              echo '```text'
+              cat build/reports/metadata.txt
+              echo '```'
+            fi
+            if [[ -f build/reports/preflight.log ]]; then
+              echo "### All-loaded pre-flight"
+              echo '```text'
+              tail -n 30 build/reports/preflight.log
+              echo '```'
+            fi
+            if [[ -f build/reports/test-output.log ]]; then
+              echo "### Test output tail"
+              echo '```text'
+              tail -n 50 build/reports/test-output.log
+              echo '```'
+            fi
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fts-compatibility-report
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            build/reports/
+            cmake/fts_all_loaded.cmake
+            configs/fts_all_loaded.json
+            docs/fts-poc.md
