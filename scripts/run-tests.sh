@@ -31,6 +31,7 @@ fi
 INIT_SQL="INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
 CONNECTION_SQL="LOAD httpfs; LOAD ducklake;"
 TEST_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
+EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 
 cat > "${TEST_CONFIG}" <<EOF
 {
@@ -42,18 +43,29 @@ cat > "${TEST_CONFIG}" <<EOF
 }
 EOF
 
-{
-  "${DUCKDB_BIN}" -c "${INIT_SQL}
-    SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
-    FROM duckdb_extensions()
-    WHERE extension_name IN ('httpfs', 'ducklake')
-    ORDER BY extension_name;"
-} 2>&1 | tee "${LOG_DIR}/extensions.log"
+"${DUCKDB_BIN}" -csv -header -c "${INIT_SQL}
+  SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
+  FROM duckdb_extensions()
+  WHERE extension_name IN ('httpfs', 'ducklake')
+  ORDER BY extension_name;" \
+  | tee "${EXTENSION_CSV}"
 
-if [[ $(grep -Ec '^│ (ducklake|httpfs)' "${LOG_DIR}/extensions.log" || true) -lt 2 ]]; then
-  echo "HTTPFS and DuckLake were not both visible in duckdb_extensions()" >&2
-  exit 1
-fi
+python3 - "${EXTENSION_CSV}" <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+rows = list(csv.DictReader(Path(sys.argv[1]).open(encoding="utf-8")))
+by_name = {row["extension_name"]: row for row in rows}
+for name in ("httpfs", "ducklake"):
+    row = by_name.get(name)
+    if not row:
+        raise SystemExit(f"{name} is missing from duckdb_extensions()")
+    if row.get("installed", "").lower() != "true":
+        raise SystemExit(f"{name} is not installed")
+    if row.get("loaded", "").lower() != "true":
+        raise SystemExit(f"{name} is not loaded")
+PY
 
 "${UNITTEST_BIN}" \
   --test-config "${TEST_CONFIG}" \
