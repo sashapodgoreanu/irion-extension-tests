@@ -1,0 +1,104 @@
+name: DuckDB Extension Compatibility
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build DuckDB and qa_test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build python3
+
+      - name: Build once
+        env:
+          DUCKDB_VERSION: v1.5.4
+          CI_TOOLS_VERSION: v1.5.4
+          BUILD_JOBS: 2
+        run: bash scripts/build.sh
+
+      - name: Upload shared build
+        uses: actions/upload-artifact@v4
+        with:
+          name: duckdb-v1.5.4-linux-amd64
+          path: build/artifact/
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    name: Test ${{ matrix.name }}
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: httpfs
+            repository: duckdb/duckdb-httpfs
+            commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
+            test: test/sql/curl_client/test_relative_path_parsing.test
+          - name: ducklake
+            repository: duckdb/ducklake
+            commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
+            test: test/sql/ducklake_basic.test
+
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream tests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.commit }}
+          path: upstream/${{ matrix.name }}
+          fetch-depth: 1
+          submodules: false
+
+      - name: Download shared build
+        uses: actions/download-artifact@v4
+        with:
+          name: duckdb-v1.5.4-linux-amd64
+          path: build/artifact
+
+      - name: Restore executable permissions
+        run: chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
+
+      - name: Run upstream test
+        env:
+          ARTIFACT_DIR: build/artifact
+        run: |
+          bash scripts/run-tests.sh \
+            '${{ matrix.name }}' \
+            '${{ github.workspace }}/upstream/${{ matrix.name }}' \
+            '${{ matrix.test }}'
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ matrix.name }}
+          path: build/logs/${{ matrix.name }}/
+          if-no-files-found: warn
+          retention-days: 7
