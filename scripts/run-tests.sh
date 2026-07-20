@@ -14,19 +14,34 @@ LOG_DIR="${PWD}/build/logs/${TEST_NAME}"
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}"
 export HOME="${RUNTIME_ROOT}/home"
 export TMPDIR="${RUNTIME_ROOT}/tmp"
-export HTTPFS_LOG_FILE="${LOG_DIR}/python-http.log"
+export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
+export HTTPFS_LOG_DIR="${LOG_DIR}/services"
 
 cleanup() {
-  if [[ -n "${HTTPFS_SERVER_PID:-}" ]] && kill -0 "${HTTPFS_SERVER_PID}" 2>/dev/null; then
-    kill "${HTTPFS_SERVER_PID}" || true
-    wait "${HTTPFS_SERVER_PID}" 2>/dev/null || true
+  if [[ "${HTTPFS_MINIO_STARTED:-0}" == "1" ]]; then
+    mkdir -p "${HTTPFS_LOG_DIR}"
+    (
+      cd "${UPSTREAM_ROOT}"
+      docker compose -f scripts/minio_s3.yml -p duckdb-minio logs --no-color
+    ) >"${HTTPFS_LOG_DIR}/minio.log" 2>&1 || true
+    (
+      cd "${UPSTREAM_ROOT}"
+      docker compose -f scripts/minio_s3.yml -p duckdb-minio down --volumes --remove-orphans
+    ) >>"${HTTPFS_LOG_DIR}/minio.log" 2>&1 || true
   fi
+
+  for pid in "${HTTPFS_SQUID_PID:-}" "${HTTPFS_SERVER_PID:-}"; do
+    if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
+      kill "${pid}" || true
+      wait "${pid}" 2>/dev/null || true
+    fi
+  done
 }
 trap cleanup EXIT
 
 if [[ "${TEST_NAME}" == "httpfs" ]]; then
   # shellcheck disable=SC1091
-  source scripts/setup-httpfs.sh "${RUNTIME_ROOT}"
+  source scripts/setup-httpfs.sh "${RUNTIME_ROOT}" "${UPSTREAM_ROOT}"
 fi
 
 PREFLIGHT_SQL="INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
