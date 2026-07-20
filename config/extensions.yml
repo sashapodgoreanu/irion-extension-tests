@@ -1,0 +1,75 @@
+schema_version: 1
+
+# The only source project compiled by this repository.
+duckdb:
+  repository: https://github.com/duckdb/duckdb.git
+  ref: v1.5.4
+  ci_tools:
+    repository: https://github.com/duckdb/extension-ci-tools.git
+    ref: v1.5.4
+  build:
+    platform: linux_amd64
+    build_type: Release
+    targets:
+      - duckdb
+      - unittest
+
+# Every enabled extension is dynamically installed and loaded before every
+# test group. Extension source repositories are used only for tests/fixtures.
+extensions:
+  - name: fts
+    enabled: true
+
+    runtime:
+      # The binary is obtained by DuckDB INSTALL. It is not compiled here.
+      binary_source: official_duckdb_repository
+      install_statements:
+        - INSTALL fts
+      load_statements:
+        - LOAD fts
+
+    test_source:
+      repository: https://github.com/duckdb/duckdb-fts.git
+      # Commit declared for FTS by DuckDB v1.5.4.
+      commit: 6814ec9a7d5fd63500176507262b0dbf7cea0095
+
+    test_groups:
+      - name: fts-sqllogic
+        runner: duckdb_unittest
+        test_dir: .
+        include:
+          - test/sql/fts/*
+        exclude: []
+        include_slow: false
+        timeout_seconds: 1800
+        adapter: none
+
+# Example of the future shape for a service-backed extension.
+# It remains commented until the exact test commit and adapter are implemented.
+#
+#  - name: postgres
+#    enabled: true
+#
+#    runtime:
+#      binary_source: official_duckdb_repository
+#      install_statements:
+#        - INSTALL postgres
+#      load_statements:
+#        - LOAD postgres
+#
+#    test_source:
+#      repository: https://github.com/duckdb/postgres_scanner.git
+#      commit: <IMMUTABLE_COMMIT_SHA>
+#
+#    test_groups:
+#      - name: postgres-sqllogic
+#        runner: duckdb_unittest
+#        test_dir: .
+#        include:
+#          - test/sql/postgres/*
+#        exclude: []
+#        include_slow: false
+#        timeout_seconds: 3600
+#        adapter: postgres
+#        environment:
+#          POSTGRES_CONNECTION_STRING: ${POSTGRES_CONNECTION_STRING}
