@@ -29,8 +29,8 @@ if [[ "${TEST_NAME}" == "httpfs" ]]; then
   source scripts/setup-httpfs.sh "${RUNTIME_ROOT}"
 fi
 
-INIT_SQL="INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
-CONNECTION_SQL="LOAD httpfs; LOAD ducklake;"
+PREFLIGHT_SQL="INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
+TEST_INIT_SQL="LOAD httpfs; LOAD ducklake;"
 TEST_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 
@@ -38,9 +38,9 @@ cat > "${TEST_CONFIG}" <<EOF
 {
   "description": "HTTPFS and DuckLake compatibility runtime",
   "autoloading": "none",
-  "statically_loaded_extensions": ["core_functions", "parquet", "httpfs", "ducklake"],
-  "on_init": "${INIT_SQL}",
-  "on_new_connection": "${CONNECTION_SQL}",
+  "statically_loaded_extensions": ["core_functions", "parquet"],
+  "on_init": "${TEST_INIT_SQL}",
+  "on_new_connection": "",
   "summarize_failures": true
 }
 EOF
@@ -52,7 +52,7 @@ cp "${TEST_CONFIG}" "${LOG_DIR}/all-extensions.json"
   echo "upstream_commit=$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
 } > "${LOG_DIR}/test-info.txt"
 
-"${DUCKDB_BIN}" -csv -header -c "${INIT_SQL}
+"${DUCKDB_BIN}" -csv -header -c "${PREFLIGHT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
   WHERE extension_name IN ('httpfs', 'ducklake')
