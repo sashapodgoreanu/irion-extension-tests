@@ -10,6 +10,7 @@ DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 UNITTEST_BIN="${ARTIFACT_DIR}/bin/unittest"
 RUNTIME_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/${TEST_NAME}"
 LOG_DIR="${PWD}/build/logs/${TEST_NAME}"
+INIT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/init-extensions.sql"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}"
 export HOME="${RUNTIME_ROOT}/home"
@@ -44,24 +45,32 @@ if [[ "${TEST_NAME}" == "httpfs" ]]; then
   source scripts/setup-httpfs.sh "${RUNTIME_ROOT}" "${UPSTREAM_ROOT}"
 fi
 
-# json and tpch are the additional test dependencies used by the upstream HTTPFS CI.
-# They are installed as official binaries, not compiled by this repository.
-PREFLIGHT_SQL="INSTALL json; INSTALL tpch; INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
-TEST_INIT_SQL="LOAD httpfs; LOAD ducklake;"
 TEST_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
+UNITTEST_LOG="${LOG_DIR}/unittest.log"
+INIT_SQL="$(tr '\n' ' ' < "${INIT_SCRIPT}")"
+CONNECTION_SQL="LOAD json; LOAD tpch; LOAD icu; LOAD httpfs; LOAD ducklake;"
 
 cat > "${TEST_CONFIG}" <<EOF
 {
   "description": "HTTPFS and DuckLake compatibility runtime",
-  "autoloading": "none",
-  "statically_loaded_extensions": ["core_functions", "parquet"],
-  "on_init": "${TEST_INIT_SQL}",
-  "on_new_connection": "",
+  "autoloading": "all",
+  "init_script": "${INIT_SCRIPT}",
+  "on_new_connection": "${CONNECTION_SQL}",
+  "statically_loaded_extensions": [
+    "core_functions",
+    "parquet",
+    "json",
+    "tpch",
+    "icu",
+    "httpfs",
+    "ducklake"
+  ],
   "summarize_failures": true
 }
 EOF
 cp "${TEST_CONFIG}" "${LOG_DIR}/all-extensions.json"
+cp "${INIT_SCRIPT}" "${LOG_DIR}/init-extensions.sql"
 
 {
   echo "test_name=${TEST_NAME}"
@@ -69,10 +78,10 @@ cp "${TEST_CONFIG}" "${LOG_DIR}/all-extensions.json"
   echo "upstream_commit=$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
 } > "${LOG_DIR}/test-info.txt"
 
-"${DUCKDB_BIN}" -csv -header -c "${PREFLIGHT_SQL}
+"${DUCKDB_BIN}" -csv -header -c "${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
-  WHERE extension_name IN ('httpfs', 'ducklake')
+  WHERE extension_name IN ('ducklake', 'httpfs', 'icu', 'json', 'tpch')
   ORDER BY extension_name;" \
   | tee "${EXTENSION_CSV}"
 
@@ -83,7 +92,7 @@ from pathlib import Path
 
 rows = list(csv.DictReader(Path(sys.argv[1]).open(encoding="utf-8")))
 by_name = {row["extension_name"]: row for row in rows}
-for name in ("httpfs", "ducklake"):
+for name in ("ducklake", "httpfs", "icu", "json", "tpch"):
     row = by_name.get(name)
     if not row:
         raise SystemExit(f"{name} is missing from duckdb_extensions()")
@@ -97,4 +106,10 @@ PY
   --test-config "${TEST_CONFIG}" \
   --test-dir "${UPSTREAM_ROOT}" \
   "${TEST_PATH}" \
-  2>&1 | tee "${LOG_DIR}/unittest.log"
+  2>&1 | tee "${UNITTEST_LOG}"
+
+if grep -Eq '^require (ducklake|httpfs|icu|json|tpch): [1-9][0-9]*$' "${UNITTEST_LOG}"; then
+  echo "Required extensions were skipped by the DuckDB test runner" >&2
+  grep -E '^require (ducklake|httpfs|icu|json|tpch): ' "${UNITTEST_LOG}" >&2 || true
+  exit 1
+fi
