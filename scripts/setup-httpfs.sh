@@ -38,8 +38,11 @@ wait_for_port() {
 import socket
 import sys
 
-with socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1):
-    pass
+try:
+    with socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=1):
+        pass
+except OSError:
+    raise SystemExit(1)
 PY
     then
       return 0
