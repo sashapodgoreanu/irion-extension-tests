@@ -13,7 +13,9 @@ LOG_DIR="${PWD}/build/logs/${TEST_NAME}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SCRIPT="${SCRIPT_DIR}/install-extensions.sql"
 INIT_SCRIPT="${SCRIPT_DIR}/init-extensions.sql"
+DUCKLAKE_DEFAULT_INIT_SCRIPT="${SCRIPT_DIR}/init-ducklake-default.sql"
 HTTPFS_AUTOLOAD_INIT_SCRIPT="${SCRIPT_DIR}/init-without-httpfs.sql"
+DUCKLAKE_CONFIG_HELPER="${SCRIPT_DIR}/prepare-ducklake-config.py"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}"
 export HOME="${RUNTIME_ROOT}/home"
@@ -34,6 +36,12 @@ cleanup() {
     ) >>"${HTTPFS_LOG_DIR}/minio.log" 2>&1 || true
   fi
 
+  if [[ "${DUCKLAKE_POSTGRES_STARTED:-0}" == "1" ]]; then
+    mkdir -p "${LOG_DIR}/services"
+    docker logs ducklake-postgres >"${LOG_DIR}/services/postgres.log" 2>&1 || true
+    docker rm -f ducklake-postgres >/dev/null 2>&1 || true
+  fi
+
   for pid in "${HTTPFS_SQUID_PID:-}" "${HTTPFS_SERVER_PID:-}"; do
     if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
       kill "${pid}" || true
@@ -51,22 +59,50 @@ fi
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 NORMAL_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 HTTPFS_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/httpfs-autoload.json"
-CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
+DUCKLAKE_SQLITE_CONFIG="${RUNTIME_ROOT}/ducklake-sqlite.json"
+DUCKLAKE_POSTGRES_CONFIG="${RUNTIME_ROOT}/ducklake-postgres.json"
+FULL_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
+DUCKLAKE_DEFAULT_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake;"
 HTTPFS_AUTOLOAD_CONNECTION_SQL="LOAD tpcds; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
 INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
 INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
+
+if [[ "${TEST_NAME}" == "ducklake" ]]; then
+  NORMAL_INIT_SCRIPT="${DUCKLAKE_DEFAULT_INIT_SCRIPT}"
+  NORMAL_CONNECTION_SQL="${DUCKLAKE_DEFAULT_CONNECTION_SQL}"
+  NORMAL_SKIP_TESTS=',
+  "skip_tests": [
+    {
+      "reason": "Executed by the dedicated PostgreSQL catalog suite",
+      "paths": [
+        "test/sql/metadata/ducklake_settings_postgres.test",
+        "test/sql/data_inlining/postgres_identifier_limit.test"
+      ]
+    },
+    {
+      "reason": "Executed by the dedicated SQLite catalog suite",
+      "paths": [
+        "test/sql/metadata/ducklake_settings_sqlite.test"
+      ]
+    }
+  ]'
+else
+  NORMAL_INIT_SCRIPT="${INIT_SCRIPT}"
+  NORMAL_CONNECTION_SQL="${FULL_CONNECTION_SQL}"
+  NORMAL_SKIP_TESTS=""
+fi
 
 cat >"${NORMAL_CONFIG}" <<EOF
 {
   "description": "HTTPFS and DuckLake compatibility runtime",
   "autoloading": "all",
-  "init_script": "${INIT_SCRIPT}",
-  "on_new_connection": "${CONNECTION_SQL}",
+  "init_script": "${NORMAL_INIT_SCRIPT}",
+  "on_new_connection": "${NORMAL_CONNECTION_SQL}",
   "statically_loaded_extensions": [
     "core_functions",
     "parquet"
   ],
-  "summarize_failures": true
+  "summarize_failures": true${NORMAL_SKIP_TESTS}
 }
 EOF
 
@@ -87,6 +123,7 @@ cp "${NORMAL_CONFIG}" "${LOG_DIR}/all-extensions.json"
 cp "${HTTPFS_AUTOLOAD_CONFIG}" "${LOG_DIR}/httpfs-autoload.json"
 cp "${INSTALL_SCRIPT}" "${LOG_DIR}/install-extensions.sql"
 cp "${INIT_SCRIPT}" "${LOG_DIR}/init-extensions.sql"
+cp "${DUCKLAKE_DEFAULT_INIT_SCRIPT}" "${LOG_DIR}/init-ducklake-default.sql"
 cp "${HTTPFS_AUTOLOAD_INIT_SCRIPT}" "${LOG_DIR}/init-without-httpfs.sql"
 
 {
@@ -147,13 +184,52 @@ run_suite() {
   fi
 }
 
-if [[ "${TEST_NAME}" == "httpfs" ]]; then
-  # Normal HTTPFS SQL tests run with HTTPFS and DuckLake explicitly loaded.
-  run_suite "sql" "${NORMAL_CONFIG}" "test/sql/*"
+start_ducklake_postgres() {
+  docker rm -f ducklake-postgres >/dev/null 2>&1 || true
+  docker run -d \
+    --name ducklake-postgres \
+    -e POSTGRES_USER=postgres \
+    -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_DB=ducklakedb \
+    -p 5432:5432 \
+    postgres:15 >/dev/null
 
-  # HTTPFS lifecycle tests must start with HTTPFS unloaded; otherwise their
-  # autoload/autoinstall assertions become invalid. DuckLake remains loaded.
+  for _ in $(seq 1 60); do
+    if docker exec ducklake-postgres pg_isready -U postgres -d ducklakedb >/dev/null 2>&1; then
+      export PGHOST=127.0.0.1
+      export PGPORT=5432
+      export PGUSER=postgres
+      export PGPASSWORD=postgres
+      export PGDATABASE=ducklakedb
+      export PGSSLMODE=disable
+      export DUCKLAKE_POSTGRES_STARTED=1
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "DuckLake PostgreSQL service did not become ready" >&2
+  return 1
+}
+
+if [[ "${TEST_NAME}" == "httpfs" ]]; then
+  run_suite "sql" "${NORMAL_CONFIG}" "test/sql/*"
   run_suite "autoload" "${HTTPFS_AUTOLOAD_CONFIG}" "test/extension/*"
+elif [[ "${TEST_NAME}" == "ducklake" ]]; then
+  run_suite "duckdb" "${NORMAL_CONFIG}" "${TEST_PATH}"
+
+  python3 "${DUCKLAKE_CONFIG_HELPER}" \
+    "${UPSTREAM_ROOT}/test/configs/sqlite.json" \
+    "${DUCKLAKE_SQLITE_CONFIG}"
+  cp "${DUCKLAKE_SQLITE_CONFIG}" "${LOG_DIR}/ducklake-sqlite.json"
+  run_suite "sqlite" "${DUCKLAKE_SQLITE_CONFIG}" "test/sql/*"
+
+  python3 "${DUCKLAKE_CONFIG_HELPER}" \
+    "${UPSTREAM_ROOT}/test/configs/postgres.json" \
+    "${DUCKLAKE_POSTGRES_CONFIG}"
+  cp "${DUCKLAKE_POSTGRES_CONFIG}" "${LOG_DIR}/ducklake-postgres.json"
+  start_ducklake_postgres
+  run_suite "postgres" "${DUCKLAKE_POSTGRES_CONFIG}" "test/sql/*"
 else
   run_suite "all" "${NORMAL_CONFIG}" "${TEST_PATH}"
 fi
