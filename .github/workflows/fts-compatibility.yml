@@ -1,4 +1,4 @@
-name: Dynamic FTS compatibility - DuckDB 1.5.4
+name: Official FTS compatibility - DuckDB 1.5.4
 
 on:
   push:
@@ -25,7 +25,7 @@ env:
 
 jobs:
   build-and-test:
-    name: Build loadable FTS and run its external test directory
+    name: Build DuckDB unittest and run external FTS tests
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -43,7 +43,7 @@ jobs:
           path: upstream/duckdb
           fetch-depth: 1
 
-      - name: Checkout duckdb-fts
+      - name: Checkout duckdb-fts tests
         uses: actions/checkout@v4
         with:
           repository: duckdb/duckdb-fts
@@ -68,17 +68,16 @@ jobs:
           echo "DuckDB SHA: $(git -C upstream/duckdb rev-parse HEAD)"
           echo "CI tools ref: ${CI_TOOLS_REF}"
           echo "CI tools SHA: $(git -C upstream/extension-ci-tools rev-parse HEAD)"
-          echo "FTS ref: ${FTS_REF}"
-          echo "FTS SHA: $(git -C upstream/fts rev-parse HEAD)"
+          echo "FTS test ref: ${FTS_REF}"
+          echo "FTS test SHA: $(git -C upstream/fts rev-parse HEAD)"
 
       - name: Restore compiler cache
         uses: actions/cache@v4
         with:
           path: ccache_dir
-          key: fts-linux-amd64-${{ env.DUCKDB_REF }}-${{ env.FTS_REF }}-${{ github.sha }}
+          key: duckdb-unittest-linux-amd64-${{ env.DUCKDB_REF }}-${{ github.sha }}
           restore-keys: |
-            fts-linux-amd64-${{ env.DUCKDB_REF }}-${{ env.FTS_REF }}-
-            fts-linux-amd64-${{ env.DUCKDB_REF }}-
+            duckdb-unittest-linux-amd64-${{ env.DUCKDB_REF }}-
 
       - name: Build the official DuckDB extension container
         shell: bash
@@ -91,7 +90,7 @@ jobs:
             --tag duckdb/linux_amd64:fts-poc \
             upstream/extension-ci-tools/docker/linux_amd64
 
-      - name: Build dynamic FTS and run upstream tests with --test-dir
+      - name: Build DuckDB only and run FTS tests with --test-dir
         shell: bash
         run: |
           set -euo pipefail
@@ -121,13 +120,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## Dynamic FTS compatibility POC"
+            echo "## Official FTS compatibility POC"
             echo
             echo "- DuckDB: \`${DUCKDB_REF}\`"
             echo "- extension-ci-tools: \`${CI_TOOLS_REF}\`"
-            echo "- duckdb-fts: \`${FTS_REF}\`"
-            echo "- linkage: \`dynamic\`"
-            echo "- test source: \`upstream/fts/test/sql/fts\` via \`--test-dir\`"
+            echo "- FTS binary: installed by \`INSTALL fts\` from the official repository"
+            echo "- FTS test source: \`upstream/fts/test/sql/fts\` via \`--test-dir\`"
+            echo "- FTS compiled by this workflow: \`false\`"
             echo "- platform: \`${DUCKDB_PLATFORM}\`"
             echo
             if [[ -f build/reports/metadata.txt ]]; then
@@ -137,7 +136,7 @@ jobs:
               echo '```'
             fi
             if [[ -f build/reports/preflight.log ]]; then
-              echo "### Dynamic INSTALL/LOAD pre-flight"
+              echo "### Official INSTALL/LOAD pre-flight"
               echo '```text'
               tail -n 30 build/reports/preflight.log
               echo '```'
@@ -159,6 +158,5 @@ jobs:
           retention-days: 14
           path: |
             build/reports/
-            cmake/fts_all_loaded.cmake
             configs/fts_all_loaded.json
             docs/fts-poc.md
