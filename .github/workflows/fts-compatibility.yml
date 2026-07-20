@@ -16,7 +16,7 @@ concurrency:
 env:
   DUCKDB_REF: v1.5.4
   CI_TOOLS_REF: v1.5.4
-  FTS_REF: 4fd54aa70a5079be7e9b6fab3b810ed90699b511
+  FTS_REF: 6814ec9a7d5fd63500176507262b0dbf7cea0095
   VCPKG_URL: https://github.com/microsoft/vcpkg.git
   VCPKG_COMMIT: 84bab45d415d22042bd0b9081aea57f362da3f35
   DUCKDB_PLATFORM: linux_amd64
@@ -125,6 +125,7 @@ jobs:
             echo "- DuckDB: \`${DUCKDB_REF}\`"
             echo "- extension-ci-tools: \`${CI_TOOLS_REF}\`"
             echo "- FTS binary: installed by \`INSTALL fts\` from the official repository"
+            echo "- FTS tests: official DuckDB 1.5.4 source ref \`${FTS_REF}\`"
             echo "- FTS test source: \`upstream/fts/test/sql/fts\` via \`--test-dir\`"
             echo "- FTS compiled by this workflow: \`false\`"
             echo "- platform: \`${DUCKDB_PLATFORM}\`"
