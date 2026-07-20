@@ -49,7 +49,7 @@ jobs:
     name: Test ${{ matrix.name }}
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -57,11 +57,11 @@ jobs:
           - name: httpfs
             repository: duckdb/duckdb-httpfs
             commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
-            test: test/sql/curl_client/test_relative_path_parsing.test
+            test: test/*
           - name: ducklake
             repository: duckdb/ducklake
             commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-            test: test/sql/ducklake_basic.test
+            test: test/*
 
     steps:
       - name: Checkout QA repository
@@ -74,7 +74,7 @@ jobs:
           ref: ${{ matrix.commit }}
           path: upstream/${{ matrix.name }}
           fetch-depth: 1
-          submodules: false
+          submodules: recursive
 
       - name: Download shared build
         uses: actions/download-artifact@v4
@@ -85,7 +85,14 @@ jobs:
       - name: Restore executable permissions
         run: chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
 
-      - name: Run upstream test
+      - name: Install HTTPFS service dependency
+        if: matrix.name == 'httpfs'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq squid
+          docker compose version
+
+      - name: Run complete upstream test folder
         env:
           ARTIFACT_DIR: build/artifact
         run: |
