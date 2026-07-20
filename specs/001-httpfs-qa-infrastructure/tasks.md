@@ -26,21 +26,21 @@ The first version deliberately does not test the QA platform itself. Tasks focus
 
 ## Phase 3 — HTTPFS and DuckLake jobs
 
-- [x] T011 Add `scripts/setup-httpfs.sh` using the Python HTTP-server convention from the upstream HTTPFS workflow.
-- [x] T012 Configure the HTTPFS job to run `test/sql/curl_client/test_relative_path_parsing.test` from `duckdb-httpfs@c3f215ab360f04dc3d3d5305fa81849c0121f111`.
-- [x] T013 Configure the DuckLake job to run `test/sql/ducklake_basic.test` from `ducklake@d318a545571d7d46eb751fa2aa5f6f4389285d3c`.
+- [x] T011 Reuse the HTTPFS repository scripts for Python HTTP, Squid, fixture generation, and MinIO/S3 setup.
+- [x] T012 Configure the HTTPFS job to run the complete `test/*` folder from `duckdb-httpfs@c3f215ab360f04dc3d3d5305fa81849c0121f111`.
+- [x] T013 Configure the DuckLake job to run the complete `test/*` folder from `ducklake@d318a545571d7d46eb751fa2aa5f6f4389285d3c`.
 - [x] T014 Add a two-entry GitHub Actions matrix so HTTPFS and DuckLake run in parallel after the build.
-- [x] T015 Ensure HTTPFS service processes are stopped through a shell trap.
+- [x] T015 Ensure HTTPFS service processes and MinIO containers are stopped through a shell trap.
 
-**Checkpoint**: the two real upstream tests run independently from the same build artifact.
+**Checkpoint**: the two complete upstream test folders run independently from the same build artifact.
 
 ## Phase 4 — GitHub Actions
 
 - [x] T016 Create `.github/workflows/extension-qa.yml` with unfiltered `push`, `pull_request`, and `workflow_dispatch`.
 - [x] T017 Upload build and test logs using normal GitHub Actions artifacts.
-- [ ] T018 Run the workflow from this feature branch and fix concrete build or test failures.
-- [ ] T019 Confirm the logs show both `httpfs` and `ducklake` loaded in both jobs.
-- [x] T020 Update `README.md` with the small build-once/fan-out flow and the first two test subsets.
+- [x] T018 Run the workflow from this feature branch and fix concrete build or test failures.
+- [x] T019 Confirm the logs show both `httpfs` and `ducklake` loaded in both jobs.
+- [x] T020 Update `README.md` with the small build-once/fan-out flow and the complete upstream test folders.
 
 ## Done criteria
 
@@ -48,5 +48,6 @@ The first version deliberately does not test the QA platform itself. Tasks focus
 - exactly two parallel test jobs;
 - `qa_test` is the only extension compiled locally;
 - HTTPFS and DuckLake are both installed and loaded in every test job;
-- HTTPFS and DuckLake tests are executed from their pinned upstream repositories;
+- complete HTTPFS and DuckLake test folders are executed from their pinned upstream repositories;
+- HTTPFS infrastructure is prepared by the pinned upstream scripts;
 - no branch filter and no generalized QA framework.
