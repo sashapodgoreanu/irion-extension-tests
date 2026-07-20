@@ -30,16 +30,29 @@ GitHub Actions uses the normal DuckDB extension-template build to compile:
 
 The two test jobs run in parallel and download the same build artifact.
 
-Before either battery starts, the runner creates a clean HOME and executes:
+## Shared extension initialization
+
+Every job uses [`scripts/init-extensions.sql`](scripts/init-extensions.sql) as the DuckDB `unittest` `init_script`.
+
+The script installs and loads the official repository extensions required by the two complete upstream suites:
 
 ```sql
+INSTALL json;
+INSTALL tpch;
+INSTALL icu;
 INSTALL httpfs;
 INSTALL ducklake;
+
+LOAD json;
+LOAD tpch;
+LOAD icu;
 LOAD httpfs;
 LOAD ducklake;
 ```
 
-Both extensions are therefore present for every test battery, including tests owned by the other extension. The runner fails before the suite when either extension is not installed or loaded.
+The same script is executed by the preflight CLI and by every test database created by `unittest`. Additional test connections reload the same extensions through `on_new_connection`.
+
+The test configuration uses `autoloading: all` so SQLLogicTest directives such as `require httpfs`, `require ducklake`, `require json`, and `require tpch` recognize the dynamically installed extensions. The runner fails if any of these extension requirements still appears in the skipped-test summary.
 
 ## Complete upstream test folders
 
@@ -75,7 +88,8 @@ CMakeLists.txt                 minimal qa_test extension build
 extension_config.cmake        registers only qa_test
 Makefile                       DuckDB extension-template build
 scripts/build.sh               common build and artifact creation
-scripts/run-tests.sh           always installs/loads HTTPFS + DuckLake
+scripts/init-extensions.sql    shared INSTALL/LOAD initialization
+scripts/run-tests.sh           common preflight and unittest runner
 scripts/setup-httpfs.sh        coordinates pinned upstream HTTPFS scripts
 .github/workflows/extension-qa.yml
 config/extensions.yml          pinned revisions and complete test folders
