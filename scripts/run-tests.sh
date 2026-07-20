@@ -51,7 +51,8 @@ fi
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 NORMAL_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 HTTPFS_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/httpfs-autoload.json"
-CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake;"
+CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
+HTTPFS_AUTOLOAD_CONNECTION_SQL="LOAD tpcds; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
 INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
 INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
 
@@ -74,7 +75,7 @@ cat >"${HTTPFS_AUTOLOAD_CONFIG}" <<EOF
   "description": "HTTPFS autoloading tests with DuckLake loaded",
   "autoloading": "all",
   "init_script": "${HTTPFS_AUTOLOAD_INIT_SCRIPT}",
-  "on_new_connection": "LOAD tpcds; LOAD ducklake;",
+  "on_new_connection": "${HTTPFS_AUTOLOAD_CONNECTION_SQL}",
   "statically_loaded_extensions": [
     "core_functions"
   ],
@@ -97,7 +98,7 @@ cp "${HTTPFS_AUTOLOAD_INIT_SCRIPT}" "${LOG_DIR}/init-without-httpfs.sql"
 "${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
-  WHERE extension_name IN ('ducklake', 'httpfs', 'icu', 'json', 'tpcds', 'tpch')
+  WHERE extension_name IN ('ducklake', 'httpfs', 'icu', 'json', 'postgres_scanner', 'sqlite_scanner', 'tpcds', 'tpch')
   ORDER BY extension_name;" \
   | tee "${EXTENSION_CSV}"
 
@@ -108,7 +109,16 @@ from pathlib import Path
 
 rows = list(csv.DictReader(Path(sys.argv[1]).open(encoding="utf-8")))
 by_name = {row["extension_name"]: row for row in rows}
-for name in ("ducklake", "httpfs", "icu", "json", "tpcds", "tpch"):
+for name in (
+    "ducklake",
+    "httpfs",
+    "icu",
+    "json",
+    "postgres_scanner",
+    "sqlite_scanner",
+    "tpcds",
+    "tpch",
+):
     row = by_name.get(name)
     if not row:
         raise SystemExit(f"{name} is missing from duckdb_extensions()")
@@ -130,9 +140,9 @@ run_suite() {
     "${filter}" \
     2>&1 | tee "${log_file}"
 
-  if grep -Eq '^require (ducklake|httpfs|icu|json|tpcds|tpch): [1-9][0-9]*$' "${log_file}"; then
+  if grep -Eq '^require (ducklake|httpfs|icu|json|postgres_scanner|sqlite_scanner|tpcds|tpch): [1-9][0-9]*$' "${log_file}"; then
     echo "Required extensions were skipped by the DuckDB test runner in ${label}" >&2
-    grep -E '^require (ducklake|httpfs|icu|json|tpcds|tpch): ' "${log_file}" >&2 || true
+    grep -E '^require (ducklake|httpfs|icu|json|postgres_scanner|sqlite_scanner|tpcds|tpch): ' "${log_file}" >&2 || true
     exit 1
   fi
 }
