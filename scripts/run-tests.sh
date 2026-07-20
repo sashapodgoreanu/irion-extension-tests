@@ -44,7 +44,9 @@ if [[ "${TEST_NAME}" == "httpfs" ]]; then
   source scripts/setup-httpfs.sh "${RUNTIME_ROOT}" "${UPSTREAM_ROOT}"
 fi
 
-PREFLIGHT_SQL="INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
+# json and tpch are the additional test dependencies used by the upstream HTTPFS CI.
+# They are installed as official binaries, not compiled by this repository.
+PREFLIGHT_SQL="INSTALL json; INSTALL tpch; INSTALL httpfs; INSTALL ducklake; LOAD httpfs; LOAD ducklake;"
 TEST_INIT_SQL="LOAD httpfs; LOAD ducklake;"
 TEST_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
