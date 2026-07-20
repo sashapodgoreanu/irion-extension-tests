@@ -3,12 +3,13 @@
 HTTPFS_RUNTIME_ROOT="${1:?runtime directory is required}"
 export PYTHON_HTTP_SERVER_DIR="${HTTPFS_RUNTIME_ROOT}/python-http"
 export PYTHON_HTTP_SERVER_URL="http://127.0.0.1:8008"
+HTTPFS_LOG_FILE="${HTTPFS_LOG_FILE:-${HTTPFS_RUNTIME_ROOT}/python-http.log}"
 
-mkdir -p "${PYTHON_HTTP_SERVER_DIR}"
+mkdir -p "${PYTHON_HTTP_SERVER_DIR}" "$(dirname "${HTTPFS_LOG_FILE}")"
 python3 -m http.server 8008 \
   --bind 127.0.0.1 \
   --directory "${PYTHON_HTTP_SERVER_DIR}" \
-  >"${HTTPFS_RUNTIME_ROOT}/python-http.log" 2>&1 &
+  >"${HTTPFS_LOG_FILE}" 2>&1 &
 export HTTPFS_SERVER_PID=$!
 
 for _ in $(seq 1 30); do
