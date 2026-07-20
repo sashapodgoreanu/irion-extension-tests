@@ -1,58 +1,45 @@
-# Specification Quality Checklist: HTTPFS QA Infrastructure
+# Specification Checklist: HTTPFS and DuckLake CI POC
 
-**Purpose**: Validate that the feature specification is complete, testable, and ready for clarification or planning.
+**Feature**: [HTTPFS and DuckLake CI POC](../spec.md)  
+**Date**: 2026-07-20
 
-**Created**: 2026-07-20
+## Scope
 
-**Feature**: [HTTPFS QA Infrastructure](../spec.md)
+- [x] The feature is a small compatibility POC, not a reusable QA framework.
+- [x] `qa_test` is the only extension compiled locally.
+- [x] HTTPFS and DuckLake are installed from the official DuckDB extension repository.
+- [x] Manifest schemas, adapter registries, custom result models, and tests of the QA platform are out of scope.
 
-## Content Quality
+## Build and execution
 
-- [x] CHK001 Specification focuses on user outcomes and system behavior rather than prescribing a full implementation.
-- [x] CHK002 The scope explicitly states that only DuckDB CLI and `unittest` may be compiled.
-- [x] CHK003 HTTPFS is treated as a prebuilt runtime extension and as an upstream source of tests, fixtures, and infrastructure scripts.
-- [x] CHK004 All mandatory Spec Kit sections are present and populated.
-- [x] CHK005 The specification contains no unresolved template placeholders.
-- [x] CHK006 The specification contains no `[NEEDS CLARIFICATION]` markers.
+- [x] DuckDB `v1.5.4` and extension-ci-tools `v1.5.4` are pinned.
+- [x] One build job produces DuckDB CLI, `unittest`, and `qa_test`.
+- [x] HTTPFS and DuckLake test jobs reuse the same artifact.
+- [x] The two test jobs run in parallel.
+- [x] Both jobs use isolated HOME and temporary directories.
 
-## Requirement Completeness
+## Extension compatibility
 
-- [x] CHK007 Every functional requirement is uniquely numbered.
-- [x] CHK008 Requirements cover the shared DuckDB build artifact and prohibit extension compilation.
-- [x] CHK009 Requirements cover dynamic HTTPFS installation and loading from a prebuilt binary source.
-- [x] CHK010 Requirements cover upstream test checkout, immutable commit pinning, discovery, and `--test-dir` execution.
-- [x] CHK011 Requirements cover isolated runtime directories and prevention of globally installed extension reuse.
-- [x] CHK012 Requirements cover HTTPFS services, readiness checks, evidence, and teardown.
-- [x] CHK013 Requirements distinguish infrastructure failures from functional test failures.
-- [x] CHK014 Requirements define workflow triggers for arbitrary branches and prohibit hard-coded branch names.
-- [x] CHK015 Requirements preserve the all-enabled-extensions-loaded rule for every future test group.
-- [x] CHK016 Requirements keep the extension manifest as the single source of truth.
+- [x] Every battery executes `INSTALL httpfs` and `INSTALL ducklake`.
+- [x] Every battery executes `LOAD httpfs` and `LOAD ducklake`.
+- [x] Both extensions are verified through `duckdb_extensions()` before upstream tests.
+- [x] Installation or loading failure stops the job.
 
-## Testability
+## Upstream tests
 
-- [x] CHK017 Every user story includes an independent test.
-- [x] CHK018 Every user story includes Given/When/Then acceptance scenarios.
-- [x] CHK019 Edge cases include missing binaries, empty test discovery, unhealthy services, port conflicts, isolation failures, and branch-trigger regressions.
-- [x] CHK020 Success criteria are measurable through CI runs, artifact inspection, logs, and manifest changes.
-- [x] CHK021 The specification requires at least one upstream HTTPFS test to be discovered and executed.
-- [x] CHK022 The specification requires proof that no local HTTPFS binary was compiled.
+- [x] HTTPFS tests are pinned to `c3f215ab360f04dc3d3d5305fa81849c0121f111`.
+- [x] DuckLake tests are pinned to `d318a545571d7d46eb751fa2aa5f6f4389285d3c`.
+- [x] Tests run directly from their upstream checkout using `unittest --test-dir`.
+- [x] The HTTPFS subset uses the upstream Python HTTP-server environment convention.
+- [x] Squid and MinIO are deferred until a selected test needs them.
 
-## Constitution Compliance
+## Workflow
 
-- [x] CHK023 The feature compiles DuckDB once and reuses its artifact.
-- [x] CHK024 The feature never copies upstream tests into the Irion repository.
-- [x] CHK025 The feature dynamically installs and loads extensions from declared prebuilt sources.
-- [x] CHK026 The feature fails closed on missing extensions, empty discovery, service failures, crashes, and timeouts.
-- [x] CHK027 The feature produces reproducible evidence using pinned versions and isolated directories.
-- [x] CHK028 The feature provides an extension-specific adapter without coupling it to the shared DuckDB build.
+- [x] The workflow has unfiltered `push`, `pull_request`, and `workflow_dispatch` triggers.
+- [x] No literal branch filter is present.
+- [x] Standard GitHub Actions logs and artifacts are used instead of a custom reporting layer.
 
-## Readiness
+## Runtime verification
 
-- [x] CHK029 The initial platform, DuckDB version, CI tools version, HTTPFS repository, and HTTPFS commit are defined.
-- [x] CHK030 Out-of-scope work is clear: additional extension groups are future features.
-- [x] CHK031 The specification is ready for `/speckit.clarify` or `/speckit.plan`.
-
-## Notes
-
-- The workflow implementation must use generic triggers such as `push`, `pull_request`, and `workflow_dispatch` without `branches` or `branches-ignore` entries.
-- The HTTPFS integration workflow at the pinned upstream revision uses a local Python HTTP server, Squid proxy, and S3-compatible test service; planning must determine the safest reusable adapter boundary without invoking the HTTPFS build.
+- [ ] A GitHub Actions run has completed successfully on the feature branch.
+- [ ] Both job logs confirm HTTPFS and DuckLake are loaded together.
