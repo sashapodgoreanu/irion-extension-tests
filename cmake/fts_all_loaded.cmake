@@ -1,11 +1,10 @@
-# Build duckdb-fts as part of the same DuckDB binaries used by the test runner.
+# Register duckdb-fts in the DuckDB build without linking it statically.
 #
-# duckdb-fts exposes two switches in its extension_config.cmake:
-# - LINK_FTS_STATICALLY: removes DONT_LINK so FTS is linked into duckdb/unittest.
-# - LOAD_FTS_TESTS: forwards LOAD_TESTS to duckdb_extension_load so the original
-#   upstream SQLLogicTests are registered in the same unittest executable.
-
-set(LINK_FTS_STATICALLY ON)
-set(LOAD_FTS_TESTS LOAD_TESTS)
+# duckdb-fts sets DONT_LINK by default in its extension_config.cmake. We keep
+# that default intentionally: the compatibility runner must test the generated
+# fts.duckdb_extension through INSTALL/LOAD, exactly as a deployed extension.
+#
+# We also do not use LOAD_FTS_TESTS. The original tests remain in the upstream
+# repository and are supplied to DuckDB unittest through --test-dir.
 
 include("${CMAKE_CURRENT_LIST_DIR}/../upstream/fts/extension_config.cmake")
