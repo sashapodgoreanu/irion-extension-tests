@@ -15,7 +15,13 @@ checkout_ref() {
 checkout_ref duckdb "${DUCKDB_VERSION}"
 checkout_ref extension-ci-tools "${CI_TOOLS_VERSION}"
 
-GEN=ninja make release -j"${BUILD_JOBS}"
+# The upstream HTTPFS fixture script invokes DBGEN in a fresh DuckDB CLI process.
+# Keep normal CLI autoload/autoinstall available; unittest still uses our explicit
+# test configuration with autoloading disabled.
+ENABLE_EXTENSION_AUTOLOADING=1 \
+ENABLE_EXTENSION_AUTOINSTALL=1 \
+GEN=ninja \
+make release -j"${BUILD_JOBS}"
 cmake --build build/release --target unittest --parallel "${BUILD_JOBS}"
 
 rm -rf build/artifact
@@ -38,6 +44,8 @@ fi
   echo "ci_tools_version=${CI_TOOLS_VERSION}"
   echo "ci_tools_commit=$(git -C extension-ci-tools rev-parse HEAD)"
   echo "compiled_extension=qa_test"
+  echo "cli_extension_autoloading=enabled"
+  echo "cli_extension_autoinstall=enabled"
 } | tee build/artifact/logs/build-info.txt
 
 build/artifact/bin/duckdb --version
