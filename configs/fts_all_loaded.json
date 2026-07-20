@@ -1,7 +1,7 @@
 {
-  "description": "Execute the original duckdb-fts tests from an external test directory while FTS is installed and loaded dynamically from the local build repository.",
+  "description": "Execute the original duckdb-fts tests from an external test directory while FTS is installed and loaded dynamically from the official DuckDB extension repository.",
   "autoloading": "none",
-  "on_init": "INSTALL fts FROM '/duckdb_build_dir/build/release/repository'; LOAD fts;",
+  "on_init": "INSTALL fts; LOAD fts;",
   "on_new_connection": "",
   "summarize_failures": true
 }
