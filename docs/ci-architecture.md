@@ -13,8 +13,7 @@ Build DuckDB + unittest + qa_test
                 │
         ┌───────┴────────┐
         ▼                ▼
- HTTPFS upstream    DuckLake upstream
-      test                test
+ HTTPFS test/*     DuckLake test/*
 ```
 
 There is no configuration-validation job, generated matrix, adapter framework, or aggregation job in the first version.
@@ -44,20 +43,20 @@ The workflow contains two explicit entries:
 
 ```text
 httpfs
- ducklake
+ducklake
 ```
 
 Both jobs depend on the same build and therefore run in parallel after it succeeds.
 
 Each job:
 
-1. checks out the owning upstream repository at its pinned commit;
+1. checks out the owning upstream repository and its submodules at the pinned commit;
 2. downloads the shared artifact;
 3. creates a clean HOME and temporary directory;
 4. installs and loads HTTPFS and DuckLake;
 5. verifies both through `duckdb_extensions()`;
-6. runs one upstream SQLLogicTest with `unittest --test-dir`;
-7. uploads the generated configuration, extension inventory, test metadata, and test output.
+6. runs the complete upstream `test/*` selection with `unittest --test-dir`;
+7. uploads the generated configuration, extension inventory, service logs, test metadata, and test output.
 
 ## Common extension runtime
 
@@ -70,24 +69,35 @@ LOAD httpfs;
 LOAD ducklake;
 ```
 
-The DuckDB test configuration also reloads `httpfs` and `ducklake` for database restarts and new connections. A failure to install or load either extension stops the job before the upstream test runs.
+The DuckDB test configuration reloads `httpfs` and `ducklake` whenever a test creates a new database. A failure to install or load either extension stops the job before the upstream suite runs.
+
+`json` and `tpch` are installed as official binaries because the HTTPFS upstream integration workflow uses them for its complete test profile and fixture generation. They are not compiled by this repository.
 
 ## HTTPFS setup
 
-The first HTTPFS test requires only a local Python HTTP server. `scripts/setup-httpfs.sh` exports the environment variables used by upstream:
+The HTTPFS job deliberately reuses scripts from the pinned HTTPFS checkout rather than maintaining copies:
 
 ```text
-PYTHON_HTTP_SERVER_URL
-PYTHON_HTTP_SERVER_DIR
+scripts/run_squid.sh
+scripts/generate_presigned_url.sh
+scripts/run_s3_test_server.sh
+scripts/set_s3_test_server_variables.sh
 ```
 
-The server runs only in the HTTPFS job and is stopped by the common runner's EXIT trap. Its log is uploaded with the HTTPFS test evidence.
+The QA-owned `scripts/setup-httpfs.sh` only coordinates those scripts, starts the Python HTTP server, waits for local readiness, and exposes their environment variables.
 
-Squid and MinIO are intentionally absent from the first version. They can be added directly to the HTTPFS job when a selected upstream test needs them, following the upstream HTTPFS workflow.
+The common runner's EXIT trap:
+
+- captures MinIO logs;
+- stops and removes the MinIO Compose project;
+- stops Squid;
+- stops the Python HTTP server.
+
+Tests requiring unavailable public-cloud credentials remain controlled by the upstream `require-env` declarations.
 
 ## DuckLake setup
 
-The initial DuckLake test uses a local metadata database and data directory. It requires no external container.
+The DuckLake job runs the complete pinned `test/*` folder with its original fixtures, submodules, and relative paths. No additional QA-owned service layer is introduced.
 
 ## Branch policy
 
