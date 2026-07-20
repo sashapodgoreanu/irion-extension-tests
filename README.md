@@ -12,7 +12,7 @@ GitHub Actions uses the normal DuckDB extension-template build to compile:
 - DuckDB `unittest`;
 - one trivial local extension named `qa_test`.
 
-`qa_test` exists only to drive the standard build. HTTPFS and DuckLake are not compiled here.
+`qa_test` exists only to drive the standard build. HTTPFS, DuckLake, and the other official extensions are downloaded rather than compiled here.
 
 ## Workflow
 
@@ -30,29 +30,24 @@ GitHub Actions uses the normal DuckDB extension-template build to compile:
 
 The two test jobs run in parallel and download the same build artifact.
 
-## Shared extension initialization
+## Extension bootstrap
 
-Every job uses [`scripts/init-extensions.sql`](scripts/init-extensions.sql) as the DuckDB `unittest` `init_script`.
-
-The script installs and loads the official repository extensions required by the two complete upstream suites:
+Every job uses a clean `HOME` and installs the official extensions once through `scripts/install-extensions.sql`:
 
 ```sql
 INSTALL json;
 INSTALL tpch;
+INSTALL tpcds;
 INSTALL icu;
 INSTALL httpfs;
 INSTALL ducklake;
-
-LOAD json;
-LOAD tpch;
-LOAD icu;
-LOAD httpfs;
-LOAD ducklake;
+INSTALL postgres_scanner;
+INSTALL sqlite_scanner;
 ```
 
-The same script is executed by the preflight CLI and by every test database created by `unittest`. Additional test connections reload the same extensions through `on_new_connection`.
+Normal test databases load the required extensions through init scripts. Additional connections reload the same profile through `on_new_connection`.
 
-The test configuration uses `autoloading: all` so SQLLogicTest directives such as `require httpfs`, `require ducklake`, `require json`, and `require tpch` recognize the dynamically installed extensions. The runner fails if any of these extension requirements still appears in the skipped-test summary.
+The runner prints `duckdb_extensions()` before the tests and fails when a required extension is missing, not loaded, or still appears in the skipped-test summary.
 
 ## Complete upstream test folders
 
@@ -79,20 +74,32 @@ Tests requiring public-cloud credentials that are not present in GitHub Actions 
 - Commit: `d318a545571d7d46eb751fa2aa5f6f4389285d3c`
 - Selection: `test/*`
 
-DuckLake tests use their original checkout, fixtures, submodules, and relative paths. They run through the same shared `unittest` binary with both DuckLake and HTTPFS loaded.
+DuckLake runs three profiles through the same shared `unittest` binary:
+
+1. the default DuckDB catalog suite;
+2. the upstream `test/configs/sqlite.json` suite with `sqlite_scanner`;
+3. the upstream `test/configs/postgres.json` suite with `postgres_scanner` and a temporary PostgreSQL 15 container.
+
+The upstream SQLite and PostgreSQL JSON files are reused directly. A small helper only enables dynamic extension loading and appends the preinstalled extension set; upstream `on_init`, `test_env`, skip lists, and expected behavior remain unchanged.
+
+HTTPFS and DuckLake are loaded in every DuckLake profile.
 
 ## Files
 
 ```text
-CMakeLists.txt                 minimal qa_test extension build
-extension_config.cmake        registers only qa_test
-Makefile                       DuckDB extension-template build
-scripts/build.sh               common build and artifact creation
-scripts/init-extensions.sql    shared INSTALL/LOAD initialization
-scripts/run-tests.sh           common preflight and unittest runner
-scripts/setup-httpfs.sh        coordinates pinned upstream HTTPFS scripts
+CMakeLists.txt                         minimal qa_test extension build
+extension_config.cmake                registers only qa_test
+Makefile                               DuckDB extension-template build
+scripts/build.sh                       common build and artifact creation
+scripts/install-extensions.sql         one-time official extension installation
+scripts/init-extensions.sql            full normal initialization
+scripts/init-ducklake-default.sql      default DuckLake catalog profile
+scripts/init-without-httpfs.sql        HTTPFS autoloading profile
+scripts/prepare-ducklake-config.py     adapts pinned upstream catalog configs
+scripts/run-tests.sh                   preflight, services, and unittest runner
+scripts/setup-httpfs.sh                coordinates pinned upstream HTTPFS scripts
 .github/workflows/extension-qa.yml
-config/extensions.yml          pinned revisions and complete test folders
+config/extensions.yml                  pinned revisions and complete test folders
 ```
 
 ## CI triggers
