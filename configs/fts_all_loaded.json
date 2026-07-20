@@ -1,0 +1,11 @@
+{
+  "description": "Run the original duckdb-fts SQLLogicTests with every extension configured by this POC loaded on initialization and on every new connection.",
+  "on_init": "LOAD icu; LOAD fts;",
+  "on_new_connection": "LOAD icu; LOAD fts;",
+  "statically_loaded_extensions": [
+    "core_functions",
+    "icu",
+    "fts"
+  ],
+  "summarize_failures": true
+}
