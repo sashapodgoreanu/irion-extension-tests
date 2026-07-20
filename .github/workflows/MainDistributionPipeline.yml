@@ -1,10 +1,16 @@
 #
-# This workflow calls the main distribution pipeline from DuckDB to build, test and (optionally) release the extension
+# This is the original extension-template distribution workflow.
+# The FTS compatibility POC uses .github/workflows/fts-compatibility.yml.
+# Keep this workflow off feature branches to avoid unrelated waddle builds.
 #
 name: Main Extension Distribution Pipeline
 on:
   push:
+    branches:
+      - main
   pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
