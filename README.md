@@ -1,142 +1,86 @@
-# Irion DuckDB Extension QA
+# Irion DuckDB Extension Compatibility POC
 
-Quality-assurance harness for the complete set of DuckDB extensions used by Irion.
+This repository checks whether the DuckDB extensions used together by Irion remain compatible with a selected DuckDB release.
 
-This repository is intentionally **not a DuckDB extension**. It may reuse DuckDB CI tooling, but it does not implement, compile, package, or distribute extension code.
+The first version intentionally follows a small POC design.
 
-> **The only native software compiled by this repository is DuckDB itself and its `unittest` runner.**
+## What is built
 
-The governing rules are defined in [the project Constitution](.specify/memory/constitution.md).
+GitHub Actions uses the normal DuckDB extension-template build to compile:
 
-## Purpose
+- DuckDB `v1.5.4`;
+- DuckDB `unittest`;
+- one trivial local extension named `qa_test`.
 
-When Irion upgrades DuckDB, every declared extension must continue to work while all other Irion extensions are present in the same DuckDB runtime.
+`qa_test` exists only to drive the standard build. HTTPFS and DuckLake are not compiled here.
 
-An extension may pass its own isolated CI and still fail when loaded together with other extensions because of:
-
-- function, type, or setting-name collisions;
-- incompatible global initialization;
-- filesystem, catalog, or secret-provider conflicts;
-- load-order dependencies;
-- binary or dependency incompatibilities;
-- behavior changes introduced by a DuckDB upgrade.
-
-This repository tests the complete Irion extension composition rather than isolated extensions.
-
-## Execution model
+## Workflow
 
 ```text
-config/extensions.yml
-        │
-        ├── extension name
-        ├── test repository
-        ├── immutable test commit SHA
-        ├── INSTALL / LOAD statements
-        ├── upstream test paths
-        └── optional infrastructure adapter
+                  build
+        DuckDB + unittest + qa_test
                     │
-                    ▼
-         Build DuckDB + unittest once
+             shared artifact
                     │
-                    ▼
-          Publish shared build artifact
-                    │
-          ┌─────────┼─────────┬──────────────┐
-          ▼         ▼         ▼              ▼
-       FTS tests  Spatial   Iceberg      PostgreSQL tests
-                    tests     tests       + PostgreSQL service
-          │         │         │              │
-          └─────────┴─────────┴──────────────┘
-                    │
-                    ▼
-      Every job INSTALLs and LOADs every enabled extension
+             ┌──────┴──────┐
+             ▼             ▼
+       HTTPFS tests   DuckLake tests
 ```
 
-DuckDB is built once for each platform/build configuration. After that build succeeds, each extension-owned test group runs in a separate parallel CI job using the same DuckDB artifact.
+The two test jobs run in parallel and download the same build artifact.
 
-The test group selects which upstream tests to execute. It does **not** select which extensions are loaded: every enabled extension is installed and loaded before every group.
-
-## What is compiled
-
-The build stage compiles only:
-
-```text
-DuckDB CLI
-DuckDB unittest
-```
-
-The build stage must not contain:
-
-```text
-extension source checkouts
-extension CMake configurations
-static extension targets
-loadable extension targets
-extension-owned native dependencies
-locally built .duckdb_extension files
-```
-
-Extensions are installed as prebuilt binaries with their declared statements, normally:
+Before either battery starts, the runner creates a clean HOME and executes:
 
 ```sql
-INSTALL fts;
-LOAD fts;
+INSTALL httpfs;
+INSTALL ducklake;
+LOAD httpfs;
+LOAD ducklake;
 ```
 
-## Upstream tests
+Both extensions are therefore present for every test battery, including tests owned by the other extension.
 
-Tests are never copied into this repository.
+## Initial upstream tests
 
-For every extension, CI checks out its repository at the commit declared in `config/extensions.yml` and executes the original tests from that checkout. SQLLogicTests are passed to DuckDB through an external test directory:
+### HTTPFS
 
-```bash
-unittest \
-  --test-config generated/all-extensions-loaded.json \
-  --test-dir upstream/fts \
-  "test/sql/fts/*"
-```
+- Repository: `duckdb/duckdb-httpfs`
+- Commit: `c3f215ab360f04dc3d3d5305fa81849c0121f111`
+- Test: `test/sql/curl_client/test_relative_path_parsing.test`
 
-Fixtures and relative paths remain exactly as they are in the extension repository.
+The job starts the same style of local Python HTTP server used by the upstream HTTPFS integration workflow. Squid and MinIO are not started yet because this first test does not need them.
 
-## Adding an extension
+### DuckLake
 
-1. Add an entry to [`config/extensions.yml`](config/extensions.yml).
-2. Pin the test repository to an immutable commit SHA.
-3. Declare how the prebuilt extension is installed and loaded.
-4. Declare the upstream test roots and filters.
-5. Select `none` as adapter or create an infrastructure adapter.
-6. Verify that expected tests are discovered.
-7. Verify that all enabled extensions are installed and loaded before the new group runs.
-8. Rerun every existing group because the all-loaded runtime has changed.
+- Repository: `duckdb/ducklake`
+- Commit: `d318a545571d7d46eb751fa2aa5f6f4389285d3c`
+- Test: `test/sql/ducklake_basic.test`
 
-## Infrastructure adapters
+The test creates a local DuckLake catalog and data directory and does not require an external service.
 
-Some upstream test groups need external infrastructure.
-
-A PostgreSQL adapter can, for example:
-
-1. start a pinned PostgreSQL container;
-2. wait until it is healthy;
-3. create users, databases, and fixtures;
-4. generate a connection string;
-5. expose the connection string to the upstream PostgreSQL tests;
-6. execute those tests using the shared DuckDB `unittest` artifact;
-7. keep every enabled DuckDB extension loaded;
-8. collect PostgreSQL logs and tear the service down.
-
-Adapters prepare test infrastructure only. They never compile extensions and never rebuild DuckDB.
-
-## Planned structure
+## Files
 
 ```text
-.specify/memory/constitution.md   Governing principles
-config/extensions.yml            Extension and test-group inventory
-config/schema/                    Manifest validation schema
-adapters/                         Extension-specific services and fixtures
-scripts/                          Validation and CI orchestration
-.github/workflows/                Build-once and parallel test workflows
-tests/irion/                      Irion-owned cross-extension smoke tests
-docs/                             Architecture and operating documentation
+CMakeLists.txt                 minimal qa_test extension build
+extension_config.cmake        registers only qa_test
+Makefile                       DuckDB extension-template build
+scripts/build.sh               common build and artifact creation
+scripts/run-tests.sh           always installs/loads HTTPFS + DuckLake
+scripts/setup-httpfs.sh        local Python HTTP server
+.github/workflows/extension-qa.yml
+config/extensions.yml          pinned versions and first test subsets
 ```
 
-See [`docs/ci-architecture.md`](docs/ci-architecture.md) for the planned workflow.
+## CI triggers
+
+The workflow runs on unfiltered:
+
+- `push`;
+- `pull_request`;
+- `workflow_dispatch`.
+
+It can therefore be tested from any branch.
+
+## Next steps
+
+Broader HTTPFS tests can add Squid or MinIO directly to the HTTPFS job by reusing the upstream setup scripts. General adapter frameworks and tests of the QA infrastructure should only be introduced after multiple real extensions demonstrate the same repeated need.
