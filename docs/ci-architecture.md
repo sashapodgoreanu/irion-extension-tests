@@ -2,212 +2,97 @@
 
 ## Objective
 
-Validate a selected DuckDB version against every extension used by Irion while executing the original upstream extension tests.
+Validate DuckDB `v1.5.4` with HTTPFS and DuckLake loaded together, using a small build-once/fan-out workflow.
 
-The CI has one strict compilation boundary:
-
-```text
-Compiled here:     DuckDB + unittest
-Never compiled:    DuckDB extensions
-```
-
-Extension repositories are checked out only after the shared DuckDB build, and only by test jobs that need their tests or fixtures.
-
-## Pipeline stages
-
-### 1. Validate configuration
-
-The first job reads `config/extensions.yml` and verifies:
-
-- DuckDB and CI tooling are pinned;
-- every enabled extension has a canonical name;
-- every test source has an immutable commit SHA;
-- install and load statements are present;
-- every test group has a runner, test root, include filter, timeout, and adapter;
-- every referenced adapter exists;
-- no manifest entry requests extension compilation.
-
-The validation job generates two machine-readable outputs:
-
-1. the complete enabled extension set;
-2. the parallel test-group matrix.
-
-### 2. Build DuckDB once
-
-One job checks out the selected DuckDB commit and `extension-ci-tools`, creates the standard DuckDB build environment, and builds only:
-
-```bash
-cmake --build build/release \
-  --target duckdb unittest
-```
-
-The job must reject configurations containing extension CMake files or extension build targets.
-
-It publishes one immutable artifact containing:
+## Pipeline
 
 ```text
-build/release/duckdb
-build/release/test/unittest
-DuckDB commit metadata
-compiler and platform metadata
+Build DuckDB + unittest + qa_test
+                │
+        one shared artifact
+                │
+        ┌───────┴────────┐
+        ▼                ▼
+ HTTPFS upstream    DuckLake upstream
+      test                test
 ```
 
-### 3. Fan out parallel test groups
+There is no configuration-validation job, generated matrix, adapter framework, or aggregation job in the first version.
 
-After the DuckDB artifact is available, GitHub Actions creates one job per configured test group.
+## Build boundary
 
-Example matrix:
+The extension-template build compiles:
 
-```json
-[
-  {"extension":"fts","group":"fts-sqllogic","adapter":"none"},
-  {"extension":"spatial","group":"spatial-sqllogic","adapter":"none"},
-  {"extension":"postgres","group":"postgres-sqllogic","adapter":"postgres"}
-]
+- DuckDB CLI;
+- DuckDB `unittest`;
+- the local no-op `qa_test` extension.
+
+It does not compile HTTPFS or DuckLake. Those extensions do not appear in `extension_config.cmake`.
+
+The build job packages one artifact:
+
+```text
+bin/duckdb
+bin/unittest
+extensions/qa_test*.duckdb_extension
+logs/build-info.txt
 ```
 
-These jobs run in parallel and all download the same DuckDB artifact.
+## Test matrix
 
-A test-group job must never invoke CMake or rebuild DuckDB.
+The workflow contains two explicit entries:
 
-### 4. Create an isolated runtime
+```text
+httpfs
+ ducklake
+```
 
-Every test-group job creates independent paths for:
+Both jobs depend on the same build and therefore run in parallel after it succeeds.
 
-- HOME;
-- DuckDB extension installation;
-- temporary files;
-- database files;
-- service containers and networks;
-- test output and logs.
+Each job:
 
-This prevents globally installed extensions or another parallel group from influencing the result.
+1. checks out the owning upstream repository at its pinned commit;
+2. downloads the shared artifact;
+3. creates a clean HOME and temporary directory;
+4. installs and loads HTTPFS and DuckLake;
+5. verifies both through `duckdb_extensions()`;
+6. runs one upstream SQLLogicTest with `unittest --test-dir`;
+7. uploads the generated configuration, extension inventory, test metadata, and test output.
 
-### 5. Prepare the group adapter
+## Common extension runtime
 
-The selected adapter prepares the environment required by the upstream group.
-
-The `none` adapter performs no external setup.
-
-A future `postgres` adapter will:
-
-1. start a PostgreSQL container pinned by version or digest;
-2. wait for `pg_isready` or an equivalent health check;
-3. initialize databases, users, schemas, and fixtures;
-4. produce a connection string;
-5. expose the connection string under the environment variable expected by the upstream tests;
-6. capture PostgreSQL logs;
-7. tear down the service after the group completes.
-
-Adapters prepare infrastructure only. They do not compile DuckDB or extensions.
-
-### 6. Install and load every enabled extension
-
-The test job generates a DuckDB test configuration containing the install and load statements of the complete enabled extension set.
-
-For example:
+Every battery uses the same initialization:
 
 ```sql
-INSTALL fts;
-INSTALL spatial;
-INSTALL postgres;
-
-LOAD fts;
-LOAD spatial;
-LOAD postgres;
+INSTALL httpfs;
+INSTALL ducklake;
+LOAD httpfs;
+LOAD ducklake;
 ```
 
-This configuration is used for every group, including the FTS, Spatial, and PostgreSQL groups.
+The DuckDB test configuration also reloads `httpfs` and `ducklake` for database restarts and new connections. A failure to install or load either extension stops the job before the upstream test runs.
 
-Before upstream tests run, a pre-flight query verifies:
+## HTTPFS setup
 
-- every enabled extension is installed;
-- every enabled extension is loaded;
-- each extension came from its declared binary source;
-- no unexpected extension was substituted;
-- the effective extension versions are recorded.
-
-Any missing install or load is a hard failure.
-
-## 7. Check out and discover upstream tests
-
-The job checks out the owner extension repository at the configured immutable commit.
-
-For an FTS group:
+The first HTTPFS test requires only a local Python HTTP server. `scripts/setup-httpfs.sh` exports the environment variables used by upstream:
 
 ```text
-repository: https://github.com/duckdb/duckdb-fts.git
-commit:    6814ec9a7d5fd63500176507262b0dbf7cea0095
+PYTHON_HTTP_SERVER_URL
+PYTHON_HTTP_SERVER_DIR
 ```
 
-The job inventories matching files before execution. Zero discovered tests is a hard failure unless the manifest explicitly defines a no-tests contract.
+The server runs only in the HTTPFS job and is stopped by the common runner's EXIT trap. Its log is uploaded with the HTTPFS test evidence.
 
-Tests remain in the upstream checkout and are not copied into this repository.
+Squid and MinIO are intentionally absent from the first version. They can be added directly to the HTTPFS job when a selected upstream test needs them, following the upstream HTTPFS workflow.
 
-## 8. Execute the group
+## DuckLake setup
 
-A SQLLogicTest group is run through the shared DuckDB runner:
+The initial DuckLake test uses a local metadata database and data directory. It requires no external container.
 
-```bash
-unittest \
-  --test-config generated/all-extensions-loaded.json \
-  --test-dir upstream/fts \
-  "test/sql/fts/*"
-```
+## Branch policy
 
-The working directory and environment must preserve upstream fixtures and relative paths.
+The workflow uses unfiltered `push`, `pull_request`, and `workflow_dispatch` triggers. It contains no branch-name filters.
 
-If an extension repository uses a different test system, its adapter or runner implementation invokes that upstream system using the shared DuckDB binary where applicable. Unsupported test categories must be reported explicitly.
+## Evolution rule
 
-## 9. Publish evidence
-
-Each group publishes an artifact containing:
-
-- resolved manifest entry;
-- DuckDB and test-source commits;
-- generated all-extensions-loaded configuration;
-- extension inventory before and after loading;
-- discovered test list;
-- executed test list;
-- passed, failed, skipped, crashed, and timed-out counts;
-- adapter setup and service logs;
-- stdout, stderr, and exit code;
-- redacted environment metadata.
-
-A final aggregation job combines the group results into one compatibility report.
-
-## Adding a new extension
-
-Adding an extension should not require editing the central workflow.
-
-The expected flow is:
-
-1. add the extension and its test groups to `config/extensions.yml`;
-2. add an adapter directory only if special infrastructure is required;
-3. validate the manifest;
-4. let the generated matrix create the new parallel job;
-5. verify that all existing groups now load the newly enabled extension as well.
-
-The new extension therefore creates two forms of coverage:
-
-- its own upstream test group;
-- renewed coexistence coverage across every previously configured group.
-
-## Example: PostgreSQL-backed group
-
-```text
-Shared DuckDB artifact
-        │
-        ▼
-PostgreSQL test job
-        │
-        ├── start PostgreSQL container
-        ├── wait for health check
-        ├── create fixtures
-        ├── generate connection string
-        ├── INSTALL and LOAD all Irion extensions
-        ├── checkout postgres_scanner tests at pinned commit
-        └── run PostgreSQL upstream tests with --test-dir
-```
-
-The PostgreSQL container belongs only to that test group. FTS or Spatial groups do not start it, but they still load the PostgreSQL DuckDB extension because all enabled extensions are present in every group.
+Keep extension-specific setup explicit. Extract a reusable abstraction only after at least two real test jobs repeat the same non-trivial setup.
