@@ -5,3 +5,5 @@ INSTALL tpcds;
 INSTALL icu;
 INSTALL httpfs;
 INSTALL ducklake;
+INSTALL postgres_scanner;
+INSTALL sqlite_scanner;
