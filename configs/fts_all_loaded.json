@@ -1,11 +1,7 @@
 {
-  "description": "Run the original duckdb-fts SQLLogicTests with every extension configured by this POC loaded on initialization and on every new connection.",
-  "on_init": "LOAD icu; LOAD fts;",
-  "on_new_connection": "LOAD icu; LOAD fts;",
-  "statically_loaded_extensions": [
-    "core_functions",
-    "icu",
-    "fts"
-  ],
+  "description": "Execute the original duckdb-fts tests from an external test directory while FTS is installed and loaded dynamically from the local build repository.",
+  "autoloading": "none",
+  "on_init": "INSTALL fts FROM '/duckdb_build_dir/build/release/repository'; LOAD fts;",
+  "on_new_connection": "",
   "summarize_failures": true
 }
