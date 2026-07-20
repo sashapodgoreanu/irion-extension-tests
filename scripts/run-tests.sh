@@ -48,7 +48,7 @@ fi
 TEST_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 UNITTEST_LOG="${LOG_DIR}/unittest.log"
-INIT_SQL="$(tr '\n' ' ' < "${INIT_SCRIPT}")"
+INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
 CONNECTION_SQL="LOAD json; LOAD tpch; LOAD icu; LOAD httpfs; LOAD ducklake;"
 
 cat > "${TEST_CONFIG}" <<EOF
