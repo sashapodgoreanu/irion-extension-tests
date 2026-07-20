@@ -14,6 +14,7 @@ LOG_DIR="${PWD}/build/logs/${TEST_NAME}"
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}"
 export HOME="${RUNTIME_ROOT}/home"
 export TMPDIR="${RUNTIME_ROOT}/tmp"
+export HTTPFS_LOG_FILE="${LOG_DIR}/python-http.log"
 
 cleanup() {
   if [[ -n "${HTTPFS_SERVER_PID:-}" ]] && kill -0 "${HTTPFS_SERVER_PID}" 2>/dev/null; then
@@ -43,6 +44,13 @@ cat > "${TEST_CONFIG}" <<EOF
   "summarize_failures": true
 }
 EOF
+cp "${TEST_CONFIG}" "${LOG_DIR}/all-extensions.json"
+
+{
+  echo "test_name=${TEST_NAME}"
+  echo "test_path=${TEST_PATH}"
+  echo "upstream_commit=$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
+} > "${LOG_DIR}/test-info.txt"
 
 "${DUCKDB_BIN}" -csv -header -c "${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
