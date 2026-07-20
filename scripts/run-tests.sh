@@ -10,7 +10,10 @@ DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 UNITTEST_BIN="${ARTIFACT_DIR}/bin/unittest"
 RUNTIME_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/${TEST_NAME}"
 LOG_DIR="${PWD}/build/logs/${TEST_NAME}"
-INIT_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/init-extensions.sql"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_SCRIPT="${SCRIPT_DIR}/install-extensions.sql"
+INIT_SCRIPT="${SCRIPT_DIR}/init-extensions.sql"
+HTTPFS_AUTOLOAD_INIT_SCRIPT="${SCRIPT_DIR}/init-without-httpfs.sql"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}"
 export HOME="${RUNTIME_ROOT}/home"
@@ -45,13 +48,14 @@ if [[ "${TEST_NAME}" == "httpfs" ]]; then
   source scripts/setup-httpfs.sh "${RUNTIME_ROOT}" "${UPSTREAM_ROOT}"
 fi
 
-TEST_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
-UNITTEST_LOG="${LOG_DIR}/unittest.log"
-INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
+NORMAL_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
+HTTPFS_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/httpfs-autoload.json"
 CONNECTION_SQL="LOAD json; LOAD tpch; LOAD icu; LOAD httpfs; LOAD ducklake;"
+INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
+INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
 
-cat > "${TEST_CONFIG}" <<EOF
+cat >"${NORMAL_CONFIG}" <<EOF
 {
   "description": "HTTPFS and DuckLake compatibility runtime",
   "autoloading": "all",
@@ -59,26 +63,38 @@ cat > "${TEST_CONFIG}" <<EOF
   "on_new_connection": "${CONNECTION_SQL}",
   "statically_loaded_extensions": [
     "core_functions",
-    "parquet",
-    "json",
-    "tpch",
-    "icu",
-    "httpfs",
-    "ducklake"
+    "parquet"
   ],
   "summarize_failures": true
 }
 EOF
-cp "${TEST_CONFIG}" "${LOG_DIR}/all-extensions.json"
+
+cat >"${HTTPFS_AUTOLOAD_CONFIG}" <<EOF
+{
+  "description": "HTTPFS autoloading tests with DuckLake loaded",
+  "autoloading": "all",
+  "init_script": "${HTTPFS_AUTOLOAD_INIT_SCRIPT}",
+  "on_new_connection": "LOAD ducklake;",
+  "statically_loaded_extensions": [
+    "core_functions"
+  ],
+  "summarize_failures": true
+}
+EOF
+
+cp "${NORMAL_CONFIG}" "${LOG_DIR}/all-extensions.json"
+cp "${HTTPFS_AUTOLOAD_CONFIG}" "${LOG_DIR}/httpfs-autoload.json"
+cp "${INSTALL_SCRIPT}" "${LOG_DIR}/install-extensions.sql"
 cp "${INIT_SCRIPT}" "${LOG_DIR}/init-extensions.sql"
+cp "${HTTPFS_AUTOLOAD_INIT_SCRIPT}" "${LOG_DIR}/init-without-httpfs.sql"
 
 {
   echo "test_name=${TEST_NAME}"
   echo "test_path=${TEST_PATH}"
   echo "upstream_commit=$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
-} > "${LOG_DIR}/test-info.txt"
+} >"${LOG_DIR}/test-info.txt"
 
-"${DUCKDB_BIN}" -csv -header -c "${INIT_SQL}
+"${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
   WHERE extension_name IN ('ducklake', 'httpfs', 'icu', 'json', 'tpch')
@@ -102,14 +118,32 @@ for name in ("ducklake", "httpfs", "icu", "json", "tpch"):
         raise SystemExit(f"{name} is not loaded")
 PY
 
-"${UNITTEST_BIN}" \
-  --test-config "${TEST_CONFIG}" \
-  --test-dir "${UPSTREAM_ROOT}" \
-  "${TEST_PATH}" \
-  2>&1 | tee "${UNITTEST_LOG}"
+run_suite() {
+  local label=$1
+  local config=$2
+  local filter=$3
+  local log_file="${LOG_DIR}/unittest-${label}.log"
 
-if grep -Eq '^require (ducklake|httpfs|icu|json|tpch): [1-9][0-9]*$' "${UNITTEST_LOG}"; then
-  echo "Required extensions were skipped by the DuckDB test runner" >&2
-  grep -E '^require (ducklake|httpfs|icu|json|tpch): ' "${UNITTEST_LOG}" >&2 || true
-  exit 1
+  "${UNITTEST_BIN}" \
+    --test-config "${config}" \
+    --test-dir "${UPSTREAM_ROOT}" \
+    "${filter}" \
+    2>&1 | tee "${log_file}"
+
+  if grep -Eq '^require (ducklake|httpfs|icu|json|tpch): [1-9][0-9]*$' "${log_file}"; then
+    echo "Required extensions were skipped by the DuckDB test runner in ${label}" >&2
+    grep -E '^require (ducklake|httpfs|icu|json|tpch): ' "${log_file}" >&2 || true
+    exit 1
+  fi
+}
+
+if [[ "${TEST_NAME}" == "httpfs" ]]; then
+  # Normal HTTPFS SQL tests run with HTTPFS and DuckLake explicitly loaded.
+  run_suite "sql" "${NORMAL_CONFIG}" "test/sql/*"
+
+  # HTTPFS lifecycle tests must start with HTTPFS unloaded; otherwise their
+  # autoload/autoinstall assertions become invalid. DuckLake remains loaded.
+  run_suite "autoload" "${HTTPFS_AUTOLOAD_CONFIG}" "test/extension/*"
+else
+  run_suite "all" "${NORMAL_CONFIG}" "${TEST_PATH}"
 fi
