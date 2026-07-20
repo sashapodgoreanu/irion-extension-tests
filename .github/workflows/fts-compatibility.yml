@@ -1,4 +1,4 @@
-name: FTS compatibility - DuckDB 1.5.4
+name: Dynamic FTS compatibility - DuckDB 1.5.4
 
 on:
   push:
@@ -25,7 +25,7 @@ env:
 
 jobs:
   build-and-test:
-    name: Build one runner and execute upstream FTS tests
+    name: Build loadable FTS and run its external test directory
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -91,7 +91,7 @@ jobs:
             --tag duckdb/linux_amd64:fts-poc \
             upstream/extension-ci-tools/docker/linux_amd64
 
-      - name: Build DuckDB and run all upstream FTS tests
+      - name: Build dynamic FTS and run upstream tests with --test-dir
         shell: bash
         run: |
           set -euo pipefail
@@ -121,11 +121,13 @@ jobs:
         shell: bash
         run: |
           {
-            echo "## FTS compatibility POC"
+            echo "## Dynamic FTS compatibility POC"
             echo
             echo "- DuckDB: \`${DUCKDB_REF}\`"
             echo "- extension-ci-tools: \`${CI_TOOLS_REF}\`"
             echo "- duckdb-fts: \`${FTS_REF}\`"
+            echo "- linkage: \`dynamic\`"
+            echo "- test source: \`upstream/fts/test/sql/fts\` via \`--test-dir\`"
             echo "- platform: \`${DUCKDB_PLATFORM}\`"
             echo
             if [[ -f build/reports/metadata.txt ]]; then
@@ -135,7 +137,7 @@ jobs:
               echo '```'
             fi
             if [[ -f build/reports/preflight.log ]]; then
-              echo "### All-loaded pre-flight"
+              echo "### Dynamic INSTALL/LOAD pre-flight"
               echo '```text'
               tail -n 30 build/reports/preflight.log
               echo '```'
