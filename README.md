@@ -25,6 +25,7 @@ GitHub Actions uses the normal DuckDB extension-template build to compile:
              ┌──────┴──────┐
              ▼             ▼
        HTTPFS tests   DuckLake tests
+         test/*          test/*
 ```
 
 The two test jobs run in parallel and download the same build artifact.
@@ -38,25 +39,34 @@ LOAD httpfs;
 LOAD ducklake;
 ```
 
-Both extensions are therefore present for every test battery, including tests owned by the other extension.
+Both extensions are therefore present for every test battery, including tests owned by the other extension. The runner fails before the suite when either extension is not installed or loaded.
 
-## Initial upstream tests
+## Complete upstream test folders
 
 ### HTTPFS
 
 - Repository: `duckdb/duckdb-httpfs`
 - Commit: `c3f215ab360f04dc3d3d5305fa81849c0121f111`
-- Test: `test/sql/curl_client/test_relative_path_parsing.test`
+- Selection: `test/*`
 
-The job starts the same style of local Python HTTP server used by the upstream HTTPFS integration workflow. Squid and MinIO are not started yet because this first test does not need them.
+The job reuses the infrastructure scripts from that exact HTTPFS checkout:
+
+- `scripts/run_squid.sh`;
+- `scripts/generate_presigned_url.sh`;
+- `scripts/run_s3_test_server.sh`;
+- `scripts/set_s3_test_server_variables.sh`.
+
+The QA repository only coordinates those scripts. It does not copy their implementation and does not invoke the HTTPFS build. The job starts the Python HTTP server, Squid, and the upstream MinIO/S3 test environment, then stops them through the runner cleanup trap.
+
+Tests requiring public-cloud credentials that are not present in GitHub Actions remain governed by the upstream `require-env` conditions.
 
 ### DuckLake
 
 - Repository: `duckdb/ducklake`
 - Commit: `d318a545571d7d46eb751fa2aa5f6f4389285d3c`
-- Test: `test/sql/ducklake_basic.test`
+- Selection: `test/*`
 
-The test creates a local DuckLake catalog and data directory and does not require an external service.
+DuckLake tests use their original checkout, fixtures, submodules, and relative paths. They run through the same shared `unittest` binary with both DuckLake and HTTPFS loaded.
 
 ## Files
 
@@ -66,9 +76,9 @@ extension_config.cmake        registers only qa_test
 Makefile                       DuckDB extension-template build
 scripts/build.sh               common build and artifact creation
 scripts/run-tests.sh           always installs/loads HTTPFS + DuckLake
-scripts/setup-httpfs.sh        local Python HTTP server
+scripts/setup-httpfs.sh        coordinates pinned upstream HTTPFS scripts
 .github/workflows/extension-qa.yml
-config/extensions.yml          pinned versions and first test subsets
+config/extensions.yml          pinned revisions and complete test folders
 ```
 
 ## CI triggers
@@ -81,6 +91,6 @@ The workflow runs on unfiltered:
 
 It can therefore be tested from any branch.
 
-## Next steps
+## Adding another extension
 
-Broader HTTPFS tests can add Squid or MinIO directly to the HTTPFS job by reusing the upstream setup scripts. General adapter frameworks and tests of the QA infrastructure should only be introduced after multiple real extensions demonstrate the same repeated need.
+The current POC remains intentionally explicit. Add another parallel matrix entry only after its repository, pinned commit, test folder, and required services are understood. Every battery must continue to install and load the complete supported extension set.
