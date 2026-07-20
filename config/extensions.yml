@@ -11,11 +11,11 @@ extensions:
   httpfs:
     repository: duckdb/duckdb-httpfs
     commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
-    test: test/sql/curl_client/test_relative_path_parsing.test
-    setup: python-http-server
+    test: test/*
+    setup: upstream-httpfs-services
 
   ducklake:
     repository: duckdb/ducklake
     commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-    test: test/sql/ducklake_basic.test
+    test: test/*
     setup: none
