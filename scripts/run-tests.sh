@@ -37,6 +37,7 @@ cat > "${TEST_CONFIG}" <<EOF
 {
   "description": "HTTPFS and DuckLake compatibility runtime",
   "autoloading": "none",
+  "statically_loaded_extensions": ["core_functions", "parquet", "httpfs", "ducklake"],
   "on_init": "${INIT_SQL}",
   "on_new_connection": "${CONNECTION_SQL}",
   "summarize_failures": true
