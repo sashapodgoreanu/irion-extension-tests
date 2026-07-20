@@ -1,11 +1,5 @@
--- Shared initialization for every upstream test database.
--- These are official repository extensions; none is compiled by this project.
-INSTALL json;
-INSTALL tpch;
-INSTALL icu;
-INSTALL httpfs;
-INSTALL ducklake;
-
+-- Shared initialization for normal upstream test databases.
+-- Installation is performed once before the test runner starts.
 LOAD json;
 LOAD tpch;
 LOAD icu;
