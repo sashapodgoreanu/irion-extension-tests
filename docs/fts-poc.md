@@ -15,10 +15,12 @@ I SQLLogicTest originali restano nel repository `duckdb-fts` e vengono passati a
 
 - DuckDB: `v1.5.4`
 - extension-ci-tools: `v1.5.4`
-- checkout dei test duckdb-fts: `4fd54aa70a5079be7e9b6fab3b810ed90699b511`
+- checkout dei test duckdb-fts: `6814ec9a7d5fd63500176507262b0dbf7cea0095`
 - piattaforma: `linux_amd64`
 - runner GitHub: `ubuntu-24.04`
 - container: `extension-ci-tools/docker/linux_amd64`
+
+Il commit FTS è quello dichiarato da DuckDB `v1.5.4` nel file `.github/config/extensions/fts.cmake`. In questo modo la suite sorgente e il binario ufficiale appartengono alla stessa distribuzione.
 
 ## Flusso verificato
 
