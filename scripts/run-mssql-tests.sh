@@ -104,4 +104,4 @@ if [[ -f "${UNITTEST_LOG}" ]] && grep -Eq '^require azure: [1-9][0-9]*$' "${UNIT
   status=1
 fi
 
-exit "${status}"
+exit "${status}" 
