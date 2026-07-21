@@ -8,3 +8,4 @@ LOAD httpfs;
 LOAD ducklake;
 LOAD postgres_scanner;
 LOAD sqlite_scanner;
+LOAD mssql;
