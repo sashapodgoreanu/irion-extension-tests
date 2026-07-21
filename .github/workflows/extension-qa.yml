@@ -130,14 +130,16 @@ jobs:
       matrix:
         include:
           - name: httpfs
+            runner: standard
             repository: duckdb/duckdb-httpfs
             commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
             test: test/*
             submodules: recursive
           - name: ducklake
+            runner: standard
             repository: duckdb/ducklake
             commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-            test: test/*
+            test: test/sql/*
             submodules: recursive
 
           # AI MAINTAINER NOTE — MSSQL RELEASE PIN
@@ -152,6 +154,7 @@ jobs:
           # test/sql/* from this exact checkout so upstream changes become visible only
           # when the release pin is intentionally advanced.
           - name: mssql
+            runner: mssql-release
             repository: hugr-lab/mssql-extension
             commit: v0.2.1
             test: test/sql/*
@@ -177,7 +180,7 @@ jobs:
           path: build/artifact
 
       - name: Restore executable permissions
-        run: chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
+        run: chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest scripts/run-test-battery.sh
 
       - name: Install HTTPFS service dependency
         if: matrix.name == 'httpfs'
@@ -190,24 +193,15 @@ jobs:
         if: matrix.name == 'mssql'
         run: docker compose version
 
-      - name: Run HTTPFS or DuckLake upstream tests
-        if: matrix.name != 'mssql'
-        env:
-          ARTIFACT_DIR: build/artifact
-        run: |
-          bash scripts/run-tests.sh \
-            '${{ matrix.name }}' \
-            '${{ github.workspace }}/upstream/${{ matrix.name }}' \
-            '${{ matrix.test }}'
-
-      - name: Run pinned MSSQL release tests
-        if: matrix.name == 'mssql'
+      - name: Run test battery
         env:
           ARTIFACT_DIR: build/artifact
           MSSQL_RELEASE_TAG: ${{ matrix.commit }}
         run: |
-          bash scripts/run-mssql-tests.sh \
-            '${{ github.workspace }}/upstream/mssql' \
+          bash scripts/run-test-battery.sh \
+            '${{ matrix.runner }}' \
+            '${{ matrix.name }}' \
+            '${{ github.workspace }}/upstream/${{ matrix.name }}' \
             '${{ matrix.test }}'
 
       - name: Upload test logs
