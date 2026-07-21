@@ -16,6 +16,7 @@ REQUIRED_EXTENSIONS = (
     "icu",
     "httpfs",
     "ducklake",
+    "mssql",
     "postgres_scanner",
     "sqlite_scanner",
 )
