@@ -49,7 +49,7 @@ jobs:
     name: Test ${{ matrix.name }}
     needs: build
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -58,10 +58,27 @@ jobs:
             repository: duckdb/duckdb-httpfs
             commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
             test: test/*
+            submodules: recursive
           - name: ducklake
             repository: duckdb/ducklake
             commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
             test: test/*
+            submodules: recursive
+
+          # AI MAINTAINER NOTE — MSSQL RELEASE PIN
+          # This must remain a published release tag, never `main` or another moving ref.
+          # When a newer MSSQL release is published, update this tag together with:
+          #   - config/extensions.yml;
+          #   - the expected version in scripts/run-mssql-tests.sh (derived from the tag);
+          #   - confirmation that duckdb/community-extensions points to the same release.
+          # The test runner deliberately consumes Docker, seed SQL, smoke tests and
+          # test/sql/* from this exact checkout so upstream changes become visible only
+          # when the release pin is intentionally advanced.
+          - name: mssql
+            repository: hugr-lab/mssql-extension
+            commit: v0.2.1
+            test: test/sql/*
+            submodules: "false"
 
     steps:
       - name: Checkout QA repository
@@ -74,7 +91,7 @@ jobs:
           ref: ${{ matrix.commit }}
           path: upstream/${{ matrix.name }}
           fetch-depth: 1
-          submodules: recursive
+          submodules: ${{ matrix.submodules }}
 
       - name: Download shared build
         uses: actions/download-artifact@v4
@@ -92,13 +109,28 @@ jobs:
           sudo apt-get install -y -qq squid
           docker compose version
 
-      - name: Run complete upstream test folder
+      - name: Verify MSSQL container runtime
+        if: matrix.name == 'mssql'
+        run: docker compose version
+
+      - name: Run HTTPFS or DuckLake upstream tests
+        if: matrix.name != 'mssql'
         env:
           ARTIFACT_DIR: build/artifact
         run: |
           bash scripts/run-tests.sh \
             '${{ matrix.name }}' \
             '${{ github.workspace }}/upstream/${{ matrix.name }}' \
+            '${{ matrix.test }}'
+
+      - name: Run pinned MSSQL release tests
+        if: matrix.name == 'mssql'
+        env:
+          ARTIFACT_DIR: build/artifact
+          MSSQL_RELEASE_TAG: ${{ matrix.commit }}
+        run: |
+          bash scripts/run-mssql-tests.sh \
+            '${{ github.workspace }}/upstream/mssql' \
             '${{ matrix.test }}'
 
       - name: Upload test logs
