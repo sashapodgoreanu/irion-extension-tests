@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build DuckDB and qa_test
+    name: Prepare DuckDB runtime
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -25,18 +25,93 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      # AI MAINTAINER NOTE — DUCKDB RUNTIME CACHE CONTRACT
+      # This cache contains the complete packaged DuckDB CLI + unittest runtime.
+      # Keep the key deterministic and tied to every input that can change the
+      # produced binaries. Never key it only by branch, workflow run or DuckDB
+      # semantic version, and do not add a broad restore-key: a stale binary can
+      # turn this compatibility suite into a false positive or false negative.
+      # A cache miss must always be recoverable by running scripts/build.sh.
+      - name: Calculate DuckDB runtime cache key
+        id: duckdb-runtime-key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          DUCKDB_SHA="$(git rev-parse HEAD:duckdb)"
+          CI_TOOLS_SHA="$(git rev-parse HEAD:extension-ci-tools)"
+
+          BUILD_INPUT_HASH="$({
+            printf '%s\n' \
+              'cache-schema=v1' \
+              'runner=ubuntu-24.04' \
+              'architecture=linux-amd64' \
+              'duckdb-version=v1.5.4' \
+              'ci-tools-version=v1.5.4' \
+              "duckdb-sha=${DUCKDB_SHA}" \
+              "ci-tools-sha=${CI_TOOLS_SHA}"
+            git ls-files -s -- \
+              .gitmodules \
+              CMakeLists.txt \
+              extension_config.cmake \
+              Makefile \
+              scripts/build.sh \
+              src
+          } | sha256sum | cut -d' ' -f1)"
+
+          CACHE_KEY="duckdb-runtime-v1-ubuntu24-linux-amd64-${BUILD_INPUT_HASH}"
+
+          echo "key=${CACHE_KEY}" >> "${GITHUB_OUTPUT}"
+          echo "duckdb_sha=${DUCKDB_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "ci_tools_sha=${CI_TOOLS_SHA}" >> "${GITHUB_OUTPUT}"
+
+          echo "DuckDB runtime cache key: ${CACHE_KEY}"
+          echo "DuckDB commit: ${DUCKDB_SHA}"
+          echo "extension-ci-tools commit: ${CI_TOOLS_SHA}"
+
+      - name: Restore cached DuckDB runtime
+        id: duckdb-runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: build/artifact
+          key: ${{ steps.duckdb-runtime-key.outputs.key }}
+
       - name: Install build tools
+        if: steps.duckdb-runtime-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq build-essential cmake ninja-build python3
 
-      - name: Build once
+      - name: Build DuckDB runtime
+        if: steps.duckdb-runtime-cache.outputs.cache-hit != 'true'
         env:
           DUCKDB_VERSION: v1.5.4
           CI_TOOLS_VERSION: v1.5.4
           BUILD_JOBS: 2
         run: bash scripts/build.sh
 
+      - name: Validate restored or built runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+
+          test -f build/artifact/bin/duckdb
+          test -f build/artifact/bin/unittest
+          chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
+
+          build/artifact/bin/duckdb --version
+          build/artifact/bin/unittest --help >/dev/null
+
+          {
+            echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
+            echo "cache_hit=${{ steps.duckdb-runtime-cache.outputs.cache-hit }}"
+            echo "duckdb_commit=${{ steps.duckdb-runtime-key.outputs.duckdb_sha }}"
+            echo "ci_tools_commit=${{ steps.duckdb-runtime-key.outputs.ci_tools_sha }}"
+          } >> build/artifact/logs/build-info.txt
+
+      # The cache persists the runtime between workflow runs. The artifact remains
+      # necessary because it distributes that exact runtime to all test jobs in
+      # the current run without each matrix job restoring the cache independently.
       - name: Upload shared build
         uses: actions/upload-artifact@v4
         with:
