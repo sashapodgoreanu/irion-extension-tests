@@ -53,6 +53,23 @@ export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_CONNECTION_STRING:-${MSSQL_TES
 # the semantic release version. Therefore validate the exact release tag first,
 # then validate that extension_version is a valid prefix of that tag's commit SHA.
 # Do not compare extension_version directly with values such as "0.2.1".
+#
+# AI MAINTAINER NOTE — DYNAMIC MSSQL TEST CONTRACT
+# ------------------------------------------------------------
+# MSSQL is NOT compiled into the DuckDB/unittest artifact. Never add `mssql` to
+# statically_loaded_extensions: that option is for extensions available through
+# the test binary's static extension loader.
+#
+# The upstream SQLLogicTest files contain `require mssql`. In DuckDB v1.5.4,
+# mssql is not part of AUTOLOADABLE_EXTENSIONS, so with autoloading enabled the
+# runner resolves the requirement by executing INSTALL/LOAD against
+# LOCAL_EXTENSION_REPO. We therefore:
+#   1. INSTALL mssql FROM community once;
+#   2. copy that signed community binary into a local DuckDB repository layout;
+#   3. export LOCAL_EXTENSION_REPO for unittest;
+#   4. let every `require mssql` install/load that dynamic binary.
+# Do not replace this with a static declaration unless MSSQL is deliberately
+# compiled into the same unittest binary.
 
 cleanup() {
   if [[ "${MSSQL_COMPOSE_STARTED:-0}" == "1" ]]; then
@@ -150,6 +167,32 @@ if [[ -z "${MSSQL_EXTENSION_PATH}" ]]; then
 fi
 printf '%s\n' "${MSSQL_EXTENSION_PATH}" >"${LOG_DIR}/mssql-extension-path.txt"
 
+prepare_local_extension_repo() {
+  local source_dir
+  source_dir="$(dirname "${MSSQL_EXTENSION_PATH}")"
+
+  export LOCAL_EXTENSION_REPO="${RUNTIME_ROOT}/repository"
+  local target_dir="${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64"
+  mkdir -p "${target_dir}"
+
+  # Copy every extension installed in this isolated HOME. This preserves the
+  # exact signed community MSSQL binary and also makes any other dynamically
+  # required extension available without reaching a moving remote repository.
+  cp -a "${source_dir}/." "${target_dir}/"
+
+  if [[ ! -f "${target_dir}/mssql.duckdb_extension" ]]; then
+    echo "MSSQL was not copied into LOCAL_EXTENSION_REPO" >&2
+    return 1
+  fi
+
+  {
+    echo "local_extension_repo=${LOCAL_EXTENSION_REPO}"
+    echo "mssql_repository_binary=${target_dir}/mssql.duckdb_extension"
+  } >>"${LOG_DIR}/test-info.txt"
+}
+
+prepare_local_extension_repo
+
 cat >"${UPSTREAM_ROOT}/.env" <<EOF
 MSSQL_TEST_HOST=${MSSQL_TEST_HOST}
 MSSQL_TEST_PORT=${MSSQL_TEST_PORT}
@@ -224,14 +267,14 @@ config_path = Path(sys.argv[1])
 init_script = sys.argv[2]
 on_new_connection = sys.argv[3]
 config = {
-    "description": "Pinned MSSQL community release tests with HTTPFS and DuckLake loaded",
+    "description": "Pinned dynamic MSSQL community release tests with HTTPFS and DuckLake loaded",
     "autoloading": "all",
     "init_script": init_script,
     "on_new_connection": on_new_connection,
-    # This field is the SQLLogicTest capability declaration used by `require`.
-    # It does not change how the binary is obtained: mssql is still installed by
-    # `INSTALL mssql FROM community` and loaded dynamically by `LOAD mssql`.
-    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],
+    # MSSQL is intentionally absent: it is not compiled into unittest. The
+    # SQLLogicTest `require mssql` directive installs/loads it dynamically from
+    # LOCAL_EXTENSION_REPO, which contains the binary installed FROM community.
+    "statically_loaded_extensions": ["core_functions", "parquet"],
     "summarize_failures": True,
 }
 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
@@ -246,7 +289,8 @@ UNITTEST_LOG="${LOG_DIR}/unittest.log"
   2>&1 | tee "${UNITTEST_LOG}"
 
 if grep -Eq '^require mssql: [1-9][0-9]*$' "${UNITTEST_LOG}"; then
-  echo "MSSQL tests were skipped because the extension was not recognized" >&2
+  echo "MSSQL tests were skipped because the dynamic community extension was not resolved" >&2
+  echo "LOCAL_EXTENSION_REPO=${LOCAL_EXTENSION_REPO}" >&2
   exit 1
 fi
 
