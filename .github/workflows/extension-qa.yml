@@ -141,17 +141,19 @@ jobs:
             submodules: recursive
 
           # AI MAINTAINER NOTE — MSSQL RELEASE PIN
-          # This must remain a published release tag, never `main` or another moving ref.
+          # This must remain a published release tag, never `main`, a release-bump
+          # commit, or another moving ref. The community binary identifies the
+          # final tagged commit, so the test checkout must use that exact tag too.
           # When a newer MSSQL release is published, update this tag together with:
           #   - config/extensions.yml;
-          #   - the expected version in scripts/run-mssql-tests.sh (derived from the tag);
+          #   - the expected version in scripts/run-mssql-tests.sh;
           #   - confirmation that duckdb/community-extensions points to the same release.
           # The test runner deliberately consumes Docker, seed SQL, smoke tests and
           # test/sql/* from this exact checkout so upstream changes become visible only
           # when the release pin is intentionally advanced.
           - name: mssql
             repository: hugr-lab/mssql-extension
-            commit: 3c100e9124553cf8578f3959cc4d6402811da3f6
+            commit: v0.2.1
             test: test/sql/*
             submodules: "false"
 
