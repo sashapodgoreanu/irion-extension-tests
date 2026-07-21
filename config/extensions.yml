@@ -2,10 +2,11 @@ duckdb:
   version: v1.5.4
   ci_tools_version: v1.5.4
 
-# Every test job installs and loads this complete set.
+# Every compatibility job installs and loads this complete set.
 always_load:
   - httpfs
   - ducklake
+  - mssql
 
 extensions:
   httpfs:
@@ -18,4 +19,20 @@ extensions:
     repository: duckdb/ducklake
     commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
     test: test/*
-    setup: none
+    setup: upstream-ducklake-catalogs
+
+  # AI MAINTAINER NOTE — RELEASE TAG POLICY
+  # Keep MSSQL pinned to the newest PUBLISHED RELEASE TAG, never to `main`.
+  # Before changing this value, verify all of the following together:
+  #   1. hugr-lab/mssql-extension has published the new tag;
+  #   2. duckdb/community-extensions references that same tag/version;
+  #   3. scripts/run-mssql-tests.sh still reuses the pinned release's Docker,
+  #      seed SQL, smoke script and complete test/sql/* folder correctly.
+  # Updating the tag is how this repository deliberately adopts upstream test
+  # changes. Do not copy the upstream tests or SQL fixtures into this repository.
+  mssql:
+    repository: hugr-lab/mssql-extension
+    tag: v0.2.1
+    community_version: 0.2.1
+    test: test/sql/*
+    setup: upstream-sqlserver-2022
