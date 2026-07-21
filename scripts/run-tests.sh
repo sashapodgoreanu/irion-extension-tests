@@ -63,10 +63,10 @@ HTTPFS_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/httpfs-autoload.json"
 DUCKLAKE_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/ducklake-autoload.json"
 DUCKLAKE_SQLITE_CONFIG="${RUNTIME_ROOT}/ducklake-sqlite.json"
 DUCKLAKE_POSTGRES_CONFIG="${RUNTIME_ROOT}/ducklake-postgres.json"
-FULL_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
-DUCKLAKE_DEFAULT_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake;"
-DUCKLAKE_AUTOLOAD_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD ducklake;"
-HTTPFS_AUTOLOAD_CONNECTION_SQL="LOAD tpcds; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
+FULL_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner; LOAD mssql;"
+DUCKLAKE_DEFAULT_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD mssql;"
+DUCKLAKE_AUTOLOAD_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD ducklake; LOAD mssql;"
+HTTPFS_AUTOLOAD_CONNECTION_SQL="LOAD tpcds; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner; LOAD mssql;"
 INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
 INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
 
@@ -103,7 +103,7 @@ fi
 
 cat >"${NORMAL_CONFIG}" <<EOF
 {
-  "description": "HTTPFS and DuckLake compatibility runtime",
+  "description": "HTTPFS, DuckLake and MSSQL compatibility runtime",
   "autoloading": "all",
   "init_script": "${NORMAL_INIT_SCRIPT}",
   "on_new_connection": "${NORMAL_CONNECTION_SQL}",
@@ -117,7 +117,7 @@ EOF
 
 cat >"${HTTPFS_AUTOLOAD_CONFIG}" <<EOF
 {
-  "description": "HTTPFS autoloading tests with DuckLake loaded",
+  "description": "HTTPFS autoloading tests with DuckLake and MSSQL loaded",
   "autoloading": "all",
   "init_script": "${HTTPFS_AUTOLOAD_INIT_SCRIPT}",
   "on_new_connection": "${HTTPFS_AUTOLOAD_CONNECTION_SQL}",
@@ -130,7 +130,7 @@ EOF
 
 cat >"${DUCKLAKE_AUTOLOAD_CONFIG}" <<EOF
 {
-  "description": "DuckLake filesystem autoloading test with HTTPFS initially unloaded",
+  "description": "DuckLake filesystem autoloading test with HTTPFS initially unloaded and MSSQL loaded",
   "autoloading": "all",
   "init_script": "${DUCKLAKE_AUTOLOAD_INIT_SCRIPT}",
   "on_new_connection": "${DUCKLAKE_AUTOLOAD_CONNECTION_SQL}",
@@ -160,7 +160,7 @@ cp "${HTTPFS_AUTOLOAD_INIT_SCRIPT}" "${LOG_DIR}/init-without-httpfs.sql"
 "${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
-  WHERE extension_name IN ('ducklake', 'httpfs', 'icu', 'json', 'postgres_scanner', 'sqlite_scanner', 'tpcds', 'tpch')
+  WHERE extension_name IN ('ducklake', 'httpfs', 'icu', 'json', 'mssql', 'postgres_scanner', 'sqlite_scanner', 'tpcds', 'tpch')
   ORDER BY extension_name;" \
   | tee "${EXTENSION_CSV}"
 
@@ -176,6 +176,7 @@ for name in (
     "httpfs",
     "icu",
     "json",
+    "mssql",
     "postgres_scanner",
     "sqlite_scanner",
     "tpcds",
@@ -202,10 +203,12 @@ prepare_local_extension_repo() {
   mkdir -p "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64"
   cp -a "${source_dir}/." "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64/"
 
-  if [[ ! -f "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64/httpfs.duckdb_extension" ]]; then
-    echo "HTTPFS was not copied into LOCAL_EXTENSION_REPO" >&2
-    return 1
-  fi
+  for extension in httpfs mssql; do
+    if [[ ! -f "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64/${extension}.duckdb_extension" ]]; then
+      echo "${extension} was not copied into LOCAL_EXTENSION_REPO" >&2
+      return 1
+    fi
+  done
 }
 
 prepare_local_extension_repo
@@ -222,9 +225,9 @@ run_suite() {
     "${filter}" \
     2>&1 | tee "${log_file}"
 
-  if grep -Eq '^require (ducklake|httpfs|icu|json|postgres_scanner|sqlite_scanner|tpcds|tpch): [1-9][0-9]*$' "${log_file}"; then
+  if grep -Eq '^require (ducklake|httpfs|icu|json|mssql|postgres_scanner|sqlite_scanner|tpcds|tpch): [1-9][0-9]*$' "${log_file}"; then
     echo "Required extensions were skipped by the DuckDB test runner in ${label}" >&2
-    grep -E '^require (ducklake|httpfs|icu|json|postgres_scanner|sqlite_scanner|tpcds|tpch): ' "${log_file}" >&2 || true
+    grep -E '^require (ducklake|httpfs|icu|json|mssql|postgres_scanner|sqlite_scanner|tpcds|tpch): ' "${log_file}" >&2 || true
     exit 1
   fi
 }
