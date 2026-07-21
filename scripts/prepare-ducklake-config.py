@@ -21,14 +21,20 @@ REQUIRED_EXTENSIONS = (
     "sqlite_scanner",
 )
 
+ADDITIONAL_SKIP_REASON = "Test specific to the PostgreSQL catalog suite"
+
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print(f"usage: {sys.argv[0]} SOURCE_CONFIG DEST_CONFIG", file=sys.stderr)
+    if len(sys.argv) < 3:
+        print(
+            f"usage: {sys.argv[0]} SOURCE_CONFIG DEST_CONFIG [SKIP_TEST ...]",
+            file=sys.stderr,
+        )
         return 2
 
     source = Path(sys.argv[1])
     destination = Path(sys.argv[2])
+    additional_skip_paths = sys.argv[3:]
     config = json.loads(source.read_text(encoding="utf-8"))
 
     config["autoloading"] = "all"
@@ -39,6 +45,16 @@ def main() -> int:
         if extension not in extensions:
             extensions.append(extension)
     config["statically_loaded_extensions"] = extensions
+
+    if additional_skip_paths:
+        skip_tests = list(config.get("skip_tests", []))
+        skip_tests.append(
+            {
+                "reason": ADDITIONAL_SKIP_REASON,
+                "paths": additional_skip_paths,
+            }
+        )
+        config["skip_tests"] = skip_tests
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     destination.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
