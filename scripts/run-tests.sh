@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SCRIPT="${SCRIPT_DIR}/install-extensions.sql"
 INIT_SCRIPT="${SCRIPT_DIR}/init-extensions.sql"
 DUCKLAKE_DEFAULT_INIT_SCRIPT="${SCRIPT_DIR}/init-ducklake-default.sql"
+DUCKLAKE_AUTOLOAD_INIT_SCRIPT="${SCRIPT_DIR}/init-ducklake-autoload.sql"
 HTTPFS_AUTOLOAD_INIT_SCRIPT="${SCRIPT_DIR}/init-without-httpfs.sql"
 DUCKLAKE_CONFIG_HELPER="${SCRIPT_DIR}/prepare-ducklake-config.py"
 
@@ -59,10 +60,12 @@ fi
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 NORMAL_CONFIG="${RUNTIME_ROOT}/all-extensions.json"
 HTTPFS_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/httpfs-autoload.json"
+DUCKLAKE_AUTOLOAD_CONFIG="${RUNTIME_ROOT}/ducklake-autoload.json"
 DUCKLAKE_SQLITE_CONFIG="${RUNTIME_ROOT}/ducklake-sqlite.json"
 DUCKLAKE_POSTGRES_CONFIG="${RUNTIME_ROOT}/ducklake-postgres.json"
 FULL_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
 DUCKLAKE_DEFAULT_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD httpfs; LOAD ducklake;"
+DUCKLAKE_AUTOLOAD_CONNECTION_SQL="LOAD json; LOAD tpch; LOAD tpcds; LOAD icu; LOAD ducklake;"
 HTTPFS_AUTOLOAD_CONNECTION_SQL="LOAD tpcds; LOAD ducklake; LOAD postgres_scanner; LOAD sqlite_scanner;"
 INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
 INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
@@ -72,6 +75,12 @@ if [[ "${TEST_NAME}" == "ducklake" ]]; then
   NORMAL_CONNECTION_SQL="${DUCKLAKE_DEFAULT_CONNECTION_SQL}"
   NORMAL_SKIP_TESTS=',
   "skip_tests": [
+    {
+      "reason": "Executed by the dedicated DuckLake autoloading suite",
+      "paths": [
+        "test/sql/autoloading/autoload_data_path.test"
+      ]
+    },
     {
       "reason": "Executed by the dedicated PostgreSQL catalog suite",
       "paths": [
@@ -119,11 +128,27 @@ cat >"${HTTPFS_AUTOLOAD_CONFIG}" <<EOF
 }
 EOF
 
+cat >"${DUCKLAKE_AUTOLOAD_CONFIG}" <<EOF
+{
+  "description": "DuckLake filesystem autoloading test with HTTPFS initially unloaded",
+  "autoloading": "all",
+  "init_script": "${DUCKLAKE_AUTOLOAD_INIT_SCRIPT}",
+  "on_new_connection": "${DUCKLAKE_AUTOLOAD_CONNECTION_SQL}",
+  "statically_loaded_extensions": [
+    "core_functions",
+    "parquet"
+  ],
+  "summarize_failures": true
+}
+EOF
+
 cp "${NORMAL_CONFIG}" "${LOG_DIR}/all-extensions.json"
 cp "${HTTPFS_AUTOLOAD_CONFIG}" "${LOG_DIR}/httpfs-autoload.json"
+cp "${DUCKLAKE_AUTOLOAD_CONFIG}" "${LOG_DIR}/ducklake-autoload.json"
 cp "${INSTALL_SCRIPT}" "${LOG_DIR}/install-extensions.sql"
 cp "${INIT_SCRIPT}" "${LOG_DIR}/init-extensions.sql"
 cp "${DUCKLAKE_DEFAULT_INIT_SCRIPT}" "${LOG_DIR}/init-ducklake-default.sql"
+cp "${DUCKLAKE_AUTOLOAD_INIT_SCRIPT}" "${LOG_DIR}/init-ducklake-autoload.sql"
 cp "${HTTPFS_AUTOLOAD_INIT_SCRIPT}" "${LOG_DIR}/init-without-httpfs.sql"
 
 {
@@ -165,6 +190,26 @@ for name in (
         raise SystemExit(f"{name} is not loaded")
 PY
 
+prepare_local_extension_repo() {
+  local source_dir
+  source_dir="$(find "${HOME}/.duckdb/extensions" -type d -path '*/v1.5.4/linux_amd64' -print -quit)"
+  if [[ -z "${source_dir}" ]]; then
+    echo "Installed DuckDB extension directory was not found" >&2
+    return 1
+  fi
+
+  export LOCAL_EXTENSION_REPO="${RUNTIME_ROOT}/repository"
+  mkdir -p "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64"
+  cp -a "${source_dir}/." "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64/"
+
+  if [[ ! -f "${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64/httpfs.duckdb_extension" ]]; then
+    echo "HTTPFS was not copied into LOCAL_EXTENSION_REPO" >&2
+    return 1
+  fi
+}
+
+prepare_local_extension_repo
+
 run_suite() {
   local label=$1
   local config=$2
@@ -193,6 +238,7 @@ start_ducklake_postgres() {
     -e POSTGRES_DB=ducklakedb \
     -p 5432:5432 \
     postgres:15 >/dev/null
+  export DUCKLAKE_POSTGRES_STARTED=1
 
   for _ in $(seq 1 60); do
     if docker exec ducklake-postgres pg_isready -U postgres -d ducklakedb >/dev/null 2>&1; then
@@ -202,7 +248,6 @@ start_ducklake_postgres() {
       export PGPASSWORD=postgres
       export PGDATABASE=ducklakedb
       export PGSSLMODE=disable
-      export DUCKLAKE_POSTGRES_STARTED=1
       return 0
     fi
     sleep 1
@@ -217,6 +262,7 @@ if [[ "${TEST_NAME}" == "httpfs" ]]; then
   run_suite "autoload" "${HTTPFS_AUTOLOAD_CONFIG}" "test/extension/*"
 elif [[ "${TEST_NAME}" == "ducklake" ]]; then
   run_suite "duckdb" "${NORMAL_CONFIG}" "${TEST_PATH}"
+  run_suite "autoload" "${DUCKLAKE_AUTOLOAD_CONFIG}" "test/sql/autoloading/autoload_data_path.test"
 
   python3 "${DUCKLAKE_CONFIG_HELPER}" \
     "${UPSTREAM_ROOT}/test/configs/sqlite.json" \
