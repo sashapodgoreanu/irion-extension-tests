@@ -151,7 +151,7 @@ jobs:
           # when the release pin is intentionally advanced.
           - name: mssql
             repository: hugr-lab/mssql-extension
-            commit: v0.2.1
+            commit: 3c100e9124553cf8578f3959cc4d6402811da3f6
             test: test/sql/*
             submodules: "false"
 
