@@ -269,7 +269,8 @@ elif [[ "${TEST_NAME}" == "ducklake" ]]; then
 
   python3 "${DUCKLAKE_CONFIG_HELPER}" \
     "${UPSTREAM_ROOT}/test/configs/sqlite.json" \
-    "${DUCKLAKE_SQLITE_CONFIG}"
+    "${DUCKLAKE_SQLITE_CONFIG}" \
+    "test/sql/data_inlining/postgres_identifier_limit.test"
   cp "${DUCKLAKE_SQLITE_CONFIG}" "${LOG_DIR}/ducklake-sqlite.json"
   run_suite "sqlite" "${DUCKLAKE_SQLITE_CONFIG}" "test/sql/*"
 
