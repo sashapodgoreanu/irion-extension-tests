@@ -47,7 +47,12 @@ export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_CONNECTION_STRING:-${MSSQL_TES
 #      their contents into this repository, because upstream test changes must be
 #      observed when the release pin is deliberately advanced.
 #   5. Do not replace the tag with a moving branch or commit selected from `main`.
-# A mismatch between the source tag and installed community binary is a CI error.
+#
+# IMPORTANT: DuckDB community extension metadata currently exposes the source
+# commit abbreviation in duckdb_extensions().extension_version, not necessarily
+# the semantic release version. Therefore validate the exact release tag first,
+# then validate that extension_version is a valid prefix of that tag's commit SHA.
+# Do not compare extension_version directly with values such as "0.2.1".
 
 cleanup() {
   if [[ "${MSSQL_COMPOSE_STARTED:-0}" == "1" ]]; then
@@ -72,10 +77,14 @@ if [[ "${actual_tag}" != "${MSSQL_RELEASE_TAG}" ]]; then
   exit 1
 fi
 
+UPSTREAM_COMMIT="$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
+UPSTREAM_SHORT_COMMIT="$(git -C "${UPSTREAM_ROOT}" rev-parse --short=7 HEAD)"
+
 {
   echo "release_tag=${MSSQL_RELEASE_TAG}"
   echo "release_version=${MSSQL_RELEASE_VERSION}"
-  echo "upstream_commit=$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
+  echo "upstream_commit=${UPSTREAM_COMMIT}"
+  echo "upstream_short_commit=${UPSTREAM_SHORT_COMMIT}"
   echo "test_path=${TEST_PATH}"
 } >"${LOG_DIR}/test-info.txt"
 
@@ -89,13 +98,14 @@ INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
   ORDER BY extension_name;" \
   | tee "${EXTENSION_CSV}"
 
-python3 - "${EXTENSION_CSV}" "${MSSQL_RELEASE_VERSION}" <<'PY'
+python3 - "${EXTENSION_CSV}" "${UPSTREAM_COMMIT}" "${MSSQL_RELEASE_TAG}" <<'PY'
 import csv
 import sys
 from pathlib import Path
 
 rows = list(csv.DictReader(Path(sys.argv[1]).open(encoding="utf-8")))
-expected_version = sys.argv[2]
+expected_commit = sys.argv[2].lower()
+release_tag = sys.argv[3]
 by_name = {row["extension_name"]: row for row in rows}
 
 for name in ("ducklake", "httpfs", "mssql"):
@@ -107,12 +117,26 @@ for name in ("ducklake", "httpfs", "mssql"):
     if row.get("loaded", "").lower() != "true":
         raise SystemExit(f"{name} is not loaded")
 
-actual_version = by_name["mssql"].get("extension_version", "").removeprefix("v")
-if actual_version != expected_version:
+mssql = by_name["mssql"]
+installed_from = mssql.get("installed_from", "").lower()
+if installed_from != "community":
     raise SystemExit(
-        "MSSQL source/binary version mismatch: "
-        f"tests are pinned to {expected_version}, community binary reports {actual_version or '<empty>'}"
+        "MSSQL was not installed from the community repository: "
+        f"installed_from={installed_from or '<empty>'}"
     )
+
+reported_commit = mssql.get("extension_version", "").lower().removeprefix("v")
+if len(reported_commit) < 7 or not expected_commit.startswith(reported_commit):
+    raise SystemExit(
+        "MSSQL source/binary commit mismatch: "
+        f"tests use {release_tag} at {expected_commit}, "
+        f"community binary reports {reported_commit or '<empty>'}"
+    )
+
+print(
+    "MSSQL release alignment verified: "
+    f"{release_tag} -> {expected_commit}, community binary -> {reported_commit}"
+)
 PY
 
 MSSQL_EXTENSION_PATH="$(find "${HOME}/.duckdb/extensions" \
