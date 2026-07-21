@@ -87,7 +87,7 @@ printf '%s\n' "${AZURE_EXTENSION_PATH}" >"${LOG_DIR}/azure-extension-path.txt"
 # SQLLogicTest connection loads the already installed dynamic Azure binary. Other
 # matrix jobs use separate checkouts and are unaffected.
 if ! grep -Eiq '^[[:space:]]*LOAD[[:space:]]+azure[[:space:]]*;[[:space:]]*$' "${MSSQL_SHARED_INIT_SCRIPT}"; then
-  printf '\n# MSSQL battery: local Azure secret tests require the dynamic Azure extension.\nLOAD azure;\n' \
+  printf '\n-- MSSQL battery: local Azure secret tests require the dynamic Azure extension.\nLOAD azure;\n' \
     >>"${MSSQL_SHARED_INIT_SCRIPT}"
 fi
 cp "${MSSQL_SHARED_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-azure.sql"
