@@ -91,6 +91,9 @@ UPSTREAM_SHORT_COMMIT="$(git -C "${UPSTREAM_ROOT}" rev-parse --short=7 HEAD)"
 INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
 INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
 
+# install-extensions.sql contains `INSTALL mssql FROM community;` and
+# init-extensions.sql contains `LOAD mssql;`. Keep both explicit: FROM community
+# belongs to INSTALL only; LOAD resolves the already installed community binary.
 "${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
@@ -221,11 +224,14 @@ config_path = Path(sys.argv[1])
 init_script = sys.argv[2]
 on_new_connection = sys.argv[3]
 config = {
-    "description": "Pinned MSSQL release tests with HTTPFS and DuckLake loaded",
+    "description": "Pinned MSSQL community release tests with HTTPFS and DuckLake loaded",
     "autoloading": "all",
     "init_script": init_script,
     "on_new_connection": on_new_connection,
-    "statically_loaded_extensions": ["core_functions", "parquet"],
+    # This field is the SQLLogicTest capability declaration used by `require`.
+    # It does not change how the binary is obtained: mssql is still installed by
+    # `INSTALL mssql FROM community` and loaded dynamically by `LOAD mssql`.
+    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],
     "summarize_failures": True,
 }
 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
