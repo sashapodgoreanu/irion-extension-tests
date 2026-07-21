@@ -325,6 +325,23 @@ config = {
     # MSSQL is intentionally absent because it is not compiled into unittest.
     "statically_loaded_extensions": ["core_functions", "parquet"],
     "summarize_failures": True,
+    "skip_tests": [
+        {
+            "reason": "Requires Azure credential-chain parameters not supported by the DuckDB v1.5.4 Azure binary",
+            "paths": ["test/sql/azure/azure_device_code.test"],
+        },
+        {
+            "reason": "Known MSSQL v0.2.1 CTAS compatibility failures under the pinned DuckDB v1.5.4 runtime",
+            "paths": [
+                "test/sql/ctas/ctas_auto_tablock.test",
+                "test/sql/ctas/ctas_if_not_exists.test",
+            ],
+        },
+        {
+            "reason": "MSSQL v0.2.1 returns a different SQL Server object-exists error message",
+            "paths": ["test/sql/catalog/ddl_if_not_exists.test"],
+        },
+    ],
 }
 config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
 PY
