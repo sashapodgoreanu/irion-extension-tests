@@ -138,7 +138,7 @@ def patch_connection_leak(path: Path, report: list[dict[str, Any]]) -> None:
         "pool_size, idle_connections, active_connections, total_connections_created",
         "total_connections, idle_connections, active_connections, connections_created",
         label="copy_connection_leak four-column pool schema",
-        expected=3,
+        expected=4,
     )
     labels.append(label)
 
