@@ -95,6 +95,18 @@ if [[ "${TEST_NAME}" == "ducklake" ]]; then
       ]
     }
   ]'
+elif [[ "${TEST_NAME}" == "httpfs" ]]; then
+  NORMAL_INIT_SCRIPT="${INIT_SCRIPT}"
+  NORMAL_CONNECTION_SQL="${FULL_CONNECTION_SQL}"
+  NORMAL_SKIP_TESTS=',
+  "skip_tests": [
+    {
+      "reason": "Requires TPC-DS answer fixtures that are not present in the standalone HTTPFS checkout",
+      "paths": [
+        "test/sql/copy/s3/parquet_s3_tpcds.test_slow"
+      ]
+    }
+  ]'
 else
   NORMAL_INIT_SCRIPT="${INIT_SCRIPT}"
   NORMAL_CONNECTION_SQL="${FULL_CONNECTION_SQL}"
