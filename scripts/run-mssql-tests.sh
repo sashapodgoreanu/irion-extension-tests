@@ -9,6 +9,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_RUNNER="${SCRIPT_DIR}/run-mssql-tests-base.sh"
 TEST_PATCHER="${SCRIPT_DIR}/prepare-mssql-release-tests.py"
 FIXTURE_PATCHER="${SCRIPT_DIR}/prepare-mssql-master-fixture.py"
+MSSQL_SHARED_INIT_SCRIPT="${SCRIPT_DIR}/init-extensions.sql"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 RUNTIME_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/mssql"
 LOG_DIR="${PWD}/build/logs/mssql"
@@ -39,6 +40,7 @@ for required in \
   "${BASE_RUNNER}" \
   "${TEST_PATCHER}" \
   "${FIXTURE_PATCHER}" \
+  "${MSSQL_SHARED_INIT_SCRIPT}" \
   "${DUCKDB_BIN}"; do
   if [[ ! -e "${required}" ]]; then
     echo "Required MSSQL compatibility input is missing: ${required}" >&2
@@ -79,6 +81,16 @@ if [[ -z "${AZURE_EXTENSION_PATH}" ]]; then
   exit 1
 fi
 printf '%s\n' "${AZURE_EXTENSION_PATH}" >"${LOG_DIR}/azure-extension-path.txt"
+
+# The base runner creates its MSSQL-only init profile from this shared file and
+# removes only LOAD mssql. Append Azure in this isolated job checkout so every
+# SQLLogicTest connection loads the already installed dynamic Azure binary. Other
+# matrix jobs use separate checkouts and are unaffected.
+if ! grep -Eiq '^[[:space:]]*LOAD[[:space:]]+azure[[:space:]]*;[[:space:]]*$' "${MSSQL_SHARED_INIT_SCRIPT}"; then
+  printf '\n# MSSQL battery: local Azure secret tests require the dynamic Azure extension.\nLOAD azure;\n' \
+    >>"${MSSQL_SHARED_INIT_SCRIPT}"
+fi
+cp "${MSSQL_SHARED_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-azure.sql"
 
 status=0
 bash "${BASE_RUNNER}" "$@" || status=$?
