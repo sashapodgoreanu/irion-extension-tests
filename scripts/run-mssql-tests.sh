@@ -6,6 +6,8 @@ TEST_PATH="${2:-test/sql/*}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/artifact}"
 MSSQL_RELEASE_TAG="${MSSQL_RELEASE_TAG:-v0.2.1}"
 MSSQL_RELEASE_VERSION="${MSSQL_RELEASE_TAG#v}"
+DUCKDB_VERSION_DIRECTORY="v1.5.4"
+DUCKDB_PLATFORM="linux_amd64"
 
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 UNITTEST_BIN="${ARTIFACT_DIR}/bin/unittest"
@@ -14,6 +16,7 @@ LOG_DIR="${PWD}/build/logs/mssql"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_SCRIPT="${SCRIPT_DIR}/install-extensions.sql"
 INIT_SCRIPT="${SCRIPT_DIR}/init-extensions.sql"
+MSSQL_TEST_INIT_SCRIPT="${RUNTIME_ROOT}/init-extensions-without-mssql.sql"
 COMPOSE_FILE="${UPSTREAM_ROOT}/docker/docker-compose.yml"
 UPSTREAM_INTEGRATION_SCRIPT="${UPSTREAM_ROOT}/scripts/ci/integration_test.sh"
 TEST_CONFIG="${RUNTIME_ROOT}/mssql-test-config.json"
@@ -38,38 +41,37 @@ export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_CONNECTION_STRING:-${MSSQL_TES
 
 # AI MAINTAINER NOTE — RELEASE PINNING CONTRACT
 # ------------------------------------------------------------
-# This battery intentionally follows a RELEASE TAG, never `main`.
-# When maintaining this file in the future:
-#   1. Find the latest published release of hugr-lab/mssql-extension.
-#   2. Update MSSQL_RELEASE_TAG in config/extensions.yml and the workflow together.
-#   3. Confirm DuckDB community-extensions points at the same tag/version.
-#   4. Keep using the Docker/SQL/test files from that pinned checkout; do not copy
-#      their contents into this repository, because upstream test changes must be
-#      observed when the release pin is deliberately advanced.
-#   5. Do not replace the tag with a moving branch or commit selected from `main`.
+# This battery follows a published MSSQL RELEASE TAG, never `main`.
+# When advancing it, update the workflow and config/extensions.yml together and
+# confirm DuckDB community-extensions publishes the binary from the same tag.
+# Keep consuming Docker, seed SQL and test/sql/* from the pinned checkout.
 #
-# IMPORTANT: DuckDB community extension metadata currently exposes the source
-# commit abbreviation in duckdb_extensions().extension_version, not necessarily
-# the semantic release version. Therefore validate the exact release tag first,
-# then validate that extension_version is a valid prefix of that tag's commit SHA.
-# Do not compare extension_version directly with values such as "0.2.1".
+# DuckDB community metadata exposes the source commit abbreviation in
+# duckdb_extensions().extension_version. Validate the exact tag and then compare
+# extension_version with that tag's commit SHA; do not compare it with "0.2.1".
 #
 # AI MAINTAINER NOTE — DYNAMIC MSSQL TEST CONTRACT
 # ------------------------------------------------------------
-# MSSQL is NOT compiled into the DuckDB/unittest artifact. Never add `mssql` to
-# statically_loaded_extensions: that option is for extensions available through
-# the test binary's static extension loader.
+# MSSQL is NOT compiled into DuckDB/unittest. Never add it to
+# statically_loaded_extensions.
 #
-# The upstream SQLLogicTest files contain `require mssql`. In DuckDB v1.5.4,
-# mssql is not part of AUTOLOADABLE_EXTENSIONS, so with autoloading enabled the
-# runner resolves the requirement by executing INSTALL/LOAD against
-# LOCAL_EXTENSION_REPO. We therefore:
-#   1. INSTALL mssql FROM community once;
-#   2. copy that signed community binary into a local DuckDB repository layout;
-#   3. export LOCAL_EXTENSION_REPO for unittest;
-#   4. let every `require mssql` install/load that dynamic binary.
-# Do not replace this with a static declaration unless MSSQL is deliberately
-# compiled into the same unittest binary.
+# The upstream tests use `require mssql`. DuckDB v1.5.4 resolves this non-core
+# extension with:
+#
+#   INSTALL mssql FROM '<LOCAL_EXTENSION_REPO>';
+#   LOAD mssql;
+#
+# The bootstrap first installs MSSQL FROM community to obtain and validate the
+# pinned signed binary. That installation creates a .info file whose origin is
+# the community repository. Reinstalling from our local repository while that
+# metadata remains causes an origin-mismatch error; SQLLogicTest silently turns
+# that error into `require mssql: skipped`.
+#
+# Therefore, after the official smoke tests:
+#   1. remove the community-origin installed copy and its .info file;
+#   2. install the exact copied binary FROM LOCAL_EXTENSION_REPO;
+#   3. verify it can be dynamically loaded;
+#   4. run SQLLogicTest without preloading MSSQL, letting `require mssql` load it.
 
 cleanup() {
   if [[ "${MSSQL_COMPOSE_STARTED:-0}" == "1" ]]; then
@@ -81,7 +83,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for required in "${DUCKDB_BIN}" "${UNITTEST_BIN}" "${COMPOSE_FILE}" "${UPSTREAM_INTEGRATION_SCRIPT}"; do
+for required in \
+  "${DUCKDB_BIN}" \
+  "${UNITTEST_BIN}" \
+  "${INSTALL_SCRIPT}" \
+  "${INIT_SCRIPT}" \
+  "${COMPOSE_FILE}" \
+  "${UPSTREAM_INTEGRATION_SCRIPT}"; do
   if [[ ! -e "${required}" ]]; then
     echo "Required MSSQL test input is missing: ${required}" >&2
     exit 1
@@ -108,9 +116,9 @@ UPSTREAM_SHORT_COMMIT="$(git -C "${UPSTREAM_ROOT}" rev-parse --short=7 HEAD)"
 INSTALL_SQL="$(sed '/^[[:space:]]*--/d' "${INSTALL_SCRIPT}" | tr '\n' ' ')"
 INIT_SQL="$(sed '/^[[:space:]]*--/d' "${INIT_SCRIPT}" | tr '\n' ' ')"
 
+# This first process verifies the real public installation path and coexistence.
 # install-extensions.sql contains `INSTALL mssql FROM community;` and
-# init-extensions.sql contains `LOAD mssql;`. Keep both explicit: FROM community
-# belongs to INSTALL only; LOAD resolves the already installed community binary.
+# init-extensions.sql contains `LOAD mssql;`.
 "${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
@@ -159,26 +167,22 @@ print(
 )
 PY
 
-MSSQL_EXTENSION_PATH="$(find "${HOME}/.duckdb/extensions" \
-  -type f -path '*/v1.5.4/linux_amd64/mssql.duckdb_extension' -print -quit)"
-if [[ -z "${MSSQL_EXTENSION_PATH}" ]]; then
-  echo "The installed MSSQL community extension binary was not found" >&2
+EXTENSION_DIRECTORY="${HOME}/.duckdb/extensions/${DUCKDB_VERSION_DIRECTORY}/${DUCKDB_PLATFORM}"
+MSSQL_EXTENSION_PATH="${EXTENSION_DIRECTORY}/mssql.duckdb_extension"
+if [[ ! -f "${MSSQL_EXTENSION_PATH}" ]]; then
+  echo "The installed MSSQL community extension binary was not found: ${MSSQL_EXTENSION_PATH}" >&2
   exit 1
 fi
 printf '%s\n' "${MSSQL_EXTENSION_PATH}" >"${LOG_DIR}/mssql-extension-path.txt"
 
 prepare_local_extension_repo() {
-  local source_dir
-  source_dir="$(dirname "${MSSQL_EXTENSION_PATH}")"
-
   export LOCAL_EXTENSION_REPO="${RUNTIME_ROOT}/repository"
-  local target_dir="${LOCAL_EXTENSION_REPO}/v1.5.4/linux_amd64"
+  local target_dir="${LOCAL_EXTENSION_REPO}/${DUCKDB_VERSION_DIRECTORY}/${DUCKDB_PLATFORM}"
   mkdir -p "${target_dir}"
 
-  # Copy every extension installed in this isolated HOME. This preserves the
-  # exact signed community MSSQL binary and also makes any other dynamically
-  # required extension available without reaching a moving remote repository.
-  cp -a "${source_dir}/." "${target_dir}/"
+  # Copy the complete isolated extension set so known extensions can also be
+  # resolved without hitting a moving remote repository during the test run.
+  cp -a "${EXTENSION_DIRECTORY}/." "${target_dir}/"
 
   if [[ ! -f "${target_dir}/mssql.duckdb_extension" ]]; then
     echo "MSSQL was not copied into LOCAL_EXTENSION_REPO" >&2
@@ -190,7 +194,6 @@ prepare_local_extension_repo() {
     echo "mssql_repository_binary=${target_dir}/mssql.duckdb_extension"
   } >>"${LOG_DIR}/test-info.txt"
 }
-
 prepare_local_extension_repo
 
 cat >"${UPSTREAM_ROOT}/.env" <<EOF
@@ -245,9 +248,7 @@ seed_sql "${UPSTREAM_ROOT}/docker/init/init.sql" \
 seed_sql "${UPSTREAM_ROOT}/docker/init/init-transaction-tests.sql" \
   | tee "${LOG_DIR}/services/init-transaction-tests.log"
 
-# The v0.2.1 release script performs its official connectivity/smoke test.
-# The full SQLLogicTest folder is run immediately afterwards because this release
-# predates the upstream CI change that passed `unittest` into this script.
+# The v0.2.1 script performs the official connectivity/smoke test.
 bash "${UPSTREAM_INTEGRATION_SCRIPT}" "${DUCKDB_BIN}" "${MSSQL_EXTENSION_PATH}" \
   2>&1 | tee "${LOG_DIR}/upstream-integration-smoke.log"
 
@@ -257,23 +258,71 @@ bash "${UPSTREAM_INTEGRATION_SCRIPT}" "${DUCKDB_BIN}" "${MSSQL_EXTENSION_PATH}" 
   SELECT count(*) FROM seedcheck.dbo.TestSimplePK;
 " >"${LOG_DIR}/seed-check.log"
 
-CONNECTION_SQL="${INIT_SQL}"
-python3 - "${TEST_CONFIG}" "${INIT_SCRIPT}" "${CONNECTION_SQL}" <<'PY'
+# Prepare a SQLLogicTest init profile that loads every compatibility extension
+# except MSSQL. `require mssql` must be the operation that dynamically loads it.
+python3 - "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+lines = source.read_text(encoding="utf-8").splitlines()
+filtered = [
+    line for line in lines
+    if not re.fullmatch(r"\s*LOAD\s+mssql\s*;\s*", line, flags=re.IGNORECASE)
+]
+if len(filtered) == len(lines):
+    raise SystemExit("LOAD mssql was not found in the shared init script")
+target.write_text("\n".join(filtered) + "\n", encoding="utf-8")
+PY
+cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-without-mssql.sql"
+MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')"
+
+# Remove the community-origin installation metadata, then reinstall the exact
+# same signed binary from LOCAL_EXTENSION_REPO. This makes subsequent INSTALL
+# calls issued by `require mssql` idempotent instead of origin-mismatched.
+rm -f "${MSSQL_EXTENSION_PATH}" "${MSSQL_EXTENSION_PATH}.info"
+
+"${DUCKDB_BIN}" -csv -header -c "
+  INSTALL mssql FROM '${LOCAL_EXTENSION_REPO}';
+  LOAD mssql;
+  SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
+  FROM duckdb_extensions()
+  WHERE extension_name = 'mssql';
+" | tee "${LOG_DIR}/dynamic-install-probe.csv"
+
+python3 - "${LOG_DIR}/dynamic-install-probe.csv" "${LOCAL_EXTENSION_REPO}" <<'PY'
+import csv
+import sys
+from pathlib import Path
+
+rows = list(csv.DictReader(Path(sys.argv[1]).open(encoding="utf-8")))
+if len(rows) != 1:
+    raise SystemExit("Dynamic MSSQL probe did not return exactly one extension row")
+row = rows[0]
+if row.get("installed", "").lower() != "true" or row.get("loaded", "").lower() != "true":
+    raise SystemExit("Dynamic MSSQL probe did not install and load the extension")
+if row.get("install_mode", "").lower() != "repository":
+    raise SystemExit(f"Unexpected MSSQL install mode: {row.get('install_mode')}")
+print(f"Dynamic MSSQL repository probe passed using {sys.argv[2]}")
+PY
+
+python3 - \
+  "${TEST_CONFIG}" \
+  "${MSSQL_TEST_INIT_SCRIPT}" \
+  "${MSSQL_TEST_CONNECTION_SQL}" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 config_path = Path(sys.argv[1])
-init_script = sys.argv[2]
-on_new_connection = sys.argv[3]
 config = {
     "description": "Pinned dynamic MSSQL community release tests with HTTPFS and DuckLake loaded",
     "autoloading": "all",
-    "init_script": init_script,
-    "on_new_connection": on_new_connection,
-    # MSSQL is intentionally absent: it is not compiled into unittest. The
-    # SQLLogicTest `require mssql` directive installs/loads it dynamically from
-    # LOCAL_EXTENSION_REPO, which contains the binary installed FROM community.
+    "init_script": sys.argv[2],
+    "on_new_connection": sys.argv[3],
+    # MSSQL is intentionally absent because it is not compiled into unittest.
     "statically_loaded_extensions": ["core_functions", "parquet"],
     "summarize_failures": True,
 }
