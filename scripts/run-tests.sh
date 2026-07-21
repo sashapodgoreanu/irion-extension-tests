@@ -276,7 +276,6 @@ if [[ "${TEST_NAME}" == "httpfs" ]]; then
   run_suite "sql" "${NORMAL_CONFIG}" "test/sql/*"
   run_suite "autoload" "${HTTPFS_AUTOLOAD_CONFIG}" "test/extension/*"
 elif [[ "${TEST_NAME}" == "ducklake" ]]; then
-  run_suite "duckdb" "${NORMAL_CONFIG}" "${TEST_PATH}"
   run_suite "autoload" "${DUCKLAKE_AUTOLOAD_CONFIG}" "test/sql/autoloading/autoload_data_path.test"
 
   python3 "${DUCKLAKE_CONFIG_HELPER}" \
@@ -284,14 +283,14 @@ elif [[ "${TEST_NAME}" == "ducklake" ]]; then
     "${DUCKLAKE_SQLITE_CONFIG}" \
     "test/sql/data_inlining/postgres_identifier_limit.test"
   cp "${DUCKLAKE_SQLITE_CONFIG}" "${LOG_DIR}/ducklake-sqlite.json"
-  run_suite "sqlite" "${DUCKLAKE_SQLITE_CONFIG}" "test/sql/*"
+  run_suite "sqlite" "${DUCKLAKE_SQLITE_CONFIG}" "${TEST_PATH}"
 
   python3 "${DUCKLAKE_CONFIG_HELPER}" \
     "${UPSTREAM_ROOT}/test/configs/postgres.json" \
     "${DUCKLAKE_POSTGRES_CONFIG}"
   cp "${DUCKLAKE_POSTGRES_CONFIG}" "${LOG_DIR}/ducklake-postgres.json"
   start_ducklake_postgres
-  run_suite "postgres" "${DUCKLAKE_POSTGRES_CONFIG}" "test/sql/*"
+  run_suite "postgres" "${DUCKLAKE_POSTGRES_CONFIG}" "${TEST_PATH}"
 else
   run_suite "all" "${NORMAL_CONFIG}" "${TEST_PATH}"
 fi
