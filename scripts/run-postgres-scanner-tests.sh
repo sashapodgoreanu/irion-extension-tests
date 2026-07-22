@@ -5,13 +5,18 @@ UPSTREAM_ROOT="${1:?Postgres scanner upstream root is required}"
 TEST_FILTER="${2:-test/sql/*}"
 EXPECTED_COMMIT="${3:?Postgres scanner commit is required}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/artifact}"
+BATTERY_RUNTIME_CONFIG_DIR="${BATTERY_RUNTIME_CONFIG_DIR:?battery runtime config directory is required}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASE_RUNNER="${SCRIPT_DIR}/run-tests.sh"
+STANDARD_RUNNER="${SCRIPT_DIR}/run-standard-tests.sh"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 RUNTIME_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/postgres_scanner"
 LOG_DIR="${PWD}/build/logs/postgres_scanner"
 FIXTURE_SCRIPT="${UPSTREAM_ROOT}/create-postgres-tables.sh"
+INSTALL_SCRIPT="${BATTERY_RUNTIME_CONFIG_DIR}/install-extensions.sql"
+INIT_SCRIPT="${BATTERY_RUNTIME_CONFIG_DIR}/init-extensions.sql"
+EXTENSIONS_JSON="${BATTERY_RUNTIME_CONFIG_DIR}/extensions.json"
+PROBE_VALIDATOR="${SCRIPT_DIR}/validate-extension-probe.py"
 UNITTEST_LOG="${LOG_DIR}/unittest-all.log"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}/services"
@@ -30,8 +35,12 @@ export PGSCANNERTMP_ABS_DIR_PREFIX="${RUNTIME_ROOT}/tmp"
 
 for required in \
   "${DUCKDB_BIN}" \
-  "${BASE_RUNNER}" \
-  "${FIXTURE_SCRIPT}"; do
+  "${STANDARD_RUNNER}" \
+  "${FIXTURE_SCRIPT}" \
+  "${INSTALL_SCRIPT}" \
+  "${INIT_SCRIPT}" \
+  "${EXTENSIONS_JSON}" \
+  "${PROBE_VALIDATOR}"; do
   if [[ ! -e "${required}" ]]; then
     echo "Required Postgres scanner test input is missing: ${required}" >&2
     exit 1
@@ -56,6 +65,12 @@ if ! pg_isready -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" >/dev/null 2>&1; th
   exit 1
 fi
 
+sql_from_file() {
+  sed '/^[[:space:]]*--/d; /^[[:space:]]*$/d' "$1" | tr '\n' ' '
+}
+INSTALL_SQL="$(sql_from_file "${INSTALL_SCRIPT}")"
+INIT_SQL="$(sql_from_file "${INIT_SCRIPT}")"
+
 {
   echo "expected_commit=${EXPECTED_COMMIT}"
   echo "actual_commit=${ACTUAL_COMMIT}"
@@ -65,17 +80,14 @@ fi
   echo "postgres_user=${PGUSER}"
 } >"${LOG_DIR}/postgres-scanner-info.txt"
 
-"${DUCKDB_BIN}" -csv -header -c "
-  INSTALL tpch;
-  INSTALL tpcds;
-  INSTALL postgres_scanner;
-  LOAD tpch;
-  LOAD tpcds;
-  LOAD postgres_scanner;
+"${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
-  WHERE extension_name = 'postgres_scanner';
-" | tee "${LOG_DIR}/postgres-scanner-extension.csv"
+  ORDER BY extension_name;" | tee "${LOG_DIR}/postgres-scanner-extension.csv"
+
+python3 "${PROBE_VALIDATOR}" \
+  "${LOG_DIR}/postgres-scanner-extension.csv" \
+  "${EXTENSIONS_JSON}"
 
 python3 - "${LOG_DIR}/postgres-scanner-extension.csv" "${EXPECTED_COMMIT}" <<'PY'
 import csv
@@ -83,11 +95,10 @@ import sys
 from pathlib import Path
 
 rows = list(csv.DictReader(Path(sys.argv[1]).open(encoding="utf-8")))
-if len(rows) != 1:
-    raise SystemExit("Postgres scanner probe did not return exactly one extension row")
-row = rows[0]
-if row.get("installed", "").lower() != "true" or row.get("loaded", "").lower() != "true":
-    raise SystemExit("Postgres scanner probe did not install and load the extension")
+by_name = {row["extension_name"]: row for row in rows}
+row = by_name.get("postgres_scanner")
+if not row:
+    raise SystemExit("Postgres scanner probe is missing postgres_scanner")
 reported_commit = row.get("extension_version", "").lower().removeprefix("v")
 expected_commit = sys.argv[2].lower()
 if len(reported_commit) < 7 or not expected_commit.startswith(reported_commit):
@@ -106,8 +117,8 @@ PY
 ) 2>&1 | tee "${LOG_DIR}/services/postgres-fixtures.log"
 
 status=0
-bash "${BASE_RUNNER}" \
-  "postgres_scanner" \
+bash "${STANDARD_RUNNER}" \
+  postgres_scanner \
   "${UPSTREAM_ROOT}" \
   "${TEST_FILTER}" || status=$?
 
