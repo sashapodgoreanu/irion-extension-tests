@@ -1,45 +1,122 @@
+schemaVersion: 1
+
 duckdb:
   version: v1.5.4
-  ci_tools_version: v1.5.4
+  ciToolsVersion: v1.5.4
 
-# Every compatibility job installs and loads this complete set.
-always_load:
-  - httpfs
-  - ducklake
-  - postgres_scanner
-  - mssql
+# These extensions are installed and loaded in every enabled battery unless a
+# test profile deliberately starts one of them unloaded (for example HTTPFS
+# autoloading or MSSQL dynamic loading).
+defaultExtensions:
+  - name: httpfs
+    isUsed: true
+  - name: mssql
+    isUsed: true
+    installFrom: community
+  - name: ducklake
+    isUsed: true
+  - name: postgres_scanner
+    isUsed: true
 
-extensions:
+# The workflow matrix is generated exclusively from this section. Set
+# isEnabled: false to keep a battery configured without scheduling its job.
+testBatteries:
   httpfs:
+    isEnabled: true
+    runner: standard
     repository: duckdb/duckdb-httpfs
-    commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
-    test: test/*
-    setup: upstream-httpfs-services
+    pin: c3f215ab360f04dc3d3d5305fa81849c0121f111
+    tests: test/sql/*
+    submodules: recursive
+    setup: httpfs-services
+    extensions:
+      - name: json
+        isUsed: true
+      - name: tpch
+        isUsed: true
+      - name: tpcds
+        isUsed: true
+      - name: icu
+        isUsed: true
+      - name: sqlite_scanner
+        isUsed: true
+    ignoredTests:
+      - path: test/sql/copy/s3/parquet_s3_tpcds.test_slow
+        reason: Requires TPC-DS answer fixtures that are not present in the standalone HTTPFS checkout
+      - path: test/extension/autoloading_base.test
+        reason: Assumes no dynamically installed extensions, while the compatibility battery intentionally installs multiple extensions
 
   ducklake:
+    isEnabled: true
+    runner: standard
     repository: duckdb/ducklake
-    commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-    test: test/sql/*
-    setup: upstream-ducklake-catalogs
+    pin: d318a545571d7d46eb751fa2aa5f6f4389285d3c
+    tests: test/sql/*
+    submodules: recursive
+    setup: ducklake-catalogs
+    extensions:
+      - name: json
+        isUsed: true
+      - name: tpch
+        isUsed: true
+      - name: tpcds
+        isUsed: true
+      - name: icu
+        isUsed: true
+      - name: sqlite_scanner
+        isUsed: true
+    ignoredTests:
+      - path: test/sql/data_inlining/postgres_identifier_limit.test
+        reason: Test is specific to the PostgreSQL catalog profile
+        profiles:
+          - sqlite
 
   postgres_scanner:
+    isEnabled: true
+    runner: postgres-scanner
     repository: duckdb/duckdb-postgres
-    commit: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
-    test: test/sql/*
-    setup: upstream-postgres-17
+    pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
+    tests: test/sql/*
+    submodules: recursive
+    setup: postgres-17
+    extensions:
+      - name: json
+        isUsed: true
+      - name: tpch
+        isUsed: true
+      - name: tpcds
+        isUsed: true
+      - name: icu
+        isUsed: true
+    ignoredTests: []
 
-  # AI MAINTAINER NOTE — RELEASE TAG POLICY
-  # Keep MSSQL pinned to the newest PUBLISHED RELEASE TAG, never to `main`.
-  # Before changing this value, verify all of the following together:
-  #   1. hugr-lab/mssql-extension has published the new tag;
-  #   2. duckdb/community-extensions references that same tag/version;
-  #   3. scripts/run-mssql-tests.sh still reuses the pinned release's Docker,
-  #      seed SQL, smoke script and complete test/sql/* folder correctly.
-  # Updating the tag is how this repository deliberately adopts upstream test
-  # changes. Do not copy the upstream tests or SQL fixtures into this repository.
   mssql:
+    isEnabled: true
+    runner: mssql-release
     repository: hugr-lab/mssql-extension
-    tag: v0.2.1
-    community_version: 0.2.1
-    test: test/sql/*
-    setup: upstream-sqlserver-2022
+    pin: v0.2.1
+    tests: test/sql/*
+    submodules: false
+    setup: sqlserver-2022
+    extensions:
+      - name: json
+        isUsed: true
+      - name: tpch
+        isUsed: true
+      - name: tpcds
+        isUsed: true
+      - name: icu
+        isUsed: true
+      - name: sqlite_scanner
+        isUsed: true
+      - name: azure
+        isUsed: true
+    ignoredTests:
+      - path: test/sql/azure/azure_device_code.test
+        reason: Requires Azure credential-chain parameters not supported by the DuckDB v1.5.4 Azure binary
+      - path: test/sql/ctas/ctas_auto_tablock.test
+        reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB v1.5.4 runtime
+      - path: test/sql/ctas/ctas_if_not_exists.test
+        reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB v1.5.4 runtime
+      - path: test/sql/catalog/ddl_if_not_exists.test
+        reason: MSSQL v0.2.1 returns a different SQL Server object-exists error message
