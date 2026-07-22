@@ -22,7 +22,7 @@ The configuration controls:
 - `isEnabled: true|false` for every test battery;
 - upstream repository and immutable pin;
 - runner type, test filter, submodule policy, and required setup;
-- tests ignored globally or only in a named test profile.
+- tests ignored globally or only in a supported test profile.
 
 Invalid configuration fails before the DuckDB build starts.
 
@@ -94,6 +94,8 @@ Set `isUsed: false` to remove an extension from the resolved baseline without ed
   isUsed: false
 ```
 
+A disabled default can still be enabled inside the `extensions` list of one specific battery. An active default must not be repeated in a battery-specific list.
+
 A deliberate test profile can temporarily start one default extension unloaded when that is the behavior under test. Examples are HTTPFS autoloading and MSSQL dynamic loading. The extension remains installed and belongs to the resolved compatibility set.
 
 ### Test batteries
@@ -125,6 +127,8 @@ Supported fields:
 | `setup` | Named service/setup contract used by the generic workflow. |
 | `extensions` | Additional test-specific extensions merged with active defaults. |
 | `ignoredTests` | Explicit upstream tests excluded by configuration. |
+
+Supported setup contracts are `none`, `httpfs-services`, `ducklake-catalogs`, `postgres-17`, and `sqlserver-2022`. A misspelled runner, setup, boolean, repository, pin, test filter, extension, or ignored-test entry fails configuration validation.
 
 To keep a battery configured but stop running it:
 
@@ -172,7 +176,7 @@ ignoredTests:
     reason: Assumes an empty extension installation
 ```
 
-A profile-specific ignored test remains available to the other profiles:
+A profile-specific ignored test remains available to the other supported profile:
 
 ```yaml
 ignoredTests:
@@ -182,7 +186,7 @@ ignoredTests:
       - sqlite
 ```
 
-Current named profiles are `default`, `autoload`, `sqlite`, and `postgres`. An ignored entry must always contain both `path` and `reason`.
+Profile-specific ignored tests are currently supported for the DuckLake `sqlite` and `postgres` catalog profiles. Other exclusions must be global to the battery. Every ignored entry must contain both `path` and `reason`.
 
 When an ignored path no longer exists at the selected pin, the job fails. This forces the configuration to be reviewed when an upstream pin changes instead of silently retaining stale exclusions.
 
@@ -279,10 +283,12 @@ scripts/build.sh                                builds the shared DuckDB runtime
 
 ## Configuration validation
 
-The same resolver used by GitHub Actions can be run locally after installing PyYAML:
+The same resolver used by GitHub Actions can be run locally in an isolated virtual environment:
 
 ```bash
-python3 scripts/resolve-extension-config.py config/extensions.yml
+python3 -m venv .venv
+.venv/bin/python -m pip install PyYAML==6.0.2
+.venv/bin/python scripts/resolve-extension-config.py config/extensions.yml
 ```
 
 It validates the complete file, including disabled batteries, and emits the resolved matrix plus DuckDB version outputs.
