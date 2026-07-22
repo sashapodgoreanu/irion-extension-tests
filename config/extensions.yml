@@ -9,7 +9,8 @@ duckdb:
 # or disable any test battery.
 #
 # Ordering is intentional: filesystem providers load before Delta, and Delta
-# loads before Unity Catalog.
+# loads before Unity Catalog. ICU is a shared runtime dependency but has no
+# dedicated test battery.
 defaultExtensions:
   - name: httpfs
     isUsed: true
@@ -19,6 +20,8 @@ defaultExtensions:
   - name: ducklake
     isUsed: true
   - name: postgres_scanner
+    isUsed: true
+  - name: icu
     isUsed: true
   - name: azure
     isUsed: true
