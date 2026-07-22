@@ -27,11 +27,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install configuration parser
-        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.2
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check PyYAML==6.0.2
 
       - name: Validate configuration and build matrix
         id: resolve
-        run: python3 scripts/resolve-extension-config.py config/extensions.yml >>"${GITHUB_OUTPUT}"
+        run: .venv/bin/python scripts/resolve-extension-config.py config/extensions.yml >>"${GITHUB_OUTPUT}"
 
       - name: Report enabled batteries
         run: |
