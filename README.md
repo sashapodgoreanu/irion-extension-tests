@@ -2,7 +2,7 @@
 
 This repository verifies that the DuckDB extensions used together by Irion remain compatible with a selected DuckDB release.
 
-The same packaged DuckDB CLI and `unittest` binary are shared by multiple upstream test batteries running in parallel. Each battery checks out an exact upstream pin, installs its resolved extension set in an isolated `HOME`, prepares the required services and fixtures, and executes the upstream SQLLogicTests without copying them into this repository.
+A single DuckDB CLI and `unittest` runtime is built once and shared by several upstream test batteries running in parallel. Each battery checks out an immutable upstream pin, prepares its required services and fixtures, resolves its extension set from configuration, and executes the upstream SQLLogicTests without copying them into this repository.
 
 ## Single source of configuration
 
@@ -12,17 +12,16 @@ All selectable QA configuration lives in:
 config/extensions.yml
 ```
 
-The workflow no longer contains a hardcoded matrix of extension repositories, pins, test filters, enabled batteries, or extension lists. A first `configure` job validates the YAML and generates the GitHub Actions matrix.
+The GitHub Actions workflow does not contain a hardcoded matrix of repositories, pins, test filters, enabled batteries, ignored tests, or extension lists. The initial `configure` job validates the YAML and generates the matrix dynamically.
 
-The configuration controls:
+The YAML controls:
 
 - DuckDB and `extension-ci-tools` versions;
-- extensions loaded by default in every battery;
-- `isUsed: true|false` for every default or battery-specific extension;
-- `isEnabled: true|false` for every test battery;
-- upstream repository and immutable pin;
-- runner type, test filter, submodule policy, and required setup;
-- tests ignored globally or only in a supported test profile.
+- the extensions loaded by default in every enabled battery;
+- `isUsed: true|false` for default and battery-specific extensions;
+- `isEnabled: true|false` for each test battery;
+- repository, immutable pin, test filter, submodules, runner, and setup;
+- ignored tests, globally or for a supported profile.
 
 Invalid configuration fails before the DuckDB build starts.
 
@@ -65,38 +64,39 @@ These values drive the build, cache key, artifact name, extension directory, and
 
 ### Default extensions
 
-`defaultExtensions` is the compatibility baseline installed and loaded in every enabled battery:
+`defaultExtensions` is the shared compatibility baseline installed and loaded in every enabled battery:
 
 ```yaml
 defaultExtensions:
   - name: httpfs
     isUsed: true
+
   - name: mssql
     isUsed: true
     installFrom: community
+
   - name: ducklake
     isUsed: true
+
   - name: postgres_scanner
     isUsed: true
 ```
 
-The current baseline is therefore:
+The current baseline is:
 
 - `httpfs`;
 - `mssql` from the DuckDB Community repository;
 - `ducklake`;
 - `postgres_scanner`.
 
-Set `isUsed: false` to remove an extension from the resolved baseline without editing workflow or runner code:
+Set `isUsed: false` to remove an extension only from the shared baseline:
 
 ```yaml
 - name: ducklake
   isUsed: false
 ```
 
-A disabled default can still be enabled inside the `extensions` list of one specific battery. An active default must not be repeated in a battery-specific list.
-
-A deliberate test profile can temporarily start one default extension unloaded when that is the behavior under test. Examples are HTTPFS autoloading and MSSQL dynamic loading. The extension remains installed and belongs to the resolved compatibility set.
+This does not disable the DuckLake battery or any other battery.
 
 ### Test batteries
 
@@ -112,36 +112,94 @@ testBatteries:
     tests: test/sql/*
     submodules: recursive
     setup: postgres-17
+    extensions:
+      - name: postgres_scanner
+        isUsed: true
 ```
 
 Supported fields:
 
 | Field | Meaning |
 |---|---|
-| `isEnabled` | Schedules or suppresses the matrix job. |
+| `isEnabled` | Schedules or suppresses only this battery job. |
 | `runner` | Selects the maintained runner contract. |
 | `repository` | Upstream repository in `owner/name` form. |
 | `pin` | Exact commit or published release tag checked out by Actions. |
 | `tests` | Main SQLLogicTest filter for the battery. |
 | `submodules` | `true`, `false`, or `recursive`. |
 | `setup` | Named service/setup contract used by the generic workflow. |
-| `extensions` | Additional test-specific extensions merged with active defaults. |
+| `extensions` | Target extension and other requirements specific to this battery. |
 | `ignoredTests` | Explicit upstream tests excluded by configuration. |
 
-Supported setup contracts are `none`, `httpfs-services`, `ducklake-catalogs`, `postgres-17`, and `sqlserver-2022`. A misspelled runner, setup, boolean, repository, pin, test filter, extension, or ignored-test entry fails configuration validation.
+Supported setup contracts are `none`, `httpfs-services`, `ducklake-catalogs`, `postgres-17`, and `sqlserver-2022`.
 
-To keep a battery configured but stop running it:
+To keep a battery configured but stop scheduling it:
 
 ```yaml
 isEnabled: false
 ```
 
+### Independent switches: `isEnabled` and `isUsed`
+
+Battery scheduling and extension selection are intentionally independent.
+
+| Configuration change | Effect on battery jobs | Effect on default extensions |
+|---|---|---|
+| `testBatteries.<name>.isEnabled: false` | Only that battery is not scheduled. | No default extension is removed or changed. |
+| `defaultExtensions.<extension>.isUsed: false` | No battery is disabled. | The extension is removed only from the shared baseline. |
+| `testBatteries.<name>.extensions[].isUsed: true` | The extension is required by that battery when it runs. | It does not become a default for other batteries. |
+| `testBatteries.<name>.extensions[].isUsed: false` | The battery remains enabled. That entry adds nothing. | An active default with the same name still remains available. |
+
+Two invariants therefore hold:
+
+1. **Disabling a test battery never removes its extension from `defaultExtensions`.**
+2. **Removing an extension from `defaultExtensions` never disables its test battery.**
+
+Each battery explicitly declares its own target extension in its `extensions` list, even when that extension is also active in `defaultExtensions`. The resolver merges and de-duplicates the two sources.
+
+Example:
+
+```yaml
+defaultExtensions:
+  - name: httpfs
+    isUsed: false
+
+testBatteries:
+  httpfs:
+    isEnabled: true
+    extensions:
+      - name: httpfs
+        isUsed: true
+```
+
+The HTTPFS battery still runs and still receives `httpfs`; other batteries no longer receive `httpfs` through the shared baseline.
+
+The inverse is also valid:
+
+```yaml
+defaultExtensions:
+  - name: httpfs
+    isUsed: true
+
+testBatteries:
+  httpfs:
+    isEnabled: false
+```
+
+The HTTPFS battery is not scheduled, but `httpfs` remains loaded by default in every other enabled battery.
+
+When the same active extension appears in both lists, it is present once in the resolved runtime. Conflicting `installFrom` values are rejected.
+
+A deliberate test profile may temporarily start an installed extension unloaded when that behavior is under test. HTTPFS autoloading and MSSQL dynamic loading use this mechanism; it does not change the YAML-level independence described above.
+
 ### Battery-specific extensions
 
-Extensions required only by a battery are declared inside that battery:
+A battery declares its target extension and any additional dependencies:
 
 ```yaml
 extensions:
+  - name: ducklake
+    isUsed: true
   - name: tpch
     isUsed: true
   - name: tpcds
@@ -150,15 +208,19 @@ extensions:
     isUsed: false
 ```
 
-The runtime resolves the final extension set as:
+The final runtime extension set is:
 
 ```text
-active defaultExtensions + active battery.extensions
+active defaultExtensions
++
+active battery.extensions
+-
+duplicates
 ```
 
-It then generates the `INSTALL` and `LOAD` SQL for that matrix job. No static compatibility list is maintained in the workflow or in checked-in SQL initialization files.
+The runtime generator creates the `INSTALL` and `LOAD` SQL for each job. No checked-in SQL file contains a static compatibility list.
 
-`installFrom` can select a named DuckDB extension repository:
+`installFrom` selects a named DuckDB extension repository:
 
 ```yaml
 - name: mssql
@@ -168,7 +230,7 @@ It then generates the `INSTALL` and `LOAD` SQL for that matrix job. No static co
 
 ### Ignored tests
 
-A global ignored test is removed from upstream test discovery for the entire battery and recorded in `ignored-tests.tsv`:
+A global ignored test is removed from upstream discovery for the entire battery and recorded in `ignored-tests.tsv`:
 
 ```yaml
 ignoredTests:
@@ -186,25 +248,25 @@ ignoredTests:
       - sqlite
 ```
 
-Profile-specific ignored tests are currently supported for the DuckLake `sqlite` and `postgres` catalog profiles. Other exclusions must be global to the battery. Every ignored entry must contain both `path` and `reason`.
+Profile-specific ignored tests are currently supported for the DuckLake `sqlite` and `postgres` catalog profiles. Other exclusions must be global to the battery.
 
-When an ignored path no longer exists at the selected pin, the job fails. This forces the configuration to be reviewed when an upstream pin changes instead of silently retaining stale exclusions.
+Every ignored entry must contain both `path` and `reason`. If an ignored path no longer exists at the selected pin, the job fails so the exclusion must be reviewed.
 
 ## Runtime generation
 
-For every matrix entry, `scripts/prepare-test-battery.py` creates an isolated runtime configuration containing:
+For every matrix entry, `scripts/prepare-test-battery.py` creates an isolated runtime containing:
 
 - the resolved battery JSON;
 - resolved extension metadata;
 - generated installation SQL;
 - generated full initialization SQL;
-- special initialization profiles such as “without HTTPFS” and “without MSSQL”;
+- special profiles such as “without HTTPFS” and “without MSSQL”;
 - global ignored-test metadata;
 - profile-specific skip metadata.
 
-The generated files are copied into the battery log artifact. They are not source-controlled configuration.
+The generated files are copied into the battery log artifact and are not source-controlled configuration.
 
-Before executing tests, the runner queries `duckdb_extensions()` and verifies that every resolved extension is installed and loaded from the expected repository. SQLLogicTest summaries are also checked so a selected extension cannot be silently skipped by `require`.
+Before executing tests, the runner queries `duckdb_extensions()` and verifies that every resolved extension is installed and loaded from the expected repository. SQLLogicTest summaries are checked so a selected extension cannot be silently skipped by `require`.
 
 ## Current batteries
 
@@ -221,7 +283,7 @@ The table documents the current YAML values; `config/extensions.yml` remains aut
 
 The HTTPFS runner reuses service scripts from its pinned checkout, including the upstream HTTP server, Squid, presigned URL, and MinIO/S3 setup. The main SQL suite and the HTTPFS autoload suite run in the same job.
 
-The autoload profile keeps HTTPFS installed but initially unloaded. Other active default and HTTPFS-specific extensions remain available according to the generated profile.
+The autoload profile keeps HTTPFS installed but initially unloaded.
 
 ### DuckLake
 
@@ -233,7 +295,7 @@ DuckLake keeps three intentional profiles:
 
 The former generic `test/*` pass was removed because it repeated the same `test/sql/*` content already exercised by the SQLite and PostgreSQL profiles.
 
-The upstream `test/configs/sqlite.json` and `test/configs/postgres.json` files remain authoritative. The adapter only merges the resolved extension initialization and profile-specific ignored tests while preserving upstream configuration fields.
+The upstream `test/configs/sqlite.json` and `test/configs/postgres.json` files remain authoritative. The adapter merges the resolved extension initialization and profile-specific ignored tests while preserving upstream fields.
 
 ### postgres_scanner
 
@@ -245,21 +307,16 @@ It verifies that the installed `postgres_scanner` binary reports the same source
 
 MSSQL follows a published release tag, never `main`. The configured tag is checked against the exact checkout and against the source commit reported by the Community extension binary.
 
-The runner reuses the pinned release’s:
+The runner reuses the pinned release’s SQL Server Compose definition, seed SQL, integration smoke test, and complete SQLLogicTest folder.
 
-- SQL Server Compose definition;
-- seed SQL;
-- integration smoke test;
-- complete SQLLogicTest folder.
-
-A runtime copy of the legacy base runner removes its old hardcoded skip list. All current ignored MSSQL tests are therefore controlled by `config/extensions.yml`.
+A runtime copy of the legacy base runner removes its old hardcoded skip list. All ignored MSSQL tests are controlled by `config/extensions.yml`.
 
 To update MSSQL:
 
 1. select a newer published release tag;
 2. verify that `duckdb/community-extensions` publishes the binary from the same tag;
-3. change only the YAML pin and review any changed upstream service or fixture contract;
-4. remove or update stale ignored tests when the validation reports them.
+3. change the YAML pin and review changed upstream service or fixture contracts;
+4. remove or update stale ignored tests when validation reports them.
 
 ## Files
 
@@ -267,23 +324,23 @@ To update MSSQL:
 config/extensions.yml                         single source of QA configuration
 .github/workflows/extension-qa.yml            generic configure/build/matrix pipeline
 scripts/resolve-extension-config.py           validates YAML and emits the matrix
-scripts/prepare-test-battery.py                generates per-job SQL and metadata
-scripts/run-test-battery.sh                    generic runtime dispatcher
-scripts/run-standard-tests.sh                  HTTPFS, DuckLake, and generic batteries
-scripts/run-postgres-scanner-tests.sh          PostgreSQL fixture and pin contract
-scripts/run-mssql-configured-tests.sh          configured MSSQL compatibility wrapper
-scripts/run-mssql-tests-base.sh                preserved MSSQL execution engine
-scripts/prepare-mssql-configured-runner.py     removes legacy hardcoded MSSQL skips
-scripts/prepare-ducklake-config.py             adapts upstream catalog profiles
-scripts/validate-extension-probe.py            validates installed and loaded extensions
-scripts/check-test-requirements.py              rejects silent SQLLogicTest require skips
-scripts/setup-httpfs.sh                         coordinates pinned HTTPFS services
-scripts/build.sh                                builds the shared DuckDB runtime
+scripts/prepare-test-battery.py               generates per-job SQL and metadata
+scripts/run-test-battery.sh                   generic runtime dispatcher
+scripts/run-standard-tests.sh                 HTTPFS, DuckLake, and generic batteries
+scripts/run-postgres-scanner-tests.sh         PostgreSQL fixture and pin contract
+scripts/run-mssql-configured-tests.sh         configured MSSQL compatibility wrapper
+scripts/run-mssql-tests-base.sh               preserved MSSQL execution engine
+scripts/prepare-mssql-configured-runner.py    removes legacy hardcoded MSSQL skips
+scripts/prepare-ducklake-config.py            adapts upstream catalog profiles
+scripts/validate-extension-probe.py           validates installed and loaded extensions
+scripts/check-test-requirements.py            rejects silent SQLLogicTest require skips
+scripts/setup-httpfs.sh                       coordinates pinned HTTPFS services
+scripts/build.sh                              builds the shared DuckDB runtime
 ```
 
 ## Configuration validation
 
-The same resolver used by GitHub Actions can be run locally in an isolated virtual environment:
+Run the same resolver used by GitHub Actions in an isolated virtual environment:
 
 ```bash
 python3 -m venv .venv
@@ -291,16 +348,17 @@ python3 -m venv .venv
 .venv/bin/python scripts/resolve-extension-config.py config/extensions.yml
 ```
 
-It validates the complete file, including disabled batteries, and emits the resolved matrix plus DuckDB version outputs.
+The resolver validates the complete file, including disabled batteries, and emits the resolved matrix plus DuckDB version outputs.
 
 ## Adding another battery
 
 1. Add a complete entry under `testBatteries`.
 2. Choose an existing `runner` and `setup` contract, or implement a new named contract.
 3. Pin an immutable upstream commit or published release tag.
-4. Declare only the additional extensions needed by that battery.
-5. Add ignored tests with explicit reasons only after observing reproducible incompatibilities.
-6. Run the resolver and GitHub Actions.
+4. Explicitly declare the target extension in the battery `extensions` list.
+5. Declare additional dependencies required only by that battery.
+6. Add ignored tests with explicit reasons only after observing reproducible incompatibilities.
+7. Run the resolver and GitHub Actions.
 
 No workflow matrix edit is required.
 
