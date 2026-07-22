@@ -143,6 +143,46 @@ def active_extensions(values: list[dict[str, str]]) -> list[dict[str, str]]:
     return result
 
 
+def merge_extensions(
+    default_extensions: list[dict[str, str]],
+    battery_extensions: list[dict[str, str]],
+    path: str,
+) -> list[dict[str, str]]:
+    """Merge active defaults with active battery requirements without coupling their switches."""
+
+    result: list[dict[str, str]] = []
+    by_name: dict[str, dict[str, str]] = {}
+
+    for source_name, extensions in (
+        ("defaultExtensions", default_extensions),
+        (f"{path}.extensions", battery_extensions),
+    ):
+        for item in extensions:
+            name = item["name"]
+            existing = by_name.get(name)
+            if existing is None:
+                merged = dict(item)
+                by_name[name] = merged
+                result.append(merged)
+                continue
+
+            existing_origin = existing.get("installFrom")
+            incoming_origin = item.get("installFrom")
+            if (
+                existing_origin is not None
+                and incoming_origin is not None
+                and existing_origin != incoming_origin
+            ):
+                raise ConfigError(
+                    f"{source_name} conflicts with the resolved installFrom for {name}: "
+                    f"{existing_origin} != {incoming_origin}"
+                )
+            if existing_origin is None and incoming_origin is not None:
+                existing["installFrom"] = incoming_origin
+
+    return result
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print(f"usage: {sys.argv[0]} CONFIG_YAML", file=sys.stderr)
@@ -167,7 +207,6 @@ def main() -> int:
             root.get("defaultExtensions"), "defaultExtensions"
         )
         active_defaults = active_extensions(defaults)
-        active_default_names = {item["name"] for item in active_defaults}
 
         batteries = require_mapping(root.get("testBatteries"), "testBatteries")
         matrix: list[dict[str, Any]] = []
@@ -199,22 +238,23 @@ def main() -> int:
             extensions = normalize_extensions(
                 battery.get("extensions", []), f"{path}.extensions"
             )
-            duplicate_defaults = active_default_names.intersection(
-                item["name"] for item in extensions
-            )
-            if duplicate_defaults:
-                duplicates = ", ".join(sorted(duplicate_defaults))
-                raise ConfigError(
-                    f"{path}.extensions repeats active default extensions: {duplicates}"
-                )
             ignored_tests = normalize_ignored_tests(
                 battery.get("ignoredTests", []), f"{path}.ignoredTests"
             )
 
+            # isEnabled controls only whether this battery is scheduled. It never
+            # changes defaultExtensions or the resolved runtime of other batteries.
             if not is_enabled:
                 continue
 
-            resolved_extensions = active_defaults + active_extensions(extensions)
+            # isUsed in defaultExtensions controls only the shared baseline.
+            # Battery-specific active extensions are merged independently, allowing
+            # a battery to require its target even when that target is not a default.
+            resolved_extensions = merge_extensions(
+                active_defaults,
+                active_extensions(extensions),
+                path,
+            )
             if not resolved_extensions:
                 raise ConfigError(f"{path} resolves to an empty extension set")
             matrix.append(
