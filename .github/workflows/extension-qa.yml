@@ -13,8 +13,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  configure:
+    name: Resolve extension configuration
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
+      ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
+      enabled_batteries: ${{ steps.resolve.outputs.enabled_batteries }}
+
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Install configuration parser
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.2
+
+      - name: Validate configuration and build matrix
+        id: resolve
+        run: python3 scripts/resolve-extension-config.py config/extensions.yml >>"${GITHUB_OUTPUT}"
+
+      - name: Report enabled batteries
+        run: |
+          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
+          echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
+
   build:
     name: Prepare DuckDB runtime
+    needs: configure
     runs-on: ubuntu-24.04
     timeout-minutes: 90
 
@@ -25,13 +51,9 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # AI MAINTAINER NOTE — DUCKDB RUNTIME CACHE CONTRACT
-      # This cache contains the complete packaged DuckDB CLI + unittest runtime.
-      # Keep the key deterministic and tied to every input that can change the
-      # produced binaries. Never key it only by branch, workflow run or DuckDB
-      # semantic version, and do not add a broad restore-key: a stale binary can
-      # turn this compatibility suite into a false positive or false negative.
-      # A cache miss must always be recoverable by running scripts/build.sh.
+      # This cache contains only the packaged DuckDB CLI + unittest runtime.
+      # Battery pins and extension lists do not enter the artifact; each test job
+      # installs its resolved extension set in an isolated HOME.
       - name: Calculate DuckDB runtime cache key
         id: duckdb-runtime-key
         shell: bash
@@ -43,11 +65,11 @@ jobs:
 
           BUILD_INPUT_HASH="$({
             printf '%s\n' \
-              'cache-schema=v1' \
+              'cache-schema=v2' \
               'runner=ubuntu-24.04' \
               'architecture=linux-amd64' \
-              'duckdb-version=v1.5.4' \
-              'ci-tools-version=v1.5.4' \
+              'duckdb-version=${{ needs.configure.outputs.duckdb_version }}' \
+              'ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}' \
               "duckdb-sha=${DUCKDB_SHA}" \
               "ci-tools-sha=${CI_TOOLS_SHA}"
             git ls-files -s -- \
@@ -59,15 +81,10 @@ jobs:
               src
           } | sha256sum | cut -d' ' -f1)"
 
-          CACHE_KEY="duckdb-runtime-v1-ubuntu24-linux-amd64-${BUILD_INPUT_HASH}"
-
-          echo "key=${CACHE_KEY}" >> "${GITHUB_OUTPUT}"
-          echo "duckdb_sha=${DUCKDB_SHA}" >> "${GITHUB_OUTPUT}"
-          echo "ci_tools_sha=${CI_TOOLS_SHA}" >> "${GITHUB_OUTPUT}"
-
-          echo "DuckDB runtime cache key: ${CACHE_KEY}"
-          echo "DuckDB commit: ${DUCKDB_SHA}"
-          echo "extension-ci-tools commit: ${CI_TOOLS_SHA}"
+          CACHE_KEY="duckdb-runtime-v2-ubuntu24-linux-amd64-${BUILD_INPUT_HASH}"
+          echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
+          echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
+          echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
 
       - name: Restore cached DuckDB runtime
         id: duckdb-runtime-cache
@@ -85,8 +102,8 @@ jobs:
       - name: Build DuckDB runtime
         if: steps.duckdb-runtime-cache.outputs.cache-hit != 'true'
         env:
-          DUCKDB_VERSION: v1.5.4
-          CI_TOOLS_VERSION: v1.5.4
+          DUCKDB_VERSION: ${{ needs.configure.outputs.duckdb_version }}
+          CI_TOOLS_VERSION: ${{ needs.configure.outputs.ci_tools_version }}
           BUILD_JOBS: 2
         run: bash scripts/build.sh
 
@@ -94,11 +111,9 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-
           test -f build/artifact/bin/duckdb
           test -f build/artifact/bin/unittest
           chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
-
           build/artifact/bin/duckdb --version
           build/artifact/bin/unittest --help >/dev/null
 
@@ -107,64 +122,26 @@ jobs:
             echo "cache_hit=${{ steps.duckdb-runtime-cache.outputs.cache-hit }}"
             echo "duckdb_commit=${{ steps.duckdb-runtime-key.outputs.duckdb_sha }}"
             echo "ci_tools_commit=${{ steps.duckdb-runtime-key.outputs.ci_tools_sha }}"
-          } >> build/artifact/logs/build-info.txt
+          } >>build/artifact/logs/build-info.txt
 
-      # The cache persists the runtime between workflow runs. The artifact remains
-      # necessary because it distributes that exact runtime to all test jobs in
-      # the current run without each matrix job restoring the cache independently.
       - name: Upload shared build
         uses: actions/upload-artifact@v4
         with:
-          name: duckdb-v1.5.4-linux-amd64
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-linux-amd64
           path: build/artifact/
           if-no-files-found: error
           retention-days: 7
 
   test:
     name: Test ${{ matrix.name }}
-    needs: build
+    needs:
+      - configure
+      - build
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: httpfs
-            runner: standard
-            repository: duckdb/duckdb-httpfs
-            commit: c3f215ab360f04dc3d3d5305fa81849c0121f111
-            test: test/*
-            submodules: recursive
-          - name: ducklake
-            runner: standard
-            repository: duckdb/ducklake
-            commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-            test: test/sql/*
-            submodules: recursive
-          - name: postgres_scanner
-            runner: postgres-scanner
-            repository: duckdb/duckdb-postgres
-            commit: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
-            test: test/sql/*
-            submodules: recursive
-
-          # AI MAINTAINER NOTE — MSSQL RELEASE PIN
-          # This must remain a published release tag, never `main`, a release-bump
-          # commit, or another moving ref. The community binary identifies the
-          # final tagged commit, so the test checkout must use that exact tag too.
-          # When a newer MSSQL release is published, update this tag together with:
-          #   - config/extensions.yml;
-          #   - the expected version in scripts/run-mssql-tests.sh;
-          #   - confirmation that duckdb/community-extensions points to the same release.
-          # The test runner deliberately consumes Docker, seed SQL, smoke tests and
-          # test/sql/* from this exact checkout so upstream changes become visible only
-          # when the release pin is intentionally advanced.
-          - name: mssql
-            runner: mssql-release
-            repository: hugr-lab/mssql-extension
-            commit: v0.2.1
-            test: test/sql/*
-            submodules: "false"
+      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
 
     steps:
       - name: Checkout QA repository
@@ -174,7 +151,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ matrix.repository }}
-          ref: ${{ matrix.commit }}
+          ref: ${{ matrix.pin }}
           path: upstream/${{ matrix.name }}
           fetch-depth: 1
           submodules: ${{ matrix.submodules }}
@@ -182,26 +159,23 @@ jobs:
       - name: Download shared build
         uses: actions/download-artifact@v4
         with:
-          name: duckdb-v1.5.4-linux-amd64
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-linux-amd64
           path: build/artifact
 
       - name: Restore executable permissions
         run: |
-          chmod +x \
-            build/artifact/bin/duckdb \
-            build/artifact/bin/unittest \
-            scripts/run-test-battery.sh \
-            scripts/run-postgres-scanner-tests.sh
+          chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
+          chmod +x scripts/*.sh scripts/*.py
 
       - name: Install HTTPFS service dependency
-        if: matrix.name == 'httpfs'
+        if: matrix.setup == 'httpfs-services'
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq squid
           docker compose version
 
       - name: Setup PostgreSQL test service
-        if: matrix.name == 'postgres_scanner'
+        if: matrix.setup == 'postgres-17'
         uses: ikalnytskyi/action-setup-postgres@v8
         with:
           postgres-version: 17
@@ -210,21 +184,20 @@ jobs:
           database: postgres
           port: 5432
 
-      - name: Verify MSSQL container runtime
-        if: matrix.name == 'mssql'
+      - name: Verify SQL Server container runtime
+        if: matrix.setup == 'sqlserver-2022'
         run: docker compose version
 
       - name: Run test battery
         env:
           ARTIFACT_DIR: build/artifact
-          MSSQL_RELEASE_TAG: ${{ matrix.commit }}
+          BATTERY_CONFIG_JSON: ${{ toJSON(matrix) }}
         run: |
+          mkdir -p build/config
+          printf '%s\n' "${BATTERY_CONFIG_JSON}" >"build/config/${{ matrix.name }}.json"
           bash scripts/run-test-battery.sh \
-            '${{ matrix.runner }}' \
-            '${{ matrix.name }}' \
-            '${{ github.workspace }}/upstream/${{ matrix.name }}' \
-            '${{ matrix.test }}' \
-            '${{ matrix.commit }}'
+            "build/config/${{ matrix.name }}.json" \
+            "${{ github.workspace }}/upstream/${{ matrix.name }}"
 
       - name: Upload test logs
         if: always()
