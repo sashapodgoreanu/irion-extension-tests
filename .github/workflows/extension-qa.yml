@@ -141,6 +141,12 @@ jobs:
             commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
             test: test/sql/*
             submodules: recursive
+          - name: postgres_scanner
+            runner: postgres-scanner
+            repository: duckdb/duckdb-postgres
+            commit: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
+            test: test/sql/*
+            submodules: recursive
 
           # AI MAINTAINER NOTE — MSSQL RELEASE PIN
           # This must remain a published release tag, never `main`, a release-bump
@@ -180,7 +186,12 @@ jobs:
           path: build/artifact
 
       - name: Restore executable permissions
-        run: chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest scripts/run-test-battery.sh
+        run: |
+          chmod +x \
+            build/artifact/bin/duckdb \
+            build/artifact/bin/unittest \
+            scripts/run-test-battery.sh \
+            scripts/run-postgres-scanner-tests.sh
 
       - name: Install HTTPFS service dependency
         if: matrix.name == 'httpfs'
@@ -188,6 +199,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq squid
           docker compose version
+
+      - name: Setup PostgreSQL test service
+        if: matrix.name == 'postgres_scanner'
+        uses: ikalnytskyi/action-setup-postgres@v8
+        with:
+          postgres-version: 17
+          username: postgres
+          password: postgres
+          database: postgres
+          port: 5432
 
       - name: Verify MSSQL container runtime
         if: matrix.name == 'mssql'
@@ -202,7 +223,8 @@ jobs:
             '${{ matrix.runner }}' \
             '${{ matrix.name }}' \
             '${{ github.workspace }}/upstream/${{ matrix.name }}' \
-            '${{ matrix.test }}'
+            '${{ matrix.test }}' \
+            '${{ matrix.commit }}'
 
       - name: Upload test logs
         if: always()
