@@ -7,6 +7,9 @@ duckdb:
 # Shared compatibility baseline. isUsed controls only whether an extension is
 # installed and loaded by default in every enabled battery. It does not enable
 # or disable any test battery.
+#
+# Ordering is intentional: filesystem providers load before Delta, and Delta
+# loads before Unity Catalog.
 defaultExtensions:
   - name: httpfs
     isUsed: true
@@ -16,6 +19,14 @@ defaultExtensions:
   - name: ducklake
     isUsed: true
   - name: postgres_scanner
+    isUsed: true
+  - name: azure
+    isUsed: true
+  - name: delta
+    isUsed: true
+  - name: iceberg
+    isUsed: true
+  - name: unity_catalog
     isUsed: true
 
 # Battery scheduling is independent from defaultExtensions:
@@ -100,6 +111,84 @@ testBatteries:
       - name: tpcds
         isUsed: true
       - name: icu
+        isUsed: true
+    ignoredTests: []
+
+  delta:
+    isEnabled: true
+    runner: standard
+    repository: duckdb/duckdb-delta
+    pin: 45c40878601b54b4188b09e08732fe0d576ad222
+    tests: test/sql/*
+    submodules: recursive
+    setup: none
+    extensions:
+      - name: httpfs
+        isUsed: true
+      - name: azure
+        isUsed: true
+      - name: aws
+        isUsed: true
+      - name: delta
+        isUsed: true
+      - name: json
+        isUsed: true
+      - name: tpch
+        isUsed: true
+      - name: tpcds
+        isUsed: true
+    ignoredTests: []
+
+  iceberg:
+    isEnabled: true
+    runner: standard
+    repository: duckdb/duckdb-iceberg
+    pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
+    tests: test/sql/local/*
+    submodules: recursive
+    setup: none
+    extensions:
+      - name: httpfs
+        isUsed: true
+      - name: avro
+        isUsed: true
+      - name: iceberg
+        isUsed: true
+      - name: tpch
+        isUsed: true
+    ignoredTests: []
+
+  azure:
+    isEnabled: true
+    runner: standard
+    repository: duckdb/duckdb-azure
+    pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
+    tests: test/sql/*
+    submodules: recursive
+    setup: none
+    extensions:
+      - name: azure
+        isUsed: true
+    ignoredTests: []
+
+  unity_catalog:
+    isEnabled: true
+    runner: standard
+    repository: duckdb/unity_catalog
+    pin: d52a7ee8678a23a8e0f950e955b9ffa1df0c3395
+    tests: test/sql/*
+    submodules: recursive
+    setup: none
+    extensions:
+      - name: httpfs
+        isUsed: true
+      - name: delta
+        isUsed: true
+      - name: unity_catalog
+        isUsed: true
+      - name: tpch
+        isUsed: true
+      - name: tpcds
         isUsed: true
     ignoredTests: []
 
