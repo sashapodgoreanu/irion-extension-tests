@@ -4,9 +4,9 @@ duckdb:
   version: v1.5.4
   ciToolsVersion: v1.5.4
 
-# These extensions are installed and loaded in every enabled battery unless a
-# test profile deliberately starts one of them unloaded (for example HTTPFS
-# autoloading or MSSQL dynamic loading).
+# Shared compatibility baseline. isUsed controls only whether an extension is
+# installed and loaded by default in every enabled battery. It does not enable
+# or disable any test battery.
 defaultExtensions:
   - name: httpfs
     isUsed: true
@@ -18,8 +18,15 @@ defaultExtensions:
   - name: postgres_scanner
     isUsed: true
 
-# The workflow matrix is generated exclusively from this section. Set
-# isEnabled: false to keep a battery configured without scheduling its job.
+# Battery scheduling is independent from defaultExtensions:
+# - isEnabled: false suppresses only that battery job;
+# - disabling a battery never removes an extension from the shared baseline;
+# - setting a default extension isUsed: false never disables its battery.
+#
+# Each battery explicitly declares its target extension in extensions. The
+# resolver merges and de-duplicates it with the active defaults. Therefore a
+# target can remain available to its own battery even when removed from the
+# shared default baseline.
 testBatteries:
   httpfs:
     isEnabled: true
@@ -30,6 +37,8 @@ testBatteries:
     submodules: recursive
     setup: httpfs-services
     extensions:
+      - name: httpfs
+        isUsed: true
       - name: json
         isUsed: true
       - name: tpch
@@ -55,6 +64,8 @@ testBatteries:
     submodules: recursive
     setup: ducklake-catalogs
     extensions:
+      - name: ducklake
+        isUsed: true
       - name: json
         isUsed: true
       - name: tpch
@@ -80,6 +91,8 @@ testBatteries:
     submodules: recursive
     setup: postgres-17
     extensions:
+      - name: postgres_scanner
+        isUsed: true
       - name: json
         isUsed: true
       - name: tpch
@@ -99,6 +112,9 @@ testBatteries:
     submodules: false
     setup: sqlserver-2022
     extensions:
+      - name: mssql
+        isUsed: true
+        installFrom: community
       - name: json
         isUsed: true
       - name: tpch
