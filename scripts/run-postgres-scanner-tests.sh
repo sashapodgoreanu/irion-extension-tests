@@ -69,6 +69,8 @@ fi
   INSTALL tpch;
   INSTALL tpcds;
   INSTALL postgres_scanner;
+  LOAD tpch;
+  LOAD tpcds;
   LOAD postgres_scanner;
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
