@@ -6,6 +6,7 @@ duckdb:
 always_load:
   - httpfs
   - ducklake
+  - postgres_scanner
   - mssql
 
 extensions:
@@ -18,8 +19,14 @@ extensions:
   ducklake:
     repository: duckdb/ducklake
     commit: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-    test: test/*
+    test: test/sql/*
     setup: upstream-ducklake-catalogs
+
+  postgres_scanner:
+    repository: duckdb/duckdb-postgres
+    commit: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
+    test: test/sql/*
+    setup: upstream-postgres-17
 
   # AI MAINTAINER NOTE — RELEASE TAG POLICY
   # Keep MSSQL pinned to the newest PUBLISHED RELEASE TAG, never to `main`.
