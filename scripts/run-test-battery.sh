@@ -5,6 +5,7 @@ RUNNER_KIND="${1:?runner kind is required}"
 BATTERY_NAME="${2:?battery name is required}"
 UPSTREAM_ROOT="${3:?upstream root is required}"
 TEST_FILTER="${4:?test filter is required}"
+UPSTREAM_REF="${5:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${PWD}/build/logs/${BATTERY_NAME}"
@@ -38,6 +39,17 @@ case "${RUNNER_KIND}" in
       "${BATTERY_NAME}" \
       "${UPSTREAM_ROOT}" \
       "${TEST_FILTER}"
+    ;;
+  postgres-scanner)
+    if [[ -z "${UPSTREAM_REF}" ]]; then
+      echo "Postgres scanner runner requires the pinned upstream commit" >&2
+      exit 2
+    fi
+
+    exec bash "${SCRIPT_DIR}/run-postgres-scanner-tests.sh" \
+      "${UPSTREAM_ROOT}" \
+      "${TEST_FILTER}" \
+      "${UPSTREAM_REF}"
     ;;
   mssql-release)
     exec bash "${SCRIPT_DIR}/run-mssql-tests.sh" \
