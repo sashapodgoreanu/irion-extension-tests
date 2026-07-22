@@ -2,7 +2,7 @@
 
 This repository verifies that the DuckDB extensions used together by Irion remain compatible with a selected DuckDB release.
 
-A single DuckDB CLI and `unittest` runtime is built once and shared by several upstream test batteries running in parallel. Each battery checks out an immutable upstream pin, prepares its required services and fixtures, resolves its extension set from configuration, and executes the upstream SQLLogicTests without copying them into this repository.
+A single DuckDB CLI and `unittest` runtime is built once and shared by several upstream test batteries running in parallel. Each battery checks out an immutable upstream pin, resolves its extension set from configuration, prepares any required services or fixtures, and executes the original upstream SQLLogicTests without copying them into this repository.
 
 ## Single source of configuration
 
@@ -41,18 +41,18 @@ Invalid configuration fails before the DuckDB build starts.
                  │                         │
                  └──────── shared artifact┘
                               │
-          ┌───────────────────┼───────────────────┬───────────────────┐
-          ▼                   ▼                   ▼                   ▼
-     HTTPFS tests        DuckLake tests    postgres_scanner      MSSQL tests
-       upstream             upstream           upstream             upstream
-       pinned               pinned             pinned               release tag
+      ┌───────────┬───────────┬───────────┬───────────┐
+      ▼           ▼           ▼           ▼           │
+   HTTPFS      DuckLake    PostgreSQL    MSSQL         │
+      │           │           │           │           │
+      ├───────────┼───────────┼───────────┼───────────┤
+      ▼           ▼           ▼           ▼
+    Delta       Iceberg      Azure     Unity Catalog
 ```
 
 The build happens once. Every enabled battery runs as an independent matrix job and downloads the same runtime artifact.
 
-## Configuration model
-
-### DuckDB runtime
+## DuckDB runtime
 
 ```yaml
 duckdb:
@@ -62,7 +62,7 @@ duckdb:
 
 These values drive the build, cache key, artifact name, extension directory, and every battery runtime. They must not be duplicated in the workflow.
 
-### Default extensions
+## Default extensions
 
 `defaultExtensions` is the shared compatibility baseline installed and loaded in every enabled battery:
 
@@ -80,40 +80,68 @@ defaultExtensions:
 
   - name: postgres_scanner
     isUsed: true
+
+  - name: azure
+    isUsed: true
+
+  - name: delta
+    isUsed: true
+
+  - name: iceberg
+    isUsed: true
+
+  - name: unity_catalog
+    isUsed: true
 ```
+
+The ordering is intentional:
+
+- filesystem providers are loaded before extensions that consume remote storage;
+- `delta` is loaded before `unity_catalog`;
+- `unity_catalog` can therefore use the Delta implementation from the same DuckDB runtime.
 
 The current baseline is:
 
 - `httpfs`;
 - `mssql` from the DuckDB Community repository;
 - `ducklake`;
-- `postgres_scanner`.
+- `postgres_scanner`;
+- `azure`;
+- `delta`;
+- `iceberg`;
+- `unity_catalog`.
 
 Set `isUsed: false` to remove an extension only from the shared baseline:
 
 ```yaml
-- name: ducklake
+- name: iceberg
   isUsed: false
 ```
 
-This does not disable the DuckLake battery or any other battery.
+This does not disable the Iceberg battery or any other battery.
 
-### Test batteries
+## Test batteries
 
 Each entry under `testBatteries` defines one possible parallel job:
 
 ```yaml
 testBatteries:
-  postgres_scanner:
+  delta:
     isEnabled: true
-    runner: postgres-scanner
-    repository: duckdb/duckdb-postgres
-    pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
+    runner: standard
+    repository: duckdb/duckdb-delta
+    pin: 45c40878601b54b4188b09e08732fe0d576ad222
     tests: test/sql/*
     submodules: recursive
-    setup: postgres-17
+    setup: none
     extensions:
-      - name: postgres_scanner
+      - name: httpfs
+        isUsed: true
+      - name: azure
+        isUsed: true
+      - name: aws
+        isUsed: true
+      - name: delta
         isUsed: true
 ```
 
@@ -139,7 +167,7 @@ To keep a battery configured but stop scheduling it:
 isEnabled: false
 ```
 
-### Independent switches: `isEnabled` and `isUsed`
+## Independent switches: `isEnabled` and `isUsed`
 
 Battery scheduling and extension selection are intentionally independent.
 
@@ -161,52 +189,38 @@ Example:
 
 ```yaml
 defaultExtensions:
-  - name: httpfs
+  - name: delta
     isUsed: false
 
 testBatteries:
-  httpfs:
+  delta:
     isEnabled: true
     extensions:
-      - name: httpfs
+      - name: delta
         isUsed: true
 ```
 
-The HTTPFS battery still runs and still receives `httpfs`; other batteries no longer receive `httpfs` through the shared baseline.
+The Delta battery still runs and receives `delta`; other batteries no longer receive Delta through the shared baseline.
 
 The inverse is also valid:
 
 ```yaml
 defaultExtensions:
-  - name: httpfs
+  - name: delta
     isUsed: true
 
 testBatteries:
-  httpfs:
+  delta:
     isEnabled: false
 ```
 
-The HTTPFS battery is not scheduled, but `httpfs` remains loaded by default in every other enabled battery.
+The Delta battery is not scheduled, but `delta` remains loaded by default in every other enabled battery.
 
 When the same active extension appears in both lists, it is present once in the resolved runtime. Conflicting `installFrom` values are rejected.
 
-A deliberate test profile may temporarily start an installed extension unloaded when that behavior is under test. HTTPFS autoloading and MSSQL dynamic loading use this mechanism; it does not change the YAML-level independence described above.
+## Battery-specific extensions
 
-### Battery-specific extensions
-
-A battery declares its target extension and any additional dependencies:
-
-```yaml
-extensions:
-  - name: ducklake
-    isUsed: true
-  - name: tpch
-    isUsed: true
-  - name: tpcds
-    isUsed: true
-  - name: azure
-    isUsed: false
-```
+A battery declares its target extension and any additional dependencies required by its upstream tests.
 
 The final runtime extension set is:
 
@@ -228,7 +242,135 @@ The runtime generator creates the `INSTALL` and `LOAD` SQL for each job. No chec
   installFrom: community
 ```
 
-### Ignored tests
+### Dependency examples
+
+Delta follows its upstream test dependencies:
+
+```yaml
+extensions:
+  - name: httpfs
+    isUsed: true
+  - name: azure
+    isUsed: true
+  - name: aws
+    isUsed: true
+  - name: delta
+    isUsed: true
+  - name: json
+    isUsed: true
+  - name: tpch
+    isUsed: true
+  - name: tpcds
+    isUsed: true
+```
+
+Unity Catalog keeps its functional dependency explicit and ordered:
+
+```yaml
+extensions:
+  - name: httpfs
+    isUsed: true
+  - name: delta
+    isUsed: true
+  - name: unity_catalog
+    isUsed: true
+  - name: tpch
+    isUsed: true
+  - name: tpcds
+    isUsed: true
+```
+
+This means removing `delta` from the shared defaults does not make the Unity Catalog battery invalid: that battery still declares and loads Delta itself.
+
+## DuckDB v1.5.4 pins
+
+The new batteries use the exact extension commits declared by DuckDB tag `v1.5.4`.
+
+| Extension | Upstream repository | DuckDB v1.5.4 pin |
+|---|---|---|
+| Delta | `duckdb/duckdb-delta` | `45c40878601b54b4188b09e08732fe0d576ad222` |
+| Iceberg | `duckdb/duckdb-iceberg` | `e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7` |
+| Azure | `duckdb/duckdb-azure` | `563589b2f24290a4dcdd4247eaedf2b544f9dbcd` |
+| Unity Catalog | `duckdb/unity_catalog` | `d52a7ee8678a23a8e0f950e955b9ffa1df0c3395` |
+
+These values are immutable test-source pins. Updating DuckDB requires reviewing the corresponding extension configuration files from the new DuckDB tag and changing the YAML intentionally.
+
+## Current batteries
+
+| Battery | Upstream pin | Main tests | Setup |
+|---|---|---|---|
+| HTTPFS | `c3f215ab360f04dc3d3d5305fa81849c0121f111` | `test/sql/*` plus upstream autoload tests | HTTP server, Squid, MinIO/S3 fixtures |
+| DuckLake | `d318a545571d7d46eb751fa2aa5f6f4389285d3c` | `test/sql/*` | SQLite and PostgreSQL catalog profiles |
+| postgres_scanner | `8f813f9b9c9e52a9074a050a0be60f49160a6baa` | `test/sql/*` | PostgreSQL 17 and upstream fixtures |
+| Delta | `45c40878601b54b4188b09e08732fe0d576ad222` | `test/sql/*` | Standard runner; upstream environment-gated cloud/generated-data tests remain conditional |
+| Iceberg | `e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7` | `test/sql/local/*` | Standard runner; external catalog and S3 profiles are not enabled yet |
+| Azure | `563589b2f24290a4dcdd4247eaedf2b544f9dbcd` | `test/sql/*` | Standard runner; credential-gated tests use upstream `require-env` conditions |
+| Unity Catalog | `d52a7ee8678a23a8e0f950e955b9ffa1df0c3395` | `test/sql/*` | Standard runner; Databricks and local-server tests remain environment-gated |
+| MSSQL | release `v0.2.1` | `test/sql/*` | SQL Server 2022 and upstream release fixtures |
+
+The table documents the current YAML values; `config/extensions.yml` remains authoritative.
+
+### HTTPFS
+
+The HTTPFS runner reuses service scripts from its pinned checkout, including the upstream HTTP server, Squid, presigned URL, and MinIO/S3 setup. The main SQL suite and the HTTPFS autoload suite run in the same job.
+
+The autoload profile keeps HTTPFS installed but initially unloaded.
+
+### DuckLake
+
+DuckLake keeps three intentional profiles:
+
+1. the dedicated filesystem-autoloading test with HTTPFS initially unloaded;
+2. the upstream SQLite catalog configuration;
+3. the upstream PostgreSQL catalog configuration with a temporary PostgreSQL 15 service.
+
+The former generic `test/*` pass was removed because it repeated the same `test/sql/*` content already exercised by the SQLite and PostgreSQL profiles.
+
+### postgres_scanner
+
+The postgres scanner battery follows the commit declared by DuckDB `v1.5.4`, starts PostgreSQL 17, and runs the pinned repository’s `create-postgres-tables.sh` fixture script.
+
+It verifies that the installed `postgres_scanner` binary reports the same source commit as the checked-out tests before executing `test/sql/*`.
+
+### Delta
+
+The Delta battery follows the commit declared by DuckDB `v1.5.4` and executes `test/sql/*`.
+
+The upstream repository distinguishes:
+
+- core dependencies: `json`, `tpch`, and `tpcds`;
+- cloud dependencies: `httpfs`, `azure`, and `aws`;
+- generated-data tests controlled by upstream environment and data availability.
+
+All extension dependencies are declared in the battery. Tests that require external credentials or generated datasets remain governed by the upstream SQLLogicTest conditions.
+
+### Iceberg
+
+The Iceberg battery follows the DuckDB `v1.5.4` commit and initially executes `test/sql/local/*`.
+
+The battery loads `httpfs`, `avro`, `tpch`, and `iceberg`. The external Fixture, Nessie, Lakekeeper, Polaris, MinIO/S3, Spark-data-generation, and cloud profiles are intentionally not started by the generic runner. They can be added later as named setup contracts without changing the workflow matrix.
+
+### Azure
+
+The Azure battery follows the DuckDB `v1.5.4` commit and executes `test/sql/*`.
+
+Tests requiring Azure storage accounts, connection strings, CLI authentication, service principals, access tokens, or managed identity remain controlled by their upstream `require-env` directives. The same job still verifies that Azure installs and loads together with every active default extension.
+
+### Unity Catalog
+
+The Unity Catalog battery follows the DuckDB `v1.5.4` commit and executes `test/sql/*`.
+
+`delta` is declared explicitly and loaded before `unity_catalog`. The repository’s Databricks and local OSS Unity Catalog tests remain controlled by their upstream environment checks until dedicated setup contracts are added.
+
+### MSSQL
+
+MSSQL follows a published release tag, never `main`. The configured tag is checked against the exact checkout and against the source commit reported by the Community extension binary.
+
+The runner reuses the pinned release’s SQL Server Compose definition, seed SQL, integration smoke test, and complete SQLLogicTest folder.
+
+A runtime copy of the legacy base runner removes its old hardcoded skip list. All ignored MSSQL tests are controlled by `config/extensions.yml`.
+
+## Ignored tests
 
 A global ignored test is removed from upstream discovery for the entire battery and recorded in `ignored-tests.tsv`:
 
@@ -268,56 +410,6 @@ The generated files are copied into the battery log artifact and are not source-
 
 Before executing tests, the runner queries `duckdb_extensions()` and verifies that every resolved extension is installed and loaded from the expected repository. SQLLogicTest summaries are checked so a selected extension cannot be silently skipped by `require`.
 
-## Current batteries
-
-| Battery | Upstream pin | Main tests | Setup |
-|---|---|---|---|
-| HTTPFS | `c3f215ab360f04dc3d3d5305fa81849c0121f111` | `test/sql/*` plus upstream autoload tests | HTTP server, Squid, MinIO/S3 fixtures |
-| DuckLake | `d318a545571d7d46eb751fa2aa5f6f4389285d3c` | `test/sql/*` | SQLite and PostgreSQL catalog profiles |
-| postgres_scanner | `8f813f9b9c9e52a9074a050a0be60f49160a6baa` | `test/sql/*` | PostgreSQL 17 and upstream fixtures |
-| MSSQL | release `v0.2.1` | `test/sql/*` | SQL Server 2022 and upstream release fixtures |
-
-The table documents the current YAML values; `config/extensions.yml` remains authoritative.
-
-### HTTPFS
-
-The HTTPFS runner reuses service scripts from its pinned checkout, including the upstream HTTP server, Squid, presigned URL, and MinIO/S3 setup. The main SQL suite and the HTTPFS autoload suite run in the same job.
-
-The autoload profile keeps HTTPFS installed but initially unloaded.
-
-### DuckLake
-
-DuckLake keeps three intentional profiles:
-
-1. the dedicated filesystem-autoloading test with HTTPFS initially unloaded;
-2. the upstream SQLite catalog configuration;
-3. the upstream PostgreSQL catalog configuration with a temporary PostgreSQL 15 service.
-
-The former generic `test/*` pass was removed because it repeated the same `test/sql/*` content already exercised by the SQLite and PostgreSQL profiles.
-
-The upstream `test/configs/sqlite.json` and `test/configs/postgres.json` files remain authoritative. The adapter merges the resolved extension initialization and profile-specific ignored tests while preserving upstream fields.
-
-### postgres_scanner
-
-The postgres scanner battery follows the commit declared by DuckDB `v1.5.4`, starts PostgreSQL 17, and runs the pinned repository’s `create-postgres-tables.sh` fixture script.
-
-It verifies that the installed `postgres_scanner` binary reports the same source commit as the checked-out tests before executing `test/sql/*`.
-
-### MSSQL
-
-MSSQL follows a published release tag, never `main`. The configured tag is checked against the exact checkout and against the source commit reported by the Community extension binary.
-
-The runner reuses the pinned release’s SQL Server Compose definition, seed SQL, integration smoke test, and complete SQLLogicTest folder.
-
-A runtime copy of the legacy base runner removes its old hardcoded skip list. All ignored MSSQL tests are controlled by `config/extensions.yml`.
-
-To update MSSQL:
-
-1. select a newer published release tag;
-2. verify that `duckdb/community-extensions` publishes the binary from the same tag;
-3. change the YAML pin and review changed upstream service or fixture contracts;
-4. remove or update stale ignored tests when validation reports them.
-
 ## Files
 
 ```text
@@ -326,7 +418,7 @@ config/extensions.yml                         single source of QA configuration
 scripts/resolve-extension-config.py           validates YAML and emits the matrix
 scripts/prepare-test-battery.py               generates per-job SQL and metadata
 scripts/run-test-battery.sh                   generic runtime dispatcher
-scripts/run-standard-tests.sh                 HTTPFS, DuckLake, and generic batteries
+scripts/run-standard-tests.sh                 standard and lakehouse batteries
 scripts/run-postgres-scanner-tests.sh         PostgreSQL fixture and pin contract
 scripts/run-mssql-configured-tests.sh         configured MSSQL compatibility wrapper
 scripts/run-mssql-tests-base.sh               preserved MSSQL execution engine
