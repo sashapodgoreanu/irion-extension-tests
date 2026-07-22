@@ -153,9 +153,7 @@ def main() -> int:
 
         defaults = normalize_extensions(root.get("defaultExtensions"), "defaultExtensions")
         active_defaults = active_extensions(defaults)
-        if not active_defaults:
-            raise ConfigError("at least one default extension must have isUsed: true")
-        default_names = {item["name"] for item in defaults}
+        active_default_names = {item["name"] for item in active_defaults}
 
         batteries = require_mapping(root.get("testBatteries"), "testBatteries")
         matrix: list[dict[str, Any]] = []
@@ -176,11 +174,11 @@ def main() -> int:
             submodules = normalize_submodules(battery.get("submodules", False), f"{path}.submodules")
             setup = require_string(battery.get("setup", "none"), f"{path}.setup")
             extensions = normalize_extensions(battery.get("extensions", []), f"{path}.extensions")
-            duplicate_defaults = default_names.intersection(item["name"] for item in extensions)
+            duplicate_defaults = active_default_names.intersection(item["name"] for item in extensions)
             if duplicate_defaults:
                 duplicates = ", ".join(sorted(duplicate_defaults))
                 raise ConfigError(
-                    f"{path}.extensions repeats default extensions: {duplicates}"
+                    f"{path}.extensions repeats active default extensions: {duplicates}"
                 )
             ignored_tests = normalize_ignored_tests(
                 battery.get("ignoredTests", []), f"{path}.ignoredTests"
@@ -190,6 +188,8 @@ def main() -> int:
                 continue
 
             resolved_extensions = active_defaults + active_extensions(extensions)
+            if not resolved_extensions:
+                raise ConfigError(f"{path} resolves to an empty extension set")
             matrix.append(
                 {
                     "name": name,
