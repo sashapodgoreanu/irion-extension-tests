@@ -14,7 +14,14 @@ import yaml
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
 VALID_RUNNERS = {"standard", "postgres-scanner", "mssql-release"}
-VALID_PROFILES = {"sqlite", "postgres", "autoload", "default"}
+VALID_SETUPS = {
+    "none",
+    "httpfs-services",
+    "ducklake-catalogs",
+    "postgres-17",
+    "sqlserver-2022",
+}
+VALID_PROFILES = {"sqlite", "postgres"}
 
 
 class ConfigError(ValueError):
@@ -89,14 +96,17 @@ def normalize_ignored_tests(values: Any, path: str) -> list[dict[str, Any]]:
 
         profiles_value = item.get("profiles", [])
         profiles: list[str] = []
-        for profile_index, profile_value in enumerate(require_list(profiles_value, f"{path}[{index}].profiles")):
+        for profile_index, profile_value in enumerate(
+            require_list(profiles_value, f"{path}[{index}].profiles")
+        ):
             profile = require_string(
                 profile_value,
                 f"{path}[{index}].profiles[{profile_index}]",
             )
             if profile not in VALID_PROFILES:
                 raise ConfigError(
-                    f"{path}[{index}].profiles contains unsupported profile {profile}"
+                    f"{path}[{index}].profiles contains unsupported profile {profile}; "
+                    f"supported profiles: {', '.join(sorted(VALID_PROFILES))}"
                 )
             if profile not in profiles:
                 profiles.append(profile)
@@ -140,7 +150,9 @@ def main() -> int:
 
     config_path = Path(sys.argv[1])
     try:
-        root = require_mapping(yaml.safe_load(config_path.read_text(encoding="utf-8")), "root")
+        root = require_mapping(
+            yaml.safe_load(config_path.read_text(encoding="utf-8")), "root"
+        )
         schema_version = root.get("schemaVersion")
         if schema_version != 1:
             raise ConfigError("schemaVersion must be 1")
@@ -151,7 +163,9 @@ def main() -> int:
             duckdb.get("ciToolsVersion"), "duckdb.ciToolsVersion"
         )
 
-        defaults = normalize_extensions(root.get("defaultExtensions"), "defaultExtensions")
+        defaults = normalize_extensions(
+            root.get("defaultExtensions"), "defaultExtensions"
+        )
         active_defaults = active_extensions(defaults)
         active_default_names = {item["name"] for item in active_defaults}
 
@@ -166,15 +180,28 @@ def main() -> int:
             runner = require_string(battery.get("runner"), f"{path}.runner")
             if runner not in VALID_RUNNERS:
                 raise ConfigError(f"{path}.runner is unsupported: {runner}")
-            repository = require_string(battery.get("repository"), f"{path}.repository")
+            repository = require_string(
+                battery.get("repository"), f"{path}.repository"
+            )
             if not REPOSITORY_NAME.fullmatch(repository):
                 raise ConfigError(f"{path}.repository must use owner/name form")
             pin = require_string(battery.get("pin"), f"{path}.pin")
             tests = require_string(battery.get("tests"), f"{path}.tests")
-            submodules = normalize_submodules(battery.get("submodules", False), f"{path}.submodules")
+            submodules = normalize_submodules(
+                battery.get("submodules", False), f"{path}.submodules"
+            )
             setup = require_string(battery.get("setup", "none"), f"{path}.setup")
-            extensions = normalize_extensions(battery.get("extensions", []), f"{path}.extensions")
-            duplicate_defaults = active_default_names.intersection(item["name"] for item in extensions)
+            if setup not in VALID_SETUPS:
+                raise ConfigError(
+                    f"{path}.setup is unsupported: {setup}; "
+                    f"supported setups: {', '.join(sorted(VALID_SETUPS))}"
+                )
+            extensions = normalize_extensions(
+                battery.get("extensions", []), f"{path}.extensions"
+            )
+            duplicate_defaults = active_default_names.intersection(
+                item["name"] for item in extensions
+            )
             if duplicate_defaults:
                 duplicates = ", ".join(sorted(duplicate_defaults))
                 raise ConfigError(
