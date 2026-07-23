@@ -8,7 +8,13 @@
 
 # Processo di validazione DuckDB ed estensioni
 
-Qualificazione aggiornamenti DuckDB per Analytics Engine.
+Esigenza, processo proposto, risultati del POC e scelta della piattaforma di esecuzione.
+
+Contesto:
+
+- DuckDB viene utilizzato nell'Analytics Engine insieme a un insieme di estensioni;
+- il POC ha verificato la fattibilità tecnica del processo;
+- il SAL deve discutere se il processo è soddisfacente e dove deve essere eseguito stabilmente.
 
 Messaggio orale:
 
@@ -20,52 +26,60 @@ Messaggio orale:
 
 # Perché serve un processo?
 
-- DuckDB non viene usato da solo.
-- Analytics Engine usa DuckDB insieme a più estensioni.
 - Gli aggiornamenti DuckDB non sono sempre immediati.
-- L'esito non può essere valutato solo "a occhio".
+- Nel tempo abbiamo provato a costruire diversi controlli e processi di test.
+- Questi tentativi erano però limitati, poco ripetibili o legati alla singola macchina di sviluppo.
+- La build di DuckDB e del runner `unittest` richiede risorse e tempo.
+- Eseguire localmente tutte le batterie può occupare la macchina per molto tempo.
+- Durante l'esecuzione lo sviluppatore non può usare normalmente la postazione per altre attività pesanti.
+- Con l'aumento delle estensioni, dei servizi e dei test, l'esecuzione completa può durare ore.
+- Il processo deve quindi essere automatizzato, ripetibile e spostato su un'infrastruttura dedicata.
 
 Messaggio chiave:
 
-> Dobbiamo qualificare la composizione reale: DuckDB + estensioni Irion.
+> La validazione non deve dipendere dalla disponibilità di una postazione locale o da attività manuali difficili da ripetere.
 
 Discussione:
 
-- È condivisa l'esigenza di avere un processo ripetibile?
+- È condivisa l'esigenza di trasformare i controlli esistenti in un processo automatico e ripetibile?
 
 ---
 
 ## Slide 3 — Il problema osservato
 
-# Aggiornare DuckDB non significa aggiornare tutto
+# Aggiornare DuckDB non significa aggiornare tutto allo stesso modo
 
-- DuckDB può avanzare di versione.
-- Alcune estensioni possono restare su commit precedenti.
-- Un'estensione installabile non è automaticamente una garanzia funzionale.
-- Non abbiamo trovato una regola ufficiale chiara di compatibilità funzionale tra minor release.
+- Ogni release DuckDB seleziona specifiche revisioni delle estensioni.
+- La revisione di un'estensione può avanzare oppure rimanere invariata rispetto alla release precedente.
+- Lo stesso commit sorgente può essere ricompilato e distribuito per più versioni DuckDB.
+- Anche quando lo SHA rimane uguale, il binario viene prodotto per la specifica versione DuckDB e piattaforma.
+- La disponibilità del binario non dimostra che tutti gli scenari funzionali continuino a comportarsi correttamente.
+- La combinazione effettiva deve quindi essere registrata e sottoposta a test.
 
 Messaggio chiave:
 
-> Se DuckDB passa a una nuova versione, non possiamo assumere che tutte le estensioni siano avanzate o siano compatibili nella composizione Irion.
+> Dobbiamo qualificare la combinazione effettiva: versione DuckDB, revisioni delle estensioni e loro utilizzo congiunto.
 
 Discussione:
 
-- Vogliamo registrare sempre pin, commit e versione effettiva delle estensioni?
+- Vogliamo registrare sempre versione DuckDB, pin upstream e versione effettiva di ogni estensione?
 
 ---
 
 ## Slide 4 — Compatibilità binaria vs compatibilità funzionale
 
-# Il binario può caricarsi, ma il comportamento va dimostrato
+# Caricabile non significa funzionalmente verificato
 
-- DuckDB lega le estensioni binarie a versione e piattaforma.
-- Il loader può bloccare incompatibilità evidenti.
-- Ma il loader non dimostra che tutti gli scenari Analytics Engine funzionino.
-- La compatibilità funzionale va testata.
+- DuckDB lega le estensioni binarie a una specifica versione e piattaforma.
+- Il loader può rifiutare binari costruiti per una versione o piattaforma incompatibile.
+- Le estensioni possono però seguire cicli di rilascio indipendenti da DuckDB.
+- Anche una patch DuckDB può utilizzare revisioni differenti delle estensioni.
+- Il loader non verifica query, `ATTACH`, secret, cataloghi o interazioni tra estensioni.
+- Questi comportamenti devono essere dimostrati dal processo di test.
 
 Messaggio chiave:
 
-> La compatibilità binaria è necessaria, ma non sufficiente.
+> La compatibilità binaria è un prerequisito; l'esito funzionale deve essere verificato.
 
 Discussione:
 
@@ -97,58 +111,78 @@ Messaggio chiave:
 
 # Processo proposto
 
-1. Preparare DuckDB e `unittest` una sola volta.
-2. Installare e caricare il set estensioni Irion.
-3. Eseguire le batterie dei test upstream.
-4. Eseguire test Irion cross-extension in una singola sessione.
-5. Produrre un report di compatibilità.
+1. Preparare DuckDB, la CLI e `unittest` una sola volta.
+2. Installare e caricare il set di estensioni di default utilizzato nell'Analytics Engine.
+3. Eseguire un primo livello di test specifici per ciascuna estensione:
+   - repository e pin originali;
+   - test upstream della singola estensione;
+   - tutte le estensioni di default comunque presenti nel runtime.
+4. Eseguire un secondo livello di test cross-extension, simile a un end-to-end tecnico:
+   - una singola sessione DuckDB;
+   - più estensioni realmente utilizzate insieme;
+   - `CREATE SECRET`, `ATTACH`, `SELECT`, `INSERT`, `UPDATE` e operazioni cross-catalog.
+5. Conservare questi scenari come test di regressione e ampliarli ogni volta che viene individuato un nuovo problema.
+6. Produrre un report di compatibilità con esiti, esclusioni, problemi noti e rischi residui.
 
 Messaggio chiave:
 
-> Build una volta, test paralleli, estensioni sempre caricate insieme.
+> Un'unica build alimenta due livelli complementari: test originali delle estensioni e test congiunti della composizione.
 
 Discussione:
 
-- Questo modello è soddisfacente come base del processo SAL?
+- Questo modello a due livelli è soddisfacente come base del processo SAL?
 
 ---
 
-## Slide 7 — Test upstream
+## Slide 7 — Primo livello: test upstream
 
 # Riutilizzare i test originali delle estensioni
 
-- Checkout del repository originale.
-- Pin immutabile o release, mai `main`.
-- Esecuzione dei SQLLogicTest originali.
-- Fixture e path restano nel repository upstream.
-- Tutte le estensioni Irion vengono caricate prima dei test.
+Per ogni estensione:
+
+- checkout del repository originale;
+- pin immutabile o release pubblicata, mai `main`;
+- esecuzione dei SQLLogicTest e degli altri test applicabili;
+- fixture e path mantenuti nel repository upstream;
+- tutte le estensioni di default installate e caricate prima della batteria;
+- log, test falliti, esclusi o non eseguibili raccolti come evidenza.
+
+Ogni batteria è separata, ma verifica la propria estensione mentre il resto della composizione è presente.
 
 Domanda a cui risponde:
 
-> I test originali passano ancora quando l'estensione gira nella composizione Irion?
+> I test originali dell'estensione passano ancora quando viene caricata insieme alle altre estensioni di piattaforma?
 
 ---
 
-## Slide 8 — Test Irion cross-extension
+## Slide 8 — Secondo livello: test cross-extension
 
-# I test che dobbiamo aggiungere noi
+# I test che dobbiamo mantenere noi
 
 Scenari in un'unica sessione DuckDB:
 
-- più `ATTACH` insieme;
+- caricamento dell'intero set di estensioni;
+- più `CREATE SECRET` per provider differenti;
+- più `ATTACH` nello stesso processo;
 - MSSQL + PostgreSQL + DuckLake;
-- HTTPFS, Azure, Delta, Iceberg, Unity Catalog;
-- `CREATE SECRET` multipli;
-- query cross-catalog;
-- verifica collisioni e ordine di load.
+- HTTPFS, Azure, Delta, Iceberg e Unity Catalog;
+- Virtual File Provider e BigQuery quando integrati;
+- `SELECT`, `INSERT`, `UPDATE` e operazioni cross-catalog;
+- verifica di collisioni, ordine di caricamento e stato globale.
+
+Questa suite cresce nel tempo:
+
+- ogni bug riproducibile diventa un test di regressione;
+- ogni nuovo scenario critico viene aggiunto al processo;
+- l'obiettivo non è coprire tutto subito, ma costruire progressivamente la confidenza necessaria.
 
 Messaggio chiave:
 
-> I test upstream sono necessari, ma i test Irion coprono l'uso reale dell'Analytics Engine.
+> I test upstream verificano i componenti; i test cross-extension verificano che la composizione continui a funzionare insieme.
 
 Discussione:
 
-- Quali scenari cross-extension sono obbligatori per dichiarare un aggiornamento accettabile?
+- Quali scenari congiunti sono obbligatori per dichiarare un aggiornamento accettabile?
 
 ---
 
@@ -160,41 +194,53 @@ Realizzato:
 
 - configurazione centrale `config/extensions.yml`;
 - DuckDB `v1.5.4` + `unittest`;
-- artifact condiviso;
-- batterie parallele;
-- checkout upstream pinning;
-- install/load congiunto delle estensioni;
+- build eseguita una sola volta;
+- artifact condiviso tra le batterie;
+- matrice di job paralleli;
+- checkout upstream a pin immutabili o release;
+- installazione e caricamento congiunto delle estensioni;
 - container e servizi per batterie specifiche;
-- raccolta log.
+- ambienti isolati e raccolta dei log.
+
+Perché GitHub:
+
+- rapidità di realizzazione del POC;
+- runner Ubuntu già disponibili;
+- gestione semplice di job, container, artifact e log;
+- repository DuckDB ed estensioni già presenti sulla piattaforma.
 
 Messaggio chiave:
 
-> Il POC dimostra che il processo è tecnicamente possibile.
+> Il POC dimostra che il processo è tecnicamente possibile e che può essere automatizzato fuori dalla macchina locale.
 
 ---
 
-## Slide 10 — Batterie attuali
+## Slide 10 — Perimetro delle estensioni
 
-# Estensioni coperte dal POC
+# Set di estensioni di piattaforma da validare
 
-Batterie configurate:
+Il runtime di validazione deve caricare il set di estensioni utilizzato dalla piattaforma:
 
-- HTTPFS;
-- DuckLake;
-- postgres_scanner;
 - Delta;
+- DuckLake;
+- HTTPFS;
 - Iceberg;
+- PostgreSQL Scanner;
 - Azure;
 - Unity Catalog;
-- MSSQL.
+- MSSQL;
+- Virtual File Provider;
+- BigQuery.
 
-Baseline comune:
+Stato del POC:
 
-- httpfs, mssql, ducklake, postgres_scanner, icu, azure, delta, iceberg, unity_catalog.
+- sono già configurate batterie per HTTPFS, DuckLake, PostgreSQL Scanner, Delta, Iceberg, Azure, Unity Catalog e MSSQL;
+- Virtual File Provider e BigQuery devono essere integrati nel processo;
+- non tutte le estensioni richiedono una batteria dedicata: alcune devono essere caricate e verificate soprattutto nei test congiunti.
 
 Messaggio chiave:
 
-> Il POC non testa una singola estensione: testa un runtime con più estensioni caricate insieme.
+> L'obiettivo non è testare dieci componenti separati, ma qualificare il set completo che verrà distribuito insieme.
 
 ---
 
@@ -204,13 +250,13 @@ Messaggio chiave:
 
 Da completare:
 
-- test Irion cross-extension;
+- test cross-extension in una singola sessione;
+- integrazione Virtual File Provider e BigQuery;
 - report aggregato per il SAL;
-- integrazione Virtual File System;
-- misurazione tempi/artifact/log;
+- misurazione tempi, dimensione artifact e log;
 - classificazione test esclusi o non eseguibili;
 - spike Telemaco DevOps;
-- decisione su piattaforma stabile.
+- decisione sulla piattaforma stabile.
 
 Messaggio chiave:
 
@@ -224,15 +270,16 @@ Messaggio chiave:
 
 Proposta:
 
-- test ufficiali e upstream dove applicabili;
-- estensioni caricate congiuntamente;
-- pin immutabili;
-- test Irion in singola sessione;
+- test originali e upstream dove applicabili;
+- estensioni di piattaforma caricate congiuntamente;
+- pin immutabili e versioni effettive registrate;
+- test cross-extension in singola sessione;
+- suite di regressione incrementale;
 - report con problemi, esclusioni e rischi.
 
 Decisione richiesta:
 
-> Confermiamo questo processo come base della qualificazione DuckDB?
+> Confermiamo questo processo come base della validazione degli aggiornamenti DuckDB?
 
 ---
 
@@ -262,7 +309,7 @@ Messaggio chiave:
 Vantaggi:
 
 - POC già funzionante;
-- runner pronti;
+- runner pronti ed effimeri;
 - job paralleli semplici;
 - artifact e log immediati;
 - repository DuckDB già su GitHub;
@@ -270,14 +317,14 @@ Vantaggi:
 
 Criticità:
 
-- repository private con quote/costi;
-- log e artifact fuori rete Irion;
-- Virtual File System interna non accessibile dai runner hosted;
+- repository private con quote o costi;
+- log e artifact fuori dalla rete Irion;
+- Virtual File Provider interna non accessibile dai runner hosted;
 - governance esterna.
 
 Discussione:
 
-- GitHub può essere piattaforma stabile o solo POC?
+- GitHub può essere piattaforma stabile o deve restare solamente l'ambiente del POC?
 
 ---
 
@@ -288,23 +335,23 @@ Discussione:
 Vantaggi:
 
 - resta nella rete Irion;
-- accesso a repository interni;
-- più adatto a VFS;
+- accesso ai repository interni;
+- più adatto al Virtual File Provider;
 - controllo su artifact, log e retention;
-- coerente con processo ufficiale interno.
+- coerente con un processo ufficiale interno.
 
 Criticità:
 
 - agenti Linux da predisporre;
 - Docker e Docker Compose da verificare;
 - container e rete aziendale;
-- IP/proxy/firewall;
+- IP, proxy e firewall;
 - parallelizzazione da provare;
 - gestione artifact on-premises.
 
 Discussione:
 
-- Telemaco può garantire isolamento e parallelismo sufficienti?
+- Telemaco può garantire isolamento, rete e capacità di esecuzione sufficienti?
 
 ---
 
@@ -322,11 +369,12 @@ Il processo richiede servizi:
 
 Su Telemaco bisogna verificare:
 
-- accesso rete aziendale dai container;
+- accesso alla rete aziendale dai container;
 - IP registrati o non registrati;
 - proxy e firewall;
-- porte e nomi container in parallelo;
-- agenti persistenti o effimeri.
+- porte e nomi container quando più test sono eseguiti;
+- agenti persistenti o effimeri;
+- modalità di isolamento tra esecuzioni.
 
 Messaggio chiave:
 
@@ -334,26 +382,26 @@ Messaggio chiave:
 
 ---
 
-## Slide 17 — Virtual File System
+## Slide 17 — Virtual File Provider
 
-# La VFS condiziona la scelta
+# Il repository interno condiziona la scelta
 
 Situazione:
 
-- repository VFS oggi interno;
+- repository Virtual File Provider oggi interno;
 - non raggiungibile dai runner GitHub-hosted;
-- necessario per una qualificazione completa.
+- necessario per una validazione completa del set di piattaforma.
 
 Opzioni:
 
-1. portare/mirror VFS su GitHub private;
-2. GitHub self-hosted runner in rete Irion;
-3. Telemaco DevOps end-to-end;
-4. escludere VFS solo nel POC.
+1. portare o replicare il repository su GitHub private;
+2. usare GitHub con runner self-hosted nella rete Irion;
+3. usare Telemaco DevOps end-to-end;
+4. escluderlo temporaneamente soltanto dal POC.
 
 Messaggio chiave:
 
-> Senza VFS possiamo dimostrare il modello, ma non qualificare tutta la composizione Analytics Engine.
+> Senza Virtual File Provider possiamo dimostrare il modello, ma non validare l'intera composizione distribuita.
 
 ---
 
@@ -364,11 +412,12 @@ Messaggio chiave:
 Proposta:
 
 1. mantenere GitHub come riferimento POC;
-2. aggiungere test Irion cross-extension;
-3. misurare tempi, log e artifact;
-4. fare uno spike su Telemaco DevOps;
-5. includere container e repository interno nello spike;
-6. decidere la piattaforma dopo evidenze concrete.
+2. aggiungere test cross-extension;
+3. integrare BigQuery e definire il percorso del Virtual File Provider;
+4. misurare tempi, log e artifact;
+5. fare uno spike su Telemaco DevOps;
+6. includere container e repository interno nello spike;
+7. decidere la piattaforma dopo evidenze concrete.
 
 Messaggio chiave:
 
@@ -387,9 +436,10 @@ Minimo richiesto:
 - almeno tre batterie;
 - almeno una batteria con container;
 - almeno una batteria con repository interno;
-- raccolta log;
-- nessun conflitto di porte;
-- parallelismo o serializzazione consapevole.
+- raccolta log anche in caso di errore;
+- nessun conflitto di porte o runtime;
+- parallelismo oppure serializzazione consapevole;
+- tempi e consumo risorse misurati.
 
 Decisione:
 
@@ -401,14 +451,14 @@ Decisione:
 
 # Decisioni da chiudere
 
-1. Il processo proposto è approvato come base?
-2. GitHub resta POC o piattaforma candidata?
-3. Facciamo spike su Telemaco DevOps?
-4. Come trattiamo la Virtual File System?
-5. Chi verifica rete/container su Telemaco?
-6. Quali scenari Irion sono obbligatori?
+1. Il processo proposto a due livelli è approvato come base?
+2. Quali scenari cross-extension sono obbligatori?
+3. GitHub resta POC o piattaforma candidata?
+4. Facciamo uno spike su Telemaco DevOps?
+5. Come integriamo Virtual File Provider e BigQuery?
+6. Chi verifica rete e container su Telemaco?
 7. Quale report serve per approvare un aggiornamento DuckDB?
 
 Messaggio finale:
 
-> Il POC ha risposto alla domanda tecnica: è possibile. Ora dobbiamo decidere dove far vivere il processo.
+> Il POC ha risposto alla domanda tecnica: è possibile. Ora dobbiamo approvare il processo e decidere dove farlo vivere.
