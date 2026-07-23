@@ -202,7 +202,7 @@ Criticità:
 Il processo richiede servizi:
 
 - MinIO/S3;
-- Squid, proxy HTTP usato nei test HTTPFS per validare accesso tramite proxy;
+- Squid;
 - PostgreSQL;
 - SQL Server;
 - eventuali cataloghi o servizi futuri.
@@ -230,9 +230,11 @@ Situazione:
 Opzioni realistiche:
 
 1. portare o replicare il repository su GitHub private;
-2. usare Telemaco DevOps end-to-end;
+2. usare Telemaco DevOps end-to-end.
 
-## Criterio successo spike Telemaco
+---
+
+## Slide 15 — Criterio successo spike Telemaco
 
 # Cosa deve dimostrare lo spike
 
@@ -252,9 +254,11 @@ Decisione:
 
 > Se lo spike passa, Telemaco diventa candidato concreto per il processo ufficiale.
 
-## Ambienti necessari e copertura Windows
+---
 
-# Ambienti necessari e copertura Windows
+## Slide 16 — Ambienti necessari e copertura Windows
+
+# Lista della spesa per abilitare i test
 
 **Infrastruttura runner**
 
@@ -262,7 +266,7 @@ Decisione:
 
 **Servizi locali**
 
-- MinIO + Squid (proxy HTTP usato dai test HTTPFS per verificare accesso tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
+- MinIO + Squid (proxy HTTP usato soprattutto dai test HTTPFS per validare accessi tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
 
 **Account cloud**
 
