@@ -285,6 +285,7 @@ Opzioni realistiche:
 
 1. portare o replicare il repository su GitHub private;
 2. usare Telemaco DevOps end-to-end;
+3. escluderlo temporaneamente soltanto dal POC.
 
 ---
 
@@ -310,25 +311,7 @@ Decisione:
 
 ---
 
-## Slide 16 — Decisioni richieste
-
-# Decisioni da chiudere
-
-1. Il processo proposto è approvato come base?
-2. Quali scenari cross-extension sono obbligatori?
-3. GitHub resta piattaforma candidata o si procede verso Telemaco DevOps?
-4. Facciamo uno spike su Telemaco DevOps?
-5. Come includiamo il Virtual File Provider nel processo?
-6. Chi verifica rete e container sulle macchine runner?
-7. Quale report serve per approvare un aggiornamento DuckDB?
-
-Messaggio finale:
-
-> Il POC ha risposto alla domanda tecnica: è possibile. Ora dobbiamo approvare il processo e decidere dove farlo vivere.
-
----
-
-## Slide 17 — Ambienti necessari e copertura Windows
+## Slide 16 — Ambienti necessari e copertura Windows
 
 # Lista della spesa per abilitare i test
 
