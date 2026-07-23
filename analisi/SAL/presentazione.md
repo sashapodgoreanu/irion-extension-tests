@@ -324,3 +324,31 @@ Decisione:
 Messaggio finale:
 
 > Il POC ha risposto alla domanda tecnica: è possibile. Ora dobbiamo approvare il processo e decidere dove farlo vivere.
+
+---
+
+## Slide 17 — Ambienti necessari
+
+# Lista della spesa per abilitare i test
+
+**Infrastruttura runner**
+
+- Linux, Docker/Compose, rete verso repository e provider, secret store, isolamento, log e cleanup.
+
+**Servizi locali**
+
+- MinIO + Squid + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
+
+**Account cloud**
+
+- AWS: S3, Glue e S3 Tables;
+- Azure: Blob Storage, ADLS Gen2 e service principal;
+- Databricks: workspace e Unity Catalog;
+- per la matrice Iceberg completa: Cloudflare R2 e Snowflake Open Catalog;
+- Azure SQL/Fabric per i test cloud MSSQL.
+
+**Risorse e permessi**
+
+- bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
+
+BigQuery è escluso da questo inventario.
