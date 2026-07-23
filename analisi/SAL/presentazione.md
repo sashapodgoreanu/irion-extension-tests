@@ -254,7 +254,7 @@ Discussione:
 Il processo richiede servizi:
 
 - MinIO/S3;
-- Squid;
+- Squid, proxy HTTP usato nei test HTTPFS per validare accesso tramite proxy;
 - PostgreSQL;
 - SQL Server;
 - eventuali cataloghi o servizi futuri.
@@ -285,7 +285,6 @@ Opzioni realistiche:
 
 1. portare o replicare il repository su GitHub private;
 2. usare Telemaco DevOps end-to-end;
-3. escluderlo temporaneamente soltanto dal POC.
 
 ---
 
@@ -321,7 +320,7 @@ Decisione:
 
 **Servizi locali**
 
-- MinIO + Squid + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
+- MinIO + Squid (proxy HTTP usato dai test HTTPFS per verificare accesso tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
 
 **Account cloud**
 
