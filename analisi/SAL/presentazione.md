@@ -285,7 +285,6 @@ Opzioni realistiche:
 
 1. portare o replicare il repository su GitHub private;
 2. usare Telemaco DevOps end-to-end;
-3. escluderlo temporaneamente soltanto dal POC.
 
 ---
 
