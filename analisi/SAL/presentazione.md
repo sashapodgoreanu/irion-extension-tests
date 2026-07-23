@@ -329,7 +329,7 @@ Messaggio finale:
 
 ---
 
-## Slide 17 — Ambienti necessari
+## Slide 17 — Ambienti necessari e copertura Windows
 
 # Lista della spesa per abilitare i test
 
@@ -353,20 +353,10 @@ Messaggio finale:
 
 - bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
 
+**Copertura Windows**
+
+- Fase 1: validazione Linux containerizzata, già dimostrata dal POC.
+- Fase 2: smoke test e scenari cross-extension Windows nativi.
+- I servizi di supporto possono restare in container Linux, ma DuckDB, `unittest` ed estensioni Windows devono essere eseguiti nativamente.
+
 BigQuery è escluso da questo inventario.
-
----
-
-## Slide 18 — Copertura Windows
-
-# Windows: seconda fase di validazione
-
-- La prima fase parte da Linux/container perché è il percorso già dimostrato dal POC.
-- Le estensioni vengono distribuite anche per Windows, quindi la copertura Windows resta da valutare.
-- Un container Linux su runner Windows valida il binario Linux, non quello Windows.
-- Per validare Windows servono DuckDB, `unittest` ed estensioni Windows eseguiti nativamente.
-- I servizi di supporto possono rimanere in container Linux se raggiungibili dal processo Windows.
-
-Proposta:
-
-> Fase 1: validazione Linux containerizzata. Fase 2: smoke test e scenari cross-extension Windows nativi.
