@@ -164,13 +164,20 @@ Da completare:
 - integrazione Virtual File Provider e BigQuery;
 - report aggregato per il SAL;
 - misurazione tempi, dimensione artifact e log;
-- classificazione test esclusi o non eseguibili;
+- classificazione test esclusi, parziali o non eseguibili;
+- accesso a piattaforme reali per i test oggi coperti solo in parte;
 - spike Telemaco DevOps;
 - decisione sulla piattaforma stabile.
 
+Nota sui test parziali:
+
+- alcune batterie, come Iceberg, Delta/Unity Catalog e HTTPFS, possono eseguire solo una parte dei test senza account o servizi esterni;
+- MinIO copre scenari S3-like locali, ma non sostituisce completamente un provider cloud S3 reale;
+- per completare la validazione serviranno credenziali, account o ambienti dedicati sulle piattaforme per cui le estensioni sono state create.
+
 Messaggio chiave:
 
-> Il POC è positivo, ma non è ancora il processo definitivo.
+> Il POC è positivo, ma non copre ancora tutti gli scenari che dipendono da piattaforme esterne reali.
 
 ---
 
