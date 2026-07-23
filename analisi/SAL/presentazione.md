@@ -13,7 +13,7 @@ Esigenza, processo proposto, risultati del POC e scelta della piattaforma di ese
 Contesto:
 
 - DuckDB viene utilizzato nell'Analytics Engine insieme a un insieme di estensioni;
-- il POC ha verificato la fattibilità tecnica del processo;
+- tramite un POC abbiamo verificato la fattibilità tecnica del processo;
 - il SAL deve discutere se il processo è soddisfacente e dove deve essere eseguito stabilmente.
 
 Messaggio orale:
@@ -26,14 +26,11 @@ Messaggio orale:
 
 # Perché serve un processo?
 
-- Gli aggiornamenti DuckDB non sono sempre immediati.
-- Nel tempo abbiamo provato a costruire diversi controlli e processi di test.
-- Questi tentativi erano però limitati, poco ripetibili o legati alla singola macchina di sviluppo.
-- La build di DuckDB e del runner `unittest` richiede risorse e tempo.
-- Eseguire localmente tutte le batterie può occupare la macchina per molto tempo.
-- Durante l'esecuzione lo sviluppatore non può usare normalmente la postazione per altre attività pesanti.
-- Con l'aumento delle estensioni, dei servizi e dei test, l'esecuzione completa può durare ore.
-- Il processo deve quindi essere automatizzato, ripetibile e spostato su un'infrastruttura dedicata.
+- Gli aggiornamenti DuckDB richiedono una validazione ripetibile, non soltanto prove manuali.
+- Nel tempo abbiamo provato controlli diversi, ma erano limitati o legati alla singola macchina di sviluppo.
+- Build di DuckDB, `unittest`, container e batterie di test possono occupare la postazione per molto tempo.
+- Con l'aumento di estensioni, servizi e scenari, l'esecuzione completa può durare ore.
+- Serve quindi un processo automatizzato, rieseguibile e spostato su infrastruttura dedicata.
 
 Messaggio chiave:
 
@@ -49,12 +46,9 @@ Discussione:
 
 # Aggiornare DuckDB non significa aggiornare tutto allo stesso modo
 
-- Ogni release DuckDB seleziona specifiche revisioni delle estensioni.
-- La revisione di un'estensione può avanzare oppure rimanere invariata rispetto alla release precedente.
-- Lo stesso commit sorgente può essere ricompilato e distribuito per più versioni DuckDB.
-- Anche quando lo SHA rimane uguale, il binario viene prodotto per la specifica versione DuckDB e piattaforma.
-- La disponibilità del binario non dimostra che tutti gli scenari funzionali continuino a comportarsi correttamente.
-- La combinazione effettiva deve quindi essere registrata e sottoposta a test.
+Ogni release DuckDB seleziona specifiche revisioni delle estensioni: una revisione può avanzare, restare invariata o essere semplicemente ricompilata per la nuova versione DuckDB e piattaforma.
+
+La disponibilità del binario e il caricamento corretto non dimostrano che tutti gli scenari funzionali continuino a comportarsi correttamente: la combinazione effettiva deve essere registrata e sottoposta a test.
 
 Messaggio chiave:
 
@@ -71,11 +65,9 @@ Discussione:
 # Caricabile non significa funzionalmente verificato
 
 - DuckDB lega le estensioni binarie a una specifica versione e piattaforma.
-- Il loader può rifiutare binari costruiti per una versione o piattaforma incompatibile.
-- Le estensioni possono però seguire cicli di rilascio indipendenti da DuckDB.
-- Anche una patch DuckDB può utilizzare revisioni differenti delle estensioni.
-- Il loader non verifica query, `ATTACH`, secret, cataloghi o interazioni tra estensioni.
-- Questi comportamenti devono essere dimostrati dal processo di test.
+- Il loader può rifiutare incompatibilità evidenti, ma non verifica query, `ATTACH`, secret, cataloghi o interazioni tra estensioni.
+- Le estensioni possono seguire cicli indipendenti: anche una patch DuckDB può usare revisioni diverse o semplicemente ricompilare lo stesso sorgente.
+- La compatibilità funzionale deve quindi essere dimostrata dai test.
 
 Messaggio chiave:
 
@@ -91,11 +83,11 @@ Discussione:
 
 # Il rischio nasce dalla composizione
 
-- Funzioni o impostazioni con nomi in collisione.
-- Secret provider diversi nella stessa sessione.
-- Filesystem e cataloghi caricati insieme.
-- Sequenze di `ATTACH` multiple.
-- Inizializzazioni globali e ordine di caricamento.
+- Un'estensione può buildare per la nuova versione DuckDB senza introdurre modifiche funzionali reali.
+- Un'estensione può funzionare isolatamente e fallire quando viene caricata insieme alle altre.
+- Possibili collisioni su funzioni, impostazioni, secret provider, filesystem e cataloghi.
+- Sequenze di `ATTACH` multiple possono dipendere dallo stato già inizializzato della sessione.
+- Anche l'ordine di caricamento può avere effetti sul comportamento.
 
 Esempio da raccontare:
 
@@ -103,7 +95,7 @@ Esempio da raccontare:
 
 Messaggio chiave:
 
-> Un'estensione può funzionare da sola e fallire quando entra nella composizione reale.
+> Il rischio non è soltanto che un'estensione non si carichi: è che la composizione reale si comporti diversamente.
 
 ---
 
