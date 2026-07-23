@@ -46,6 +46,8 @@ Ogni release DuckDB seleziona specifiche revisioni delle estensioni: una revisio
 
 La disponibilità del binario e il caricamento corretto non dimostrano che tutti gli scenari funzionali continuino a comportarsi correttamente: la combinazione effettiva deve essere registrata e sottoposta a test.
 
+La compatibilità binaria è un prerequisito; l'esito funzionale deve essere dimostrato dal processo di test.
+
 Messaggio chiave:
 
 > Dobbiamo qualificare la combinazione effettiva: versione DuckDB, revisioni delle estensioni e loro utilizzo congiunto.
@@ -56,26 +58,7 @@ Discussione:
 
 ---
 
-## Slide 4 — Compatibilità binaria vs compatibilità funzionale
-
-# Caricabile non significa funzionalmente verificato
-
-- DuckDB lega le estensioni binarie a una specifica versione e piattaforma.
-- Il loader può rifiutare incompatibilità evidenti, ma non verifica query, `ATTACH`, secret, cataloghi o interazioni tra estensioni.
-- Le estensioni possono seguire cicli indipendenti: anche una patch DuckDB può usare revisioni diverse o semplicemente ricompilare lo stesso sorgente.
-- La compatibilità funzionale deve quindi essere dimostrata dai test.
-
-Messaggio chiave:
-
-> La compatibilità binaria è un prerequisito; l'esito funzionale deve essere verificato.
-
-Discussione:
-
-- Quale livello di evidenza serve per approvare un aggiornamento DuckDB?
-
----
-
-## Slide 5 — Il rischio reale: estensioni insieme
+## Slide 4 — Il rischio reale: estensioni insieme
 
 # Il rischio nasce dalla composizione
 
@@ -95,7 +78,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 6 — Cosa deve fare il processo
+## Slide 5 — Cosa deve fare il processo
 
 # Processo proposto
 
@@ -122,7 +105,7 @@ Discussione:
 
 ---
 
-## Slide 7 — Cosa abbiamo dimostrato con il POC
+## Slide 6 — Cosa abbiamo dimostrato con il POC
 
 # POC su GitHub Actions
 
@@ -151,22 +134,13 @@ Messaggio chiave:
 
 ---
 
-## Slide 8 — Perimetro delle estensioni
+## Slide 7 — Perimetro delle estensioni
 
 # Set di estensioni di piattaforma da validare
 
 Il runtime di validazione deve caricare il set di estensioni utilizzato dalla piattaforma:
 
-- Delta;
-- DuckLake;
-- HTTPFS;
-- Iceberg;
-- PostgreSQL Scanner;
-- Azure;
-- Unity Catalog;
-- MSSQL;
-- Virtual File Provider;
-- BigQuery.
+> Delta; DuckLake; HTTPFS; Iceberg; PostgreSQL Scanner; Azure; Unity Catalog; MSSQL; Virtual File Provider; BigQuery.
 
 Stato del POC:
 
@@ -180,7 +154,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 9 — Cosa manca
+## Slide 8 — Cosa manca
 
 # Da POC a processo ufficiale
 
@@ -200,7 +174,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 10 — Domanda 1 al SAL
+## Slide 9 — Domanda 1 al SAL
 
 # Il processo è soddisfacente?
 
@@ -219,7 +193,7 @@ Decisione richiesta:
 
 ---
 
-## Slide 11 — Dove far girare il processo?
+## Slide 10 — Dove far girare il processo?
 
 # GitHub o Telemaco DevOps?
 
@@ -238,7 +212,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 12 — GitHub Actions
+## Slide 11 — GitHub Actions
 
 # GitHub: veloce e già dimostrato
 
@@ -264,7 +238,7 @@ Discussione:
 
 ---
 
-## Slide 13 — Telemaco DevOps
+## Slide 12 — Telemaco DevOps
 
 # Telemaco DevOps: interno ma da verificare
 
@@ -291,7 +265,7 @@ Discussione:
 
 ---
 
-## Slide 14 — Container e rete
+## Slide 13 — Container e rete
 
 # Punto tecnico da chiarire
 
@@ -318,7 +292,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 15 — Virtual File Provider
+## Slide 14 — Virtual File Provider
 
 # Il repository interno condiziona la scelta
 
@@ -341,7 +315,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 16 — Proposta di percorso
+## Slide 15 — Proposta di percorso
 
 # Decisione pragmatica
 
@@ -361,7 +335,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 17 — Criterio successo spike Telemaco
+## Slide 16 — Criterio successo spike Telemaco
 
 # Cosa deve dimostrare lo spike
 
@@ -383,7 +357,7 @@ Decisione:
 
 ---
 
-## Slide 18 — Decisioni richieste
+## Slide 17 — Decisioni richieste
 
 # Decisioni da chiudere
 
