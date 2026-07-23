@@ -35,13 +35,7 @@ Il principale limite dell'esecuzione locale è operativo:
 - con l'aumento delle estensioni, dei container e degli scenari, l'esecuzione completa può durare ore;
 - una procedura manuale è più difficile da ripetere nello stesso modo e da trasformare in evidenza condivisibile.
 
-Il processo deve quindi essere:
-
-- automatico;
-- ripetibile;
-- eseguibile su infrastruttura dedicata;
-- capace di raccogliere log e risultati;
-- progressivamente estendibile.
+Il processo deve quindi essere automatico, ripetibile, eseguibile su infrastruttura dedicata, capace di raccogliere log e risultati e progressivamente estendibile.
 
 Motivazione tecnica principale:
 
@@ -134,11 +128,7 @@ Esempi ufficiali Delta:
 - DuckDB v1.5.3: https://github.com/duckdb/duckdb/blob/v1.5.3/.github/config/extensions/delta.cmake
 - DuckDB v1.5.4: https://github.com/duckdb/duckdb/blob/v1.5.4/.github/config/extensions/delta.cmake
 
-Questi file mostrano che il commit sorgente può:
-
-- cambiare tra release DuckDB;
-- restare invariato in alcuni casi;
-- essere ricompilato per la nuova versione DuckDB.
+Questi file mostrano che il commit sorgente può cambiare tra release DuckDB, restare invariato in alcuni casi oppure essere ricompilato per la nuova versione DuckDB.
 
 ### Che cosa non dimostra il loader
 
@@ -259,6 +249,7 @@ Ogni esecuzione deve produrre evidenze su:
 - test passati;
 - test falliti;
 - test esclusi con motivo;
+- test parziali;
 - test non eseguibili per mancanza di servizi o credenziali;
 - log dei servizi;
 - problemi noti;
@@ -273,6 +264,28 @@ compatibile con limitazioni
 non compatibile
 non valutabile
 ```
+
+## Test parziali e piattaforme esterne
+
+Alcuni test originali delle estensioni possono essere eseguiti solo parzialmente nel POC, perché la validazione completa richiede l'accesso alla piattaforma per cui l'estensione è stata creata.
+
+Esempi:
+
+- HTTPFS può usare MinIO per scenari S3-like locali, ma alcuni test richiedono un vero provider S3 cloud;
+- Iceberg può richiedere cataloghi o ambienti specifici;
+- Delta e Unity Catalog possono richiedere accesso a piattaforme o cataloghi reali;
+- altri provider cloud richiedono account, credenziali, secret e policy dedicate.
+
+Questi test devono essere classificati chiaramente come:
+
+```text
+eseguito
+eseguito parzialmente
+escluso con motivazione
+non eseguibile per mancanza di ambiente o credenziali
+```
+
+Per completare la validazione serviranno credenziali, account o ambienti dedicati sulle piattaforme reali.
 
 ## Cosa è stato fatto nel POC
 
@@ -326,6 +339,8 @@ Il POC è stato realizzato su GitHub perché offre:
 - integrazione BigQuery;
 - report aggregato per il SAL;
 - misura reale di tempi, artifact, log e spazio;
+- classificazione di test esclusi, parziali e non eseguibili;
+- accesso a piattaforme reali per i test che oggi richiedono account esterni;
 - spike Telemaco DevOps;
 - gestione completa delle credenziali cloud;
 - policy di retention;
@@ -347,9 +362,21 @@ Il POC è stato realizzato su GitHub perché offre:
 
 - se la repository diventa privata: quote o costi;
 - repository pubblico non adatto a tutto il codice;
-- Virtual File Provider interna non accessibile ai runner GitHub-hosted;
+- Virtual File Provider interno non accessibile ai runner GitHub-hosted;
 - log e artifact fuori dalla rete Irion;
 - governance esterna.
+
+### Runner self-hosted GitHub
+
+Opzione valutata ma scartata:
+
+- il progetto e la pipeline restano comunque su GitHub;
+- l'esecuzione gira su macchine Irion;
+- i runner dovrebbero essere configurati per accedere alla rete interna;
+- senza configurazione di rete adeguata non potrebbero accedere al repository del Virtual File Provider o ad altre risorse interne;
+- avrebbe comunque richiesto gestione infrastrutturale interna, senza spostare davvero il processo fuori da GitHub.
+
+Questa opzione può essere citata come valutata ma non portata avanti.
 
 Domanda:
 
@@ -361,9 +388,9 @@ Domanda:
 
 - è interno;
 - accede ai repository Irion;
-- è più adatto a codice non pubblico;
+- può accedere al repository del Virtual File Provider e ai log associati;
 - è coerente con un processo ufficiale aziendale;
-- consente controllo su artifact, retention, log e rete.
+- consente controllo su retention, log e rete.
 
 ### Problemi e incertezze
 
@@ -375,7 +402,6 @@ Domanda:
 - parallelizzazione;
 - isolamento tra esecuzioni;
 - gestione porte e nomi container;
-- artifact on-premises;
 - differenze tra GitHub Actions e Telemaco YAML;
 - necessità di coinvolgere Gianni.
 
@@ -397,7 +423,7 @@ Da non dimenticare:
 
 Punto per Gianni:
 
-> Qual è il modello corretto per far girare container di test che devono accedere alla rete aziendale da Telemaco DevOps?
+> Qual è il modello corretto per far girare container di test che devono accedere alla rete aziendale dalle macchine runner di Telemaco DevOps?
 
 ## Virtual File Provider
 
@@ -407,13 +433,14 @@ Punto decisionale:
 - GitHub-hosted non può raggiungerlo;
 - per includerlo bisogna scegliere una strategia.
 
-Opzioni:
+Opzioni realistiche:
 
 1. portare il repository su GitHub private;
 2. creare un mirror controllato su GitHub;
-3. usare GitHub Actions con runner self-hosted in rete Irion;
-4. usare Telemaco DevOps end-to-end;
-5. escluderlo temporaneamente solamente dal POC.
+3. usare Telemaco DevOps end-to-end;
+4. escluderlo temporaneamente solamente dal POC.
+
+Nota: GitHub Actions con runner self-hosted in rete Irion è stato valutato ma scartato.
 
 Messaggio:
 
@@ -439,30 +466,29 @@ Da far emergere:
 
 > Dove deve girare questo processo?
 
-Opzioni:
+Opzioni principali:
 
 - GitHub Actions;
-- GitHub Actions con runner self-hosted Irion;
-- Telemaco DevOps;
-- modello ibrido: POC su GitHub e processo ufficiale su Telemaco.
+- Telemaco DevOps.
+
+Opzione valutata ma scartata:
+
+- GitHub Actions con runner self-hosted Irion.
 
 ## Flusso desiderato della presentazione
 
 1. Perché serve un processo dedicato.
 2. Limiti dei test locali e dei tentativi precedenti.
 3. Come funzionano realmente versioni, pin e binari delle estensioni.
-4. Differenza tra compatibilità binaria e funzionale.
-5. Rischio della composizione: attach, secret, cataloghi e stato globale.
-6. Processo proposto a due livelli.
-7. Test upstream delle singole estensioni.
-8. Test cross-extension mantenuti da Irion.
-9. Cosa ha dimostrato il POC.
-10. Perimetro delle estensioni di piattaforma.
-11. Cosa manca.
-12. Prima decisione: il processo è soddisfacente?
-13. Seconda decisione: GitHub o Telemaco DevOps?
-14. Problemi specifici Telemaco: container, rete, isolamento e artifact.
-15. Decisioni richieste.
+4. Rischio della composizione: attach, secret, cataloghi e stato globale.
+5. Processo proposto.
+6. Cosa ha dimostrato il POC.
+7. Perimetro delle estensioni di piattaforma.
+8. Cosa manca.
+9. Prima decisione: il processo è soddisfacente?
+10. Seconda decisione: GitHub o Telemaco DevOps?
+11. Problemi specifici Telemaco: container, rete, isolamento.
+12. Decisioni richieste.
 
 ## Messaggi chiave per slide
 
@@ -471,21 +497,23 @@ Opzioni:
 - Il caricamento corretto dimostra compatibilità binaria, non funzionale.
 - I test upstream sono necessari ma non bastano.
 - Servono test cross-extension nella stessa sessione.
+- Alcuni test sono parziali finché non si accede alle piattaforme reali.
 - La suite deve crescere con i problemi osservati.
 - Il POC dimostra che il modello è fattibile.
 - La domanda ora è dove rendere stabile il processo.
-- GitHub è veloce e già dimostrato; Telemaco è più adatto a codice interno e governance.
+- GitHub è veloce e già dimostrato; Telemaco consente accesso ai repository interni e maggiore controllo aziendale.
+- GitHub self-hosted runner è stato valutato ma scartato.
 - Virtual File Provider e rete aziendale sono fattori decisivi.
 - Il SAL deve discutere processo e piattaforma, non dettagli implementativi minori.
 
 ## Decisioni da ottenere
 
-- Approvare o correggere il processo di validazione a due livelli.
+- Approvare o correggere il processo di validazione.
 - Definire gli scenari cross-extension obbligatori.
 - Decidere se fare uno spike Telemaco DevOps.
-- Stabilire se GitHub resta solo POC o diventa piattaforma candidata.
-- Decidere come integrare Virtual File Provider e BigQuery.
-- Identificare chi verifica rete e container su Telemaco.
+- Stabilire se GitHub resta piattaforma candidata o se si procede verso Telemaco.
+- Decidere come includere il Virtual File Provider.
+- Identificare chi verifica rete e container sulle macchine runner.
 - Definire il criterio minimo di successo dello spike.
 
 ## Criterio minimo di successo per Telemaco DevOps
