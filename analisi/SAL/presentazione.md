@@ -28,10 +28,6 @@ Contesto:
 - Con l'aumento di estensioni, servizi e scenari, l'esecuzione completa può durare ore.
 - Serve quindi un processo automatizzato, rieseguibile e spostato su infrastruttura dedicata.
 
-Messaggio chiave:
-
-> La validazione non deve dipendere dalla disponibilità di una postazione locale o da attività manuali difficili da ripetere.
-
 Discussione:
 
 - È condivisa l'esigenza di trasformare i controlli esistenti in un processo automatico e ripetibile?
@@ -47,10 +43,6 @@ Ogni release DuckDB seleziona specifiche revisioni delle estensioni: una revisio
 La disponibilità del binario e il caricamento corretto non dimostrano che tutti gli scenari funzionali continuino a comportarsi correttamente: la combinazione effettiva deve essere registrata e sottoposta a test.
 
 La compatibilità binaria è un prerequisito; l'esito funzionale deve essere dimostrato dal processo di test.
-
-Messaggio chiave:
-
-> Dobbiamo qualificare la combinazione effettiva: versione DuckDB, revisioni delle estensioni e loro utilizzo congiunto.
 
 Discussione:
 
@@ -72,10 +64,6 @@ Esempio da raccontare:
 
 > Problemi osservati in sequenze di `ATTACH`, ad esempio MSSQL dopo PostgreSQL.
 
-Messaggio chiave:
-
-> Il rischio non è soltanto che un'estensione non si carichi: è che la composizione reale si comporti diversamente.
-
 ---
 
 ## Slide 5 — Cosa deve fare il processo
@@ -94,10 +82,6 @@ Output atteso:
 - test falliti, esclusi o non eseguibili;
 - problemi noti e rischi residui;
 - evidenze per decidere se l'aggiornamento è accettabile.
-
-Messaggio chiave:
-
-> Non stiamo proponendo solo nuovi test: stiamo proponendo una catena di evidenze per qualificare l'aggiornamento.
 
 Discussione:
 
@@ -128,10 +112,6 @@ Perché GitHub:
 - gestione semplice di job, container, artifact e log;
 - repository DuckDB ed estensioni già presenti sulla piattaforma.
 
-Messaggio chiave:
-
-> Il POC dimostra che il processo è tecnicamente possibile e che può essere automatizzato fuori dalla macchina locale.
-
 ---
 
 ## Slide 7 — Perimetro delle estensioni
@@ -147,10 +127,6 @@ Stato del POC:
 - sono già configurate batterie per HTTPFS, DuckLake, PostgreSQL Scanner, Delta, Iceberg, Azure, Unity Catalog e MSSQL;
 - Virtual File Provider e BigQuery devono essere integrati nel processo;
 - non tutte le estensioni richiedono una batteria dedicata: alcune devono essere caricate e verificate soprattutto nei test congiunti.
-
-Messaggio chiave:
-
-> L'obiettivo non è testare dieci componenti separati, ma qualificare il set completo che verrà distribuito insieme.
 
 ---
 
@@ -174,10 +150,6 @@ Nota sui test parziali:
 - alcune batterie, come Iceberg, Delta/Unity Catalog e HTTPFS, possono eseguire solo una parte dei test senza account o servizi esterni;
 - MinIO copre scenari S3-like locali, ma non sostituisce completamente un provider cloud S3 reale;
 - per completare la validazione serviranno credenziali, account o ambienti dedicati sulle piattaforme per cui le estensioni sono state create.
-
-Messaggio chiave:
-
-> Il POC è positivo, ma non copre ancora tutti gli scenari che dipendono da piattaforme esterne reali.
 
 ---
 
@@ -212,10 +184,6 @@ Opzioni:
 - usare GitHub Actions con runner self-hosted Irion;
 - portare il processo su Telemaco DevOps;
 - mantenere GitHub come POC e Telemaco come target ufficiale.
-
-Messaggio chiave:
-
-> La scelta dipende da codice interno, rete, container, costi e governance.
 
 ---
 
@@ -293,10 +261,6 @@ Su Telemaco bisogna verificare:
 - agenti persistenti o effimeri;
 - modalità di isolamento tra esecuzioni.
 
-Messaggio chiave:
-
-> Questa parte va validata con chi conosce l'infrastruttura, in particolare Gianni.
-
 ---
 
 ## Slide 14 — Virtual File Provider
@@ -316,10 +280,6 @@ Opzioni:
 3. usare Telemaco DevOps end-to-end;
 4. escluderlo temporaneamente soltanto dal POC.
 
-Messaggio chiave:
-
-> Senza Virtual File Provider possiamo dimostrare il modello, ma non validare l'intera composizione distribuita.
-
 ---
 
 ## Slide 15 — Proposta di percorso
@@ -335,10 +295,6 @@ Proposta:
 5. fare uno spike su Telemaco DevOps;
 6. includere container e repository interno nello spike;
 7. decidere la piattaforma dopo evidenze concrete.
-
-Messaggio chiave:
-
-> Non decidiamo solo sulla carta: facciamo uno spike mirato su Telemaco.
 
 ---
 
