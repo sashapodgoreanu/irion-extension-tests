@@ -103,82 +103,30 @@ Messaggio chiave:
 
 # Processo proposto
 
-1. Preparare DuckDB, la CLI e `unittest` una sola volta.
-2. Installare e caricare il set di estensioni di default utilizzato nell'Analytics Engine.
-3. Eseguire un primo livello di test specifici per ciascuna estensione:
-   - repository e pin originali;
-   - test upstream della singola estensione;
-   - tutte le estensioni di default comunque presenti nel runtime.
-4. Eseguire un secondo livello di test cross-extension, simile a un end-to-end tecnico:
-   - una singola sessione DuckDB;
-   - più estensioni realmente utilizzate insieme;
-   - `CREATE SECRET`, `ATTACH`, `SELECT`, `INSERT`, `UPDATE` e operazioni cross-catalog.
-5. Conservare questi scenari come test di regressione e ampliarli ogni volta che viene individuato un nuovo problema.
-6. Produrre un report di compatibilità con esiti, esclusioni, problemi noti e rischi residui.
+Il processo deve produrre evidenze su tre livelli:
+
+1. **Preparare un runtime ripetibile**: DuckDB, CLI, `unittest`, versioni, pin e set di estensioni di piattaforma.
+2. **Verificare le estensioni nel contesto comune**: riusare i test originali dove disponibili, ma con la composizione caricata.
+3. **Validare la composizione**: aggiungere scenari cross-extension mantenuti da noi e farli crescere come regressione.
+
+Output atteso:
+
+- report di compatibilità;
+- test falliti, esclusi o non eseguibili;
+- problemi noti e rischi residui;
+- evidenze per decidere se l'aggiornamento è accettabile.
 
 Messaggio chiave:
 
-> Un'unica build alimenta due livelli complementari: test originali delle estensioni e test congiunti della composizione.
+> Non stiamo proponendo solo nuovi test: stiamo proponendo una catena di evidenze per qualificare l'aggiornamento.
 
 Discussione:
 
-- Questo modello a due livelli è soddisfacente come base del processo SAL?
+- Questo modello è sufficiente come base del processo SAL?
 
 ---
 
-## Slide 7 — Primo livello: test upstream
-
-# Riutilizzare i test originali delle estensioni
-
-Per ogni estensione:
-
-- checkout del repository originale;
-- pin immutabile o release pubblicata, mai `main`;
-- esecuzione dei SQLLogicTest e degli altri test applicabili;
-- fixture e path mantenuti nel repository upstream;
-- tutte le estensioni di default installate e caricate prima della batteria;
-- log, test falliti, esclusi o non eseguibili raccolti come evidenza.
-
-Ogni batteria è separata, ma verifica la propria estensione mentre il resto della composizione è presente.
-
-Domanda a cui risponde:
-
-> I test originali dell'estensione passano ancora quando viene caricata insieme alle altre estensioni di piattaforma?
-
----
-
-## Slide 8 — Secondo livello: test cross-extension
-
-# I test che dobbiamo mantenere noi
-
-Scenari in un'unica sessione DuckDB:
-
-- caricamento dell'intero set di estensioni;
-- più `CREATE SECRET` per provider differenti;
-- più `ATTACH` nello stesso processo;
-- MSSQL + PostgreSQL + DuckLake;
-- HTTPFS, Azure, Delta, Iceberg e Unity Catalog;
-- Virtual File Provider e BigQuery quando integrati;
-- `SELECT`, `INSERT`, `UPDATE` e operazioni cross-catalog;
-- verifica di collisioni, ordine di caricamento e stato globale.
-
-Questa suite cresce nel tempo:
-
-- ogni bug riproducibile diventa un test di regressione;
-- ogni nuovo scenario critico viene aggiunto al processo;
-- l'obiettivo non è coprire tutto subito, ma costruire progressivamente la confidenza necessaria.
-
-Messaggio chiave:
-
-> I test upstream verificano i componenti; i test cross-extension verificano che la composizione continui a funzionare insieme.
-
-Discussione:
-
-- Quali scenari congiunti sono obbligatori per dichiarare un aggiornamento accettabile?
-
----
-
-## Slide 9 — Cosa abbiamo dimostrato con il POC
+## Slide 7 — Cosa abbiamo dimostrato con il POC
 
 # POC su GitHub Actions
 
@@ -207,7 +155,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 10 — Perimetro delle estensioni
+## Slide 8 — Perimetro delle estensioni
 
 # Set di estensioni di piattaforma da validare
 
@@ -236,7 +184,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 11 — Cosa manca
+## Slide 9 — Cosa manca
 
 # Da POC a processo ufficiale
 
@@ -256,7 +204,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 12 — Domanda 1 al SAL
+## Slide 10 — Domanda 1 al SAL
 
 # Il processo è soddisfacente?
 
@@ -275,7 +223,7 @@ Decisione richiesta:
 
 ---
 
-## Slide 13 — Dove far girare il processo?
+## Slide 11 — Dove far girare il processo?
 
 # GitHub o Telemaco DevOps?
 
@@ -294,7 +242,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 14 — GitHub Actions
+## Slide 12 — GitHub Actions
 
 # GitHub: veloce e già dimostrato
 
@@ -320,7 +268,7 @@ Discussione:
 
 ---
 
-## Slide 15 — Telemaco DevOps
+## Slide 13 — Telemaco DevOps
 
 # Telemaco DevOps: interno ma da verificare
 
@@ -347,7 +295,7 @@ Discussione:
 
 ---
 
-## Slide 16 — Container e rete
+## Slide 14 — Container e rete
 
 # Punto tecnico da chiarire
 
@@ -374,7 +322,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 17 — Virtual File Provider
+## Slide 15 — Virtual File Provider
 
 # Il repository interno condiziona la scelta
 
@@ -397,7 +345,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 18 — Proposta di percorso
+## Slide 16 — Proposta di percorso
 
 # Decisione pragmatica
 
@@ -417,7 +365,7 @@ Messaggio chiave:
 
 ---
 
-## Slide 19 — Criterio successo spike Telemaco
+## Slide 17 — Criterio successo spike Telemaco
 
 # Cosa deve dimostrare lo spike
 
@@ -439,11 +387,11 @@ Decisione:
 
 ---
 
-## Slide 20 — Decisioni richieste
+## Slide 18 — Decisioni richieste
 
 # Decisioni da chiudere
 
-1. Il processo proposto a due livelli è approvato come base?
+1. Il processo proposto è approvato come base?
 2. Quali scenari cross-extension sono obbligatori?
 3. GitHub resta POC o piattaforma candidata?
 4. Facciamo uno spike su Telemaco DevOps?
