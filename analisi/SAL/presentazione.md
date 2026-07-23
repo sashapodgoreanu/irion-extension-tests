@@ -254,7 +254,7 @@ Discussione:
 Il processo richiede servizi:
 
 - MinIO/S3;
-- Squid, proxy HTTP usato nei test HTTPFS per validare accesso tramite proxy;
+- Squid;
 - PostgreSQL;
 - SQL Server;
 - eventuali cataloghi o servizi futuri.
@@ -284,33 +284,11 @@ Situazione:
 Opzioni realistiche:
 
 1. portare o replicare il repository su GitHub private;
-2. usare Telemaco DevOps end-to-end;
+2. usare Telemaco DevOps end-to-end.
 
 ---
 
-## Slide 15 — Criterio successo spike Telemaco
-
-# Cosa deve dimostrare lo spike
-
-Minimo richiesto:
-
-- build DuckDB una volta;
-- artifact riusato;
-- almeno tre batterie;
-- almeno una batteria con container Linux;
-- almeno una batteria con repository interno;
-- raccolta log anche in caso di errore;
-- nessun conflitto di porte o runtime;
-- parallelismo oppure serializzazione consapevole;
-- tempi e consumo risorse misurati.
-
-Decisione:
-
-> Se lo spike passa, Telemaco diventa candidato concreto per il processo ufficiale.
-
----
-
-## Slide 16 — Ambienti necessari e copertura Windows
+## Slide 15 — Ambienti necessari e copertura Windows
 
 # Lista della spesa per abilitare i test
 
@@ -320,7 +298,7 @@ Decisione:
 
 **Servizi locali**
 
-- MinIO + Squid (proxy HTTP usato dai test HTTPFS per verificare accesso tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
+- MinIO + Squid (proxy HTTP usato soprattutto dai test HTTPFS per validare accessi tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
 
 **Account cloud**
 
