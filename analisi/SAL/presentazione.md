@@ -333,7 +333,7 @@ Messaggio finale:
 
 **Infrastruttura runner**
 
-- Linux, Docker/Compose, rete verso repository e provider, secret store, isolamento, log e cleanup.
+- Runner Windows o Linux; Docker/Compose; container Linux per build e test; rete verso repository e provider; secret store; isolamento, log e cleanup.
 
 **Servizi locali**
 
