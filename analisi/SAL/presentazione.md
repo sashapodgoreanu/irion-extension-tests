@@ -1,10 +1,6 @@
 # Presentazione SAL: validazione DuckDB ed estensioni
 
-> Obiettivo: usare queste slide come traccia per una discussione, non come documento tecnico completo.
-
----
-
-## Slide 1 — Titolo
+## Titolo
 
 # Processo di validazione DuckDB ed estensioni
 
@@ -14,11 +10,9 @@ Contesto:
 
 - DuckDB viene utilizzato nell'Analytics Engine insieme a un insieme di estensioni;
 - tramite un POC abbiamo verificato la fattibilità tecnica del processo;
-- il SAL deve discutere se il processo è soddisfacente e dove deve essere eseguito stabilmente.
+- il SAL deve valutare se il processo è soddisfacente e dove deve essere eseguito stabilmente.
 
----
-
-## Slide 2 — Perché siamo qui
+## Perché siamo qui
 
 # Perché serve un processo?
 
@@ -28,13 +22,7 @@ Contesto:
 - Con l'aumento di estensioni, servizi e scenari, l'esecuzione completa può durare ore.
 - Serve quindi un processo automatizzato, rieseguibile e spostato su infrastruttura dedicata.
 
-Discussione:
-
-- È condivisa l'esigenza di trasformare i controlli esistenti in un processo automatico e ripetibile?
-
----
-
-## Slide 3 — Il problema osservato
+## Il problema osservato
 
 # Aggiornare DuckDB non significa aggiornare tutto allo stesso modo
 
@@ -44,13 +32,7 @@ La disponibilità del binario e il caricamento corretto non dimostrano che tutti
 
 La compatibilità binaria è un prerequisito; l'esito funzionale deve essere dimostrato dal processo di test.
 
-Discussione:
-
-- Vogliamo registrare sempre versione DuckDB, pin upstream e versione effettiva di ogni estensione?
-
----
-
-## Slide 4 — Il rischio reale: estensioni insieme
+## Il rischio reale: estensioni insieme
 
 # Il rischio nasce dalla composizione
 
@@ -64,9 +46,7 @@ Esempio da raccontare:
 
 > Problemi osservati in sequenze di `ATTACH`, ad esempio MSSQL dopo PostgreSQL.
 
----
-
-## Slide 5 — Cosa deve fare il processo
+## Cosa deve fare il processo
 
 # Processo proposto
 
@@ -83,13 +63,7 @@ Output atteso:
 - problemi noti e rischi residui;
 - evidenze per decidere se l'aggiornamento è accettabile.
 
-Discussione:
-
-- Questo modello è sufficiente come base del processo SAL?
-
----
-
-## Slide 6 — Cosa abbiamo dimostrato con il POC
+## Cosa abbiamo dimostrato con il POC
 
 # POC su GitHub Actions
 
@@ -112,9 +86,7 @@ Perché GitHub:
 - gestione semplice di job, container, artifact e log;
 - repository DuckDB ed estensioni già presenti sulla piattaforma.
 
----
-
-## Slide 7 — Perimetro delle estensioni
+## Perimetro delle estensioni
 
 # Set di estensioni di piattaforma da validare
 
@@ -128,9 +100,7 @@ Stato del POC:
 - Virtual File Provider e BigQuery devono essere integrati nel processo;
 - non tutte le estensioni richiedono una batteria dedicata: alcune devono essere caricate e verificate soprattutto nei test congiunti.
 
----
-
-## Slide 8 — Cosa manca
+## Cosa manca
 
 # Da POC a processo ufficiale
 
@@ -151,9 +121,7 @@ Nota sui test parziali:
 - MinIO copre scenari S3-like locali, ma non sostituisce completamente un provider cloud S3 reale;
 - per completare la validazione serviranno credenziali, account o ambienti dedicati sulle piattaforme per cui le estensioni sono state create.
 
----
-
-## Slide 9 — Domanda 1 al SAL
+## Domanda 1 al SAL
 
 # Il processo è soddisfacente?
 
@@ -170,9 +138,7 @@ Decisione richiesta:
 
 > Confermiamo questo processo come base della validazione degli aggiornamenti DuckDB?
 
----
-
-## Slide 10 — Dove far girare il processo?
+## Dove far girare il processo?
 
 # GitHub o Telemaco DevOps?
 
@@ -187,13 +153,7 @@ Valutato e scartato:
 
 - GitHub Actions con runner self-hosted Irion.
 
-Discussione:
-
-- Quale piattaforma è più adatta per eseguire stabilmente il processo?
-
----
-
-## Slide 11 — GitHub Actions
+## GitHub Actions
 
 # GitHub: veloce e già dimostrato
 
@@ -213,13 +173,7 @@ Criticità:
 - Virtual File Provider interna non accessibile dai runner hosted;
 - governance esterna.
 
-Discussione:
-
-- GitHub può essere piattaforma stabile o deve restare solamente l'ambiente del POC?
-
----
-
-## Slide 12 — Telemaco DevOps
+## Telemaco DevOps
 
 # Telemaco DevOps: interno ma da verificare
 
@@ -241,13 +195,7 @@ Criticità:
 - parallelizzazione da provare;
 - adattamento del workflow rispetto al POC GitHub.
 
-Discussione:
-
-- Telemaco può garantire isolamento, rete e capacità di esecuzione sufficienti?
-
----
-
-## Slide 13 — Container e rete
+## Container e rete
 
 # Punto tecnico da chiarire
 
@@ -269,9 +217,7 @@ Sulle macchine runner bisogna verificare:
 - agenti persistenti o effimeri;
 - modalità di isolamento tra esecuzioni.
 
----
-
-## Slide 14 — Virtual File Provider
+## Virtual File Provider
 
 # Il repository interno condiziona la scelta
 
@@ -286,9 +232,7 @@ Opzioni realistiche:
 1. portare o replicare il repository su GitHub private;
 2. usare Telemaco DevOps end-to-end;
 
----
-
-## Slide 15 — Criterio successo spike Telemaco
+## Criterio successo spike Telemaco
 
 # Cosa deve dimostrare lo spike
 
@@ -308,11 +252,9 @@ Decisione:
 
 > Se lo spike passa, Telemaco diventa candidato concreto per il processo ufficiale.
 
----
+## Ambienti necessari e copertura Windows
 
-## Slide 16 — Ambienti necessari e copertura Windows
-
-# Lista della spesa per abilitare i test
+# Ambienti necessari e copertura Windows
 
 **Infrastruttura runner**
 
@@ -334,7 +276,7 @@ Decisione:
 
 - bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
 
-**Copertura Windows**
+**Copertura Windows e perimetro**
 
 - Fase 1: validazione Linux containerizzata, già dimostrata dal POC.
 - Fase 2: smoke test e scenari cross-extension Windows nativi.
