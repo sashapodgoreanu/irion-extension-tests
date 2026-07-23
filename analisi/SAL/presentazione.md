@@ -233,8 +233,9 @@ Vantaggi:
 
 Criticità:
 
-- agenti Linux da predisporre;
+- macchine runner da predisporre;
 - Docker e Docker Compose da verificare;
+- container Linux per build e test della prima fase;
 - container e rete aziendale;
 - IP, proxy e firewall;
 - parallelizzazione da provare;
@@ -260,6 +261,7 @@ Il processo richiede servizi:
 
 Sulle macchine runner bisogna verificare:
 
+- esecuzione dei container Linux di test;
 - accesso alla rete aziendale dai container;
 - IP registrati o non registrati;
 - proxy e firewall;
@@ -296,7 +298,7 @@ Minimo richiesto:
 - build DuckDB una volta;
 - artifact riusato;
 - almeno tre batterie;
-- almeno una batteria con container;
+- almeno una batteria con container Linux;
 - almeno una batteria con repository interno;
 - raccolta log anche in caso di errore;
 - nessun conflitto di porte o runtime;
@@ -333,7 +335,7 @@ Messaggio finale:
 
 **Infrastruttura runner**
 
-- Runner Windows o Linux; Docker/Compose; container Linux per build e test; rete verso repository e provider; secret store; isolamento, log e cleanup.
+- Macchine runner Windows o Linux; Docker/Compose; container Linux per build e test della prima fase; rete verso repository e provider; secret store; isolamento, log e cleanup.
 
 **Servizi locali**
 
@@ -352,3 +354,19 @@ Messaggio finale:
 - bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
 
 BigQuery è escluso da questo inventario.
+
+---
+
+## Slide 18 — Copertura Windows
+
+# Windows: seconda fase di validazione
+
+- La prima fase parte da Linux/container perché è il percorso già dimostrato dal POC.
+- Le estensioni vengono distribuite anche per Windows, quindi la copertura Windows resta da valutare.
+- Un container Linux su runner Windows valida il binario Linux, non quello Windows.
+- Per validare Windows servono DuckDB, `unittest` ed estensioni Windows eseguiti nativamente.
+- I servizi di supporto possono rimanere in container Linux se raggiungibili dal processo Windows.
+
+Proposta:
+
+> Fase 1: validazione Linux containerizzata. Fase 2: smoke test e scenari cross-extension Windows nativi.
