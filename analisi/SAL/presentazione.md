@@ -178,12 +178,18 @@ Decisione richiesta:
 
 La domanda successiva è organizzativa e infrastrutturale.
 
-Opzioni:
+Opzioni principali:
 
 - continuare su GitHub Actions;
-- usare GitHub Actions con runner self-hosted Irion;
-- portare il processo su Telemaco DevOps;
-- mantenere GitHub come POC e Telemaco come target ufficiale.
+- portare il processo su Telemaco DevOps.
+
+Valutato e scartato:
+
+- GitHub Actions con runner self-hosted Irion.
+
+Discussione:
+
+- Quale piattaforma è più adatta per eseguire stabilmente il processo?
 
 ---
 
@@ -221,9 +227,9 @@ Vantaggi:
 
 - resta nella rete Irion;
 - accesso ai repository interni;
-- più adatto al Virtual File Provider;
-- controllo su artifact, log e retention;
-- coerente con un processo ufficiale interno.
+- accesso al repository interno del Virtual File Provider e ai log associati;
+- controllo su log, retention e processo ufficiale;
+- coerente con un processo aziendale interno.
 
 Criticità:
 
@@ -232,7 +238,7 @@ Criticità:
 - container e rete aziendale;
 - IP, proxy e firewall;
 - parallelizzazione da provare;
-- gestione artifact on-premises.
+- adattamento del workflow rispetto al POC GitHub.
 
 Discussione:
 
@@ -252,7 +258,7 @@ Il processo richiede servizi:
 - SQL Server;
 - eventuali cataloghi o servizi futuri.
 
-Su Telemaco bisogna verificare:
+Sulle macchine runner bisogna verificare:
 
 - accesso alla rete aziendale dai container;
 - IP registrati o non registrati;
@@ -273,32 +279,15 @@ Situazione:
 - non raggiungibile dai runner GitHub-hosted;
 - necessario per una validazione completa del set di piattaforma.
 
-Opzioni:
+Opzioni realistiche:
 
 1. portare o replicare il repository su GitHub private;
-2. usare GitHub con runner self-hosted nella rete Irion;
-3. usare Telemaco DevOps end-to-end;
-4. escluderlo temporaneamente soltanto dal POC.
+2. usare Telemaco DevOps end-to-end;
+3. escluderlo temporaneamente soltanto dal POC.
 
 ---
 
-## Slide 15 — Proposta di percorso
-
-# Decisione pragmatica
-
-Proposta:
-
-1. mantenere GitHub come riferimento POC;
-2. aggiungere test cross-extension;
-3. integrare BigQuery e definire il percorso del Virtual File Provider;
-4. misurare tempi, log e artifact;
-5. fare uno spike su Telemaco DevOps;
-6. includere container e repository interno nello spike;
-7. decidere la piattaforma dopo evidenze concrete.
-
----
-
-## Slide 16 — Criterio successo spike Telemaco
+## Slide 15 — Criterio successo spike Telemaco
 
 # Cosa deve dimostrare lo spike
 
@@ -320,16 +309,16 @@ Decisione:
 
 ---
 
-## Slide 17 — Decisioni richieste
+## Slide 16 — Decisioni richieste
 
 # Decisioni da chiudere
 
 1. Il processo proposto è approvato come base?
 2. Quali scenari cross-extension sono obbligatori?
-3. GitHub resta POC o piattaforma candidata?
+3. GitHub resta piattaforma candidata o si procede verso Telemaco DevOps?
 4. Facciamo uno spike su Telemaco DevOps?
-5. Come integriamo Virtual File Provider e BigQuery?
-6. Chi verifica rete e container su Telemaco?
+5. Come includiamo il Virtual File Provider nel processo?
+6. Chi verifica rete e container sulle macchine runner?
 7. Quale report serve per approvare un aggiornamento DuckDB?
 
 Messaggio finale:
