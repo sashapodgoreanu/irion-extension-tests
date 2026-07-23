@@ -16,10 +16,6 @@ Contesto:
 - tramite un POC abbiamo verificato la fattibilità tecnica del processo;
 - il SAL deve discutere se il processo è soddisfacente e dove deve essere eseguito stabilmente.
 
-Messaggio orale:
-
-> Non presentiamo solo un POC tecnico: presentiamo un processo da decidere e stabilizzare.
-
 ---
 
 ## Slide 2 — Perché siamo qui
