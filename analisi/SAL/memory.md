@@ -7,32 +7,53 @@ Questo file è una memoria di lavoro. Serve a conservare il ragionamento complet
 Conservare:
 
 - motivazione del processo;
+- esperienza maturata con i precedenti tentativi di test;
 - rischi osservati negli aggiornamenti DuckDB;
-- ipotesi sulla compatibilità delle estensioni;
-- struttura del POC;
+- analisi della compatibilità delle estensioni;
+- struttura del processo proposto;
+- risultati del POC;
 - decisioni ancora aperte;
 - punti da portare in discussione;
 - messaggi chiave da trasferire in `presentazione.md`.
 
 ## Contesto
 
-Irion utilizza DuckDB nell'Analytics Engine insieme a un set di estensioni. L'aggiornamento di DuckDB non può essere considerato solo come aggiornamento di una libreria isolata, perché la piattaforma usa estensioni caricate insieme, cataloghi diversi, attach verso sorgenti differenti, secret provider, filesystem remoti e funzionalità specifiche.
+Irion utilizza DuckDB nell'Analytics Engine insieme a un set di estensioni. L'aggiornamento di DuckDB non può essere considerato solo come l'aggiornamento di una libreria isolata, perché il runtime usa estensioni caricate insieme, cataloghi diversi, attach verso sorgenti differenti, secret provider, filesystem remoti e funzionalità specifiche.
 
-Il POC nel repository `irion-extension-tests`, branch `001-httpfs-qa-infrastructure`, dimostra che è possibile preparare DuckDB e `unittest`, eseguire batterie di test delle estensioni e caricare il set comune delle estensioni Irion in ogni batteria.
+Il POC nel repository `irion-extension-tests`, branch `001-httpfs-qa-infrastructure`, dimostra che è possibile preparare DuckDB e `unittest`, eseguire batterie di test delle estensioni e caricare il set comune delle estensioni in ogni batteria.
 
 ## Perché serve il processo
 
-Motivazione principale:
+Nel tempo sono stati provati diversi controlli e processi di test, ma erano limitati, poco automatizzati o legati alla macchina locale dello sviluppatore.
 
-> DuckDB può essere aggiornabile, ma l'insieme DuckDB + estensioni Irion deve essere qualificato come composizione.
+Il principale limite dell'esecuzione locale è operativo:
+
+- è necessario compilare DuckDB e il runner `unittest`;
+- la build e le batterie consumano CPU, memoria e spazio disco;
+- durante l'esecuzione la postazione rimane sostanzialmente dedicata ai test;
+- lo sviluppatore non può usare normalmente la macchina per altre attività pesanti;
+- con l'aumento delle estensioni, dei container e degli scenari, l'esecuzione completa può durare ore;
+- una procedura manuale è più difficile da ripetere nello stesso modo e da trasformare in evidenza condivisibile.
+
+Il processo deve quindi essere:
+
+- automatico;
+- ripetibile;
+- eseguibile su infrastruttura dedicata;
+- capace di raccogliere log e risultati;
+- progressivamente estendibile.
+
+Motivazione tecnica principale:
+
+> Non basta verificare che DuckDB parta o che una singola estensione funzioni da sola. Deve essere qualificata la combinazione effettiva di DuckDB e delle estensioni distribuite insieme.
 
 Osservazioni alla base del processo:
 
-- gli aggiornamenti DuckDB non sono immediati;
+- gli aggiornamenti DuckDB non sono sempre immediati;
 - le estensioni possono non aggiornarsi nello stesso momento di DuckDB;
-- alcune estensioni possono restare su commit precedenti;
-- la presenza di un binario installabile non garantisce comportamento funzionale corretto;
-- i test upstream delle singole estensioni non coprono automaticamente la composizione Irion;
+- alcune estensioni possono restare sullo stesso commit sorgente per più release DuckDB;
+- un binario installabile e caricabile non garantisce il comportamento funzionale;
+- i test upstream delle singole estensioni non coprono automaticamente la composizione completa;
 - più estensioni caricate insieme possono collidere;
 - operazioni reali come più `ATTACH`, `CREATE SECRET`, accessi a filesystem remoti e cataloghi multipli devono essere validate insieme.
 
@@ -40,83 +61,222 @@ Esempio da ricordare in call:
 
 - caso osservato di problemi con sequenze di `ATTACH`, per esempio MSSQL dopo PostgreSQL;
 - questo mostra che non basta sapere che MSSQL funziona da solo e PostgreSQL funziona da solo;
-- serve testare la sessione reale con più estensioni presenti.
+- serve verificare il comportamento della stessa sessione con più estensioni già caricate e inizializzate.
 
 Frase breve:
 
-> Il rischio non è solo che un'estensione non funzioni: il rischio è che funzioni da sola ma non funzioni più nella composizione reale Irion.
+> Un'estensione può funzionare isolatamente e fallire quando entra nella composizione reale.
 
-## Compatibilità estensioni DuckDB
+## Compatibilità delle estensioni DuckDB
 
-Punto da comunicare con attenzione:
+### Conclusione tecnica
 
-- DuckDB documenta che le estensioni binarie sono legate a una specifica versione DuckDB e piattaforma;
-- DuckDB installa estensioni in cartelle versionate per DuckDB e piattaforma;
-- DuckDB dovrebbe rifiutare il caricamento di binari incompatibili;
-- però la documentazione non fornisce una garanzia chiara del tipo "compatibile su tutta la minor";
-- nella pratica si osserva che una versione DuckDB più recente può risolvere un'estensione verso lo stesso SHA/commit usato da una versione precedente;
-- quindi non si può dedurre che tutte le estensioni siano state aggiornate solo perché DuckDB è stato aggiornato.
+La formulazione corretta è:
+
+> Lo stesso commit sorgente di un'estensione può essere riutilizzato e ricompilato per più versioni DuckDB, ma ogni binario rimane legato alla specifica versione DuckDB e piattaforma per cui è stato prodotto.
+
+Questo significa che non si tratta di una garanzia generale di retrocompatibilità binaria.
+
+Esempio concettuale:
+
+```text
+stesso commit sorgente dell'estensione
++ build contro DuckDB v1.5.1
+= binario per v1.5.1 e piattaforma target
+
+stesso commit sorgente dell'estensione
++ build contro DuckDB v1.5.4
+= binario distinto per v1.5.4 e piattaforma target
+```
+
+Non significa:
+
+```text
+binario costruito per DuckDB v1.5.1
+caricato direttamente e garantito su DuckDB v1.5.4
+```
+
+### Che cosa documenta DuckDB
+
+DuckDB documenta che:
+
+- le estensioni binarie distribuite sono legate a una specifica versione DuckDB e piattaforma;
+- il loader rileva incompatibilità binarie evidenti e rifiuta binari prodotti per altre versioni o piattaforme;
+- la directory di installazione contiene versione DuckDB e piattaforma;
+- le estensioni out-of-tree possono avere un ciclo di rilascio indipendente da DuckDB;
+- le estensioni unstable possono modificare API e comportamento a ogni release;
+- le estensioni Community vengono testate rispetto alla release stabile e, in preparazione della release successiva, anche rispetto al ramo DuckDB successivo;
+- la compatibilità con il ramo successivo permette di anticipare i problemi, ma non costituisce una garanzia assoluta sulla futura release stabile.
+
+Fonti ufficiali da mantenere:
+
+- DuckDB — Versioning of Extensions: https://duckdb.org/docs/extensions/versioning_of_extensions
+- DuckDB — Extension Distribution / Binary Compatibility: https://duckdb.org/docs/current/extensions/extension_distribution
+- DuckDB — Installing Extensions: https://duckdb.org/docs/stable/extensions/installing_extensions
+- DuckDB Community Extensions — Development and maintenance across releases: https://duckdb.org/community_extensions/development
+- DuckDB — Extensions Overview: https://duckdb.org/docs/stable/extensions/overview
+
+### Evidenza dai pin delle release DuckDB
+
+Ogni release DuckDB può selezionare una specifica revisione sorgente di un'estensione out-of-tree.
+
+Esempi ufficiali HTTPFS:
+
+- DuckDB v1.5.1: https://github.com/duckdb/duckdb/blob/v1.5.1/.github/config/extensions/httpfs.cmake
+- DuckDB v1.5.2: https://github.com/duckdb/duckdb/blob/v1.5.2/.github/config/extensions/httpfs.cmake
+- DuckDB v1.5.3: https://github.com/duckdb/duckdb/blob/v1.5.3/.github/config/extensions/httpfs.cmake
+- DuckDB v1.5.4: https://github.com/duckdb/duckdb/blob/v1.5.4/.github/config/extensions/httpfs.cmake
+
+Esempi ufficiali Delta:
+
+- DuckDB v1.5.1: https://github.com/duckdb/duckdb/blob/v1.5.1/.github/config/extensions/delta.cmake
+- DuckDB v1.5.2: https://github.com/duckdb/duckdb/blob/v1.5.2/.github/config/extensions/delta.cmake
+- DuckDB v1.5.3: https://github.com/duckdb/duckdb/blob/v1.5.3/.github/config/extensions/delta.cmake
+- DuckDB v1.5.4: https://github.com/duckdb/duckdb/blob/v1.5.4/.github/config/extensions/delta.cmake
+
+Questi file mostrano che il commit sorgente può:
+
+- cambiare tra release DuckDB;
+- restare invariato in alcuni casi;
+- essere ricompilato per la nuova versione DuckDB.
+
+### Che cosa non dimostra il loader
+
+Il caricamento corretto non dimostra automaticamente:
+
+- che tutti i test originali passino nel nostro ambiente;
+- che il comportamento sia identico alla release precedente;
+- che tutte le funzioni utilizzate siano compatibili;
+- che più estensioni non entrino in conflitto;
+- che sequenze di `ATTACH`, secret, cataloghi e filesystem funzionino insieme;
+- che una estensione Community o unstable sia funzionalmente stabile tra release.
 
 Conclusione di memoria:
 
-> La compatibilità binaria è necessaria ma non sufficiente. Il nostro processo deve dimostrare la compatibilità funzionale della composizione.
+> La compatibilità binaria è un prerequisito. Il processo deve dimostrare la compatibilità funzionale della specifica combinazione di DuckDB, revisioni delle estensioni e scenari di utilizzo.
 
-## Strategia test
+## Set di estensioni di piattaforma
 
-Il processo deve avere tre livelli principali.
+Il perimetro comunicato per il processo comprende:
 
-### 1. Test runtime
+- Delta;
+- DuckLake;
+- HTTPFS;
+- Iceberg;
+- PostgreSQL Scanner;
+- Azure;
+- Unity Catalog;
+- MSSQL;
+- Virtual File Provider;
+- BigQuery.
+
+Non tutte le estensioni devono necessariamente avere una batteria upstream dedicata. Tutte devono però essere incluse nel runtime di validazione quando disponibili e devono comparire negli scenari cross-extension applicabili.
+
+## Strategia di test
+
+Il processo deve avere livelli distinti ma complementari.
+
+### 1. Preparazione del runtime
 
 Verificare:
 
 - versione DuckDB;
+- commit DuckDB;
 - build CLI;
 - build `unittest`;
-- artifact;
-- installazione estensioni;
-- load estensioni;
-- origine/versione delle estensioni.
+- piattaforma;
+- artifact condiviso;
+- installazione delle estensioni;
+- caricamento delle estensioni;
+- origine, versione e commit effettivi.
 
-### 2. Test upstream delle estensioni
+DuckDB e `unittest` devono essere preparati una sola volta e riutilizzati dalle batterie successive.
+
+### 2. Primo livello: test upstream delle estensioni
 
 Per ogni estensione:
 
-- checkout repository originale;
-- pin immutabile o release;
-- mai `main`;
-- esecuzione dei test originali;
-- caricamento di tutte le estensioni Irion prima della batteria;
-- raccolta log e test esclusi.
+- checkout del repository originale;
+- pin immutabile o release pubblicata;
+- mai il branch `main`;
+- esecuzione dei SQLLogicTest e degli altri test applicabili;
+- mantenimento di fixture e path nel checkout originale;
+- caricamento delle estensioni di default prima della batteria;
+- raccolta di log, test falliti, saltati, esclusi o non eseguibili.
+
+Ogni batteria verifica una specifica estensione, ma lo fa mentre il resto del set di piattaforma è presente nel runtime.
 
 Domanda a cui risponde:
 
-> I test originali dell'estensione passano ancora quando l'estensione viene caricata dentro la composizione Irion?
+> I test originali dell'estensione passano ancora quando l'estensione viene caricata insieme alle altre estensioni di piattaforma?
 
-### 3. Test Irion cross-extension
+### 3. Secondo livello: test cross-extension
 
-Test scritti da Irion, in un'unica sessione DuckDB, per coprire:
+Test mantenuti da Irion, nella stessa sessione DuckDB, per coprire:
 
-- più `ATTACH`;
-- MSSQL + PostgreSQL;
-- DuckLake;
+- caricamento dell'intero set di estensioni;
+- più `CREATE SECRET` per provider differenti;
+- più `ATTACH` nello stesso processo;
+- MSSQL + PostgreSQL + DuckLake;
 - HTTPFS;
 - Azure;
 - Delta;
 - Iceberg;
 - Unity Catalog;
-- ICU;
-- `CREATE SECRET`;
-- collisioni di funzioni/configurazioni;
+- Virtual File Provider;
+- BigQuery;
+- query cross-catalog;
+- `SELECT`, `INSERT` e `UPDATE` dove supportati;
 - sequenze di load;
-- query cross-catalog.
+- collisioni di funzioni, impostazioni o stato globale;
+- apertura, detach e riutilizzo dei cataloghi.
+
+Questi test sono assimilabili a end-to-end tecnici della composizione, pur rimanendo eseguiti a livello DuckDB.
+
+La suite deve crescere nel tempo:
+
+- ogni bug riproducibile diventa un test di regressione;
+- ogni nuovo scenario critico viene aggiunto;
+- non è necessario coprire tutto nella prima versione;
+- l'obiettivo è aumentare progressivamente la confidenza negli aggiornamenti.
 
 Domanda a cui risponde:
 
-> La sessione reale usata dall'Analytics Engine è stabile quando carichiamo e usiamo insieme tutte le estensioni?
+> Le estensioni continuano a funzionare quando vengono caricate e utilizzate insieme nello stesso runtime?
+
+### 4. Report finale
+
+Ogni esecuzione deve produrre evidenze su:
+
+- versione e commit DuckDB;
+- versione `extension-ci-tools`;
+- artifact utilizzato;
+- estensioni installate e caricate;
+- origine e versione delle estensioni;
+- repository e pin dei test upstream;
+- test scoperti;
+- test eseguiti;
+- test passati;
+- test falliti;
+- test esclusi con motivo;
+- test non eseguibili per mancanza di servizi o credenziali;
+- log dei servizi;
+- problemi noti;
+- rischi residui;
+- valutazione finale.
+
+Possibili esiti:
+
+```text
+compatibile
+compatibile con limitazioni
+non compatibile
+non valutabile
+```
 
 ## Cosa è stato fatto nel POC
 
-POC su GitHub Actions per rapidità.
+Il POC è stato realizzato su GitHub Actions per rapidità e disponibilità immediata delle risorse.
 
 Dimostrato:
 
@@ -127,131 +287,137 @@ Dimostrato:
 - artifact condiviso;
 - job paralleli;
 - checkout upstream a pin;
-- install/load congiunto delle estensioni;
+- installazione e caricamento congiunto delle estensioni;
 - isolamento di `HOME` e runtime;
-- servizi per HTTPFS, PostgreSQL, SQL Server;
+- servizi per HTTPFS, PostgreSQL e SQL Server;
 - raccolta log;
 - repository configurabili senza hardcodare la matrice nel workflow.
 
-Estensioni/batterie attuali da ricordare:
+Batterie già configurate nel POC:
 
 - HTTPFS;
 - DuckLake;
-- postgres_scanner;
+- PostgreSQL Scanner;
 - Delta;
 - Iceberg;
 - Azure;
 - Unity Catalog;
 - MSSQL.
 
-Estensioni comuni nel baseline:
+Da integrare nel perimetro:
 
-- httpfs;
-- mssql;
-- ducklake;
-- postgres_scanner;
-- icu;
-- azure;
-- delta;
-- iceberg;
-- unity_catalog.
+- Virtual File Provider;
+- BigQuery.
+
+Il POC è stato realizzato su GitHub perché offre:
+
+- pipeline rapide da creare;
+- runner Ubuntu pronti;
+- container e servizi semplici da avviare;
+- artifact e log già gestiti;
+- repository DuckDB già presenti;
+- parallelizzazione immediata;
+- possibilità di spostare l'esecuzione fuori dalla macchina locale.
 
 ## Cosa manca
 
-- batteria Irion cross-extension in singola sessione;
+- batteria cross-extension in singola sessione;
+- integrazione Virtual File Provider;
+- integrazione BigQuery;
 - report aggregato per il SAL;
-- integrazione Virtual File System;
-- misura reale di artifact/log/tempi;
+- misura reale di tempi, artifact, log e spazio;
 - spike Telemaco DevOps;
-- gestione completa di credenziali cloud;
+- gestione completa delle credenziali cloud;
 - policy di retention;
 - decisione su dove far girare il processo.
 
 ## GitHub: memoria argomenti
 
-Perché è stato usato:
+### Perché è stato usato
 
 - POC veloce;
 - workflow semplici;
-- runner pronti;
+- runner pronti ed effimeri;
 - container e servizi facili;
 - artifact e log gestiti;
 - repository DuckDB già su GitHub;
 - parallelizzazione immediata.
 
-Problemi:
+### Problemi
 
-- se repository privata: quote/costi;
-- repository pubblico non adatto a tutto;
-- Virtual File System interna non accessibile;
-- log/artifact fuori dalla rete Irion;
+- se la repository diventa privata: quote o costi;
+- repository pubblico non adatto a tutto il codice;
+- Virtual File Provider interna non accessibile ai runner GitHub-hosted;
+- log e artifact fuori dalla rete Irion;
 - governance esterna.
 
 Domanda:
 
-> Accettiamo GitHub come piattaforma stabile oppure solo come POC?
+> GitHub deve essere una piattaforma stabile oppure solamente l'ambiente del POC?
 
 ## Telemaco DevOps: memoria argomenti
 
-Perché considerarlo:
+### Perché considerarlo
 
 - è interno;
 - accede ai repository Irion;
-- migliore per codice non pubblico;
-- migliore per processo ufficiale aziendale;
-- controllo su artifact, retention e rete.
+- è più adatto a codice non pubblico;
+- è coerente con un processo ufficiale aziendale;
+- consente controllo su artifact, retention, log e rete.
 
-Problemi/incertezze:
+### Problemi e incertezze
 
 - agenti Linux da predisporre;
 - Docker e Docker Compose da verificare;
 - container e rete aziendale;
-- IP container forse non registrati;
-- proxy/firewall;
+- IP dei container forse non registrati;
+- proxy e firewall;
 - parallelizzazione;
-- gestione porte;
+- isolamento tra esecuzioni;
+- gestione porte e nomi container;
 - artifact on-premises;
-- differenza tra GitHub Actions e Telemaco YAML;
+- differenze tra GitHub Actions e Telemaco YAML;
 - necessità di coinvolgere Gianni.
 
 Domanda:
 
-> Telemaco DevOps può garantire lo stesso livello di isolamento e parallelizzazione di GitHub Actions?
+> Telemaco DevOps può garantire isolamento, rete e capacità di esecuzione adeguati al processo?
 
 ## Container e rete
 
 Da non dimenticare:
 
-- su GitHub ogni job gira su VM effimera;
+- su GitHub ogni job gira su una VM effimera;
 - su Telemaco gli agenti potrebbero essere persistenti;
 - se più batterie girano sullo stesso host, possono confliggere su porte e nomi container;
 - bisogna rendere dinamici porte, reti Docker e nomi container oppure usare agenti isolati;
 - alcuni container devono accedere alla rete aziendale o a repository interni;
-- se l'IP del container non è riconosciuto, alcuni servizi potrebbero non essere raggiungibili.
+- se l'IP del container non è riconosciuto, alcuni servizi potrebbero non essere raggiungibili;
+- la reale possibilità di parallelizzazione deve essere verificata con l'infrastruttura disponibile.
 
 Punto per Gianni:
 
 > Qual è il modello corretto per far girare container di test che devono accedere alla rete aziendale da Telemaco DevOps?
 
-## Virtual File System
+## Virtual File Provider
 
 Punto decisionale:
 
-- oggi il repository VFS è interno;
+- oggi il repository è interno;
 - GitHub-hosted non può raggiungerlo;
 - per includerlo bisogna scegliere una strategia.
 
 Opzioni:
 
-1. portare VFS su GitHub private;
-2. mirror controllato su GitHub;
-3. GitHub Actions con runner self-hosted in rete Irion;
-4. Telemaco DevOps end-to-end;
-5. esclusione temporanea solo per POC.
+1. portare il repository su GitHub private;
+2. creare un mirror controllato su GitHub;
+3. usare GitHub Actions con runner self-hosted in rete Irion;
+4. usare Telemaco DevOps end-to-end;
+5. escluderlo temporaneamente solamente dal POC.
 
 Messaggio:
 
-> Senza VFS possiamo dimostrare il modello, ma non qualificare davvero tutta la composizione Analytics Engine.
+> Senza Virtual File Provider possiamo dimostrare il modello, ma non validare l'intera composizione distribuita.
 
 ## Domande principali del SAL
 
@@ -261,12 +427,13 @@ Messaggio:
 
 Da far emergere:
 
-- non stiamo creando test casuali;
-- stiamo creando un processo di qualificazione;
-- il processo usa test originali;
-- aggiunge test Irion mirati;
-- produce evidenze;
-- evita aggiornamenti manuali basati su confidenza soggettiva.
+- il processo ha due livelli di test;
+- riutilizza i test originali;
+- mantiene tutte le estensioni presenti nel runtime;
+- aggiunge test congiunti mirati;
+- cresce con i bug osservati;
+- produce evidenze condivisibili;
+- elimina la dipendenza dalla macchina locale.
 
 ### Seconda domanda
 
@@ -275,41 +442,50 @@ Da far emergere:
 Opzioni:
 
 - GitHub Actions;
-- GitHub Actions + runner self-hosted Irion;
+- GitHub Actions con runner self-hosted Irion;
 - Telemaco DevOps;
-- modello ibrido POC su GitHub e processo ufficiale su Telemaco.
+- modello ibrido: POC su GitHub e processo ufficiale su Telemaco.
 
 ## Flusso desiderato della presentazione
 
-1. Esigenza: perché serve il processo.
-2. Rischio: DuckDB + estensioni non è aggiornabile a occhio.
-3. Problema compatibilità estensioni: pin, versioni, SHA, test.
-4. Problema composizione: estensioni insieme, attach, secret, cataloghi.
-5. Processo proposto: build once, test batteries, all extensions loaded.
-6. Cosa ha dimostrato il POC.
-7. Cosa manca.
-8. Dove farlo girare: GitHub vs Telemaco DevOps.
-9. Problemi specifici Telemaco: container, rete, parallelismo, artifact.
-10. Decisioni richieste.
+1. Perché serve un processo dedicato.
+2. Limiti dei test locali e dei tentativi precedenti.
+3. Come funzionano realmente versioni, pin e binari delle estensioni.
+4. Differenza tra compatibilità binaria e funzionale.
+5. Rischio della composizione: attach, secret, cataloghi e stato globale.
+6. Processo proposto a due livelli.
+7. Test upstream delle singole estensioni.
+8. Test cross-extension mantenuti da Irion.
+9. Cosa ha dimostrato il POC.
+10. Perimetro delle estensioni di piattaforma.
+11. Cosa manca.
+12. Prima decisione: il processo è soddisfacente?
+13. Seconda decisione: GitHub o Telemaco DevOps?
+14. Problemi specifici Telemaco: container, rete, isolamento e artifact.
+15. Decisioni richieste.
 
 ## Messaggi chiave per slide
 
-- Non validiamo DuckDB da solo: validiamo DuckDB nella composizione Irion.
-- Un'estensione può essere installabile ma non sufficiente per dichiararla funzionalmente compatibile.
-- I test upstream sono necessari ma non bastano: servono test Irion cross-extension.
+- L'esecuzione non deve dipendere dalla macchina locale dello sviluppatore.
+- Lo stesso SHA sorgente non significa lo stesso binario tra versioni DuckDB.
+- Il caricamento corretto dimostra compatibilità binaria, non funzionale.
+- I test upstream sono necessari ma non bastano.
+- Servono test cross-extension nella stessa sessione.
+- La suite deve crescere con i problemi osservati.
 - Il POC dimostra che il modello è fattibile.
 - La domanda ora è dove rendere stabile il processo.
 - GitHub è veloce e già dimostrato; Telemaco è più adatto a codice interno e governance.
-- La VFS e la rete aziendale sono fattori decisivi.
-- Il SAL deve decidere processo e piattaforma, non dettagli implementativi minori.
+- Virtual File Provider e rete aziendale sono fattori decisivi.
+- Il SAL deve discutere processo e piattaforma, non dettagli implementativi minori.
 
 ## Decisioni da ottenere
 
-- Approvare o correggere il processo di validazione.
+- Approvare o correggere il processo di validazione a due livelli.
+- Definire gli scenari cross-extension obbligatori.
 - Decidere se fare uno spike Telemaco DevOps.
 - Stabilire se GitHub resta solo POC o diventa piattaforma candidata.
-- Decidere come trattare la Virtual File System.
-- Identificare chi verifica rete/container su Telemaco.
+- Decidere come integrare Virtual File Provider e BigQuery.
+- Identificare chi verifica rete e container su Telemaco.
 - Definire il criterio minimo di successo dello spike.
 
 ## Criterio minimo di successo per Telemaco DevOps
@@ -321,11 +497,12 @@ Uno spike Telemaco è utile se dimostra:
 - almeno tre batterie;
 - almeno una batteria con container;
 - almeno una batteria con repository interno;
-- log raccolti;
-- nessun conflitto di porte;
+- log raccolti anche in caso di errore;
+- nessun conflitto di porte o stato residuo;
 - comportamento ripetibile;
-- parallelizzazione o serializzazione consapevole.
+- parallelizzazione oppure serializzazione consapevole;
+- tempi e consumo risorse misurati.
 
 ## Formula conclusiva
 
-> Il POC ha già risposto alla domanda tecnica: il processo è possibile. Il SAL deve ora rispondere alla domanda organizzativa: dove deve vivere questo processo e quali vincoli aziendali deve rispettare?
+> Il POC ha già risposto alla domanda tecnica: il processo è possibile. Il SAL deve ora approvare il modello di validazione e decidere dove deve vivere stabilmente.
