@@ -1,8 +1,10 @@
-# Presentazione SAL: validazione DuckDB ed estensioni
+# Presentazione SAL — validazione DuckDB ed estensioni
+
+Questo file è la **source of truth** della presentazione. Ogni sezione `## Slide N` descrive una slide. Il titolo `#` è già il risultato del merge semantico di titolo e sottotitolo: non va ulteriormente concatenato dal generatore.
 
 ---
 
-## Titolo
+## Slide 1 — preservata nel modello
 
 # Processo di validazione DuckDB ed estensioni
 
@@ -16,9 +18,9 @@ Contesto:
 
 ---
 
-## Perché siamo qui
+## Slide 2
 
-# Perché serve un processo?
+# Perché serve un processo di validazione DuckDB
 
 - Gli aggiornamenti DuckDB richiedono una validazione ripetibile, non soltanto prove manuali.
 - Nel tempo abbiamo provato controlli diversi, ma erano limitati o legati alla singola macchina di sviluppo.
@@ -28,9 +30,9 @@ Contesto:
 
 ---
 
-## Il problema osservato
+## Slide 3
 
-# Aggiornare DuckDB non significa aggiornare tutto allo stesso modo
+# DuckDB ed estensioni non si aggiornano in blocco
 
 Ogni release DuckDB seleziona specifiche revisioni delle estensioni: una revisione può avanzare, restare invariata o essere semplicemente ricompilata per la nuova versione DuckDB e piattaforma.
 
@@ -40,27 +42,27 @@ La compatibilità binaria è un prerequisito; l'esito funzionale deve essere dim
 
 ---
 
-## Il rischio reale: estensioni insieme
+## Slide 4
 
-# Il rischio nasce dalla composizione
+# La composizione delle estensioni crea il rischio
 
 - Un'estensione può buildare per la nuova versione DuckDB senza introdurre modifiche funzionali reali.
 - Un'estensione può funzionare isolatamente e fallire quando viene caricata insieme alle altre.
 - Possibili collisioni su funzioni, impostazioni, secret provider, filesystem e cataloghi.
-- Sequenze di `ATTACH` di cataloghi diversi possono causare problemi (`ad esempio ATTACH MSSQL dopo PostgreSQL - già risolto`)
+- Sequenze di `ATTACH` di cataloghi diversi possono causare problemi, ad esempio `ATTACH MSSQL` dopo PostgreSQL.
 - Anche l'ordine di caricamento può avere effetti sul comportamento.
 
 ---
 
-## Cosa deve fare il processo
+## Slide 5
 
-# Processo proposto
+# Il processo testa runtime e composizione
 
 Il processo deve produrre evidenze su tre livelli:
 
-1. **Preparare un runtime ripetibile**: DuckDB CLI, `unittest`, pin (commit specifico) e set di estensioni della piattaforma.
+1. **Preparare un runtime ripetibile**: DuckDB CLI, `unittest`, pin a commit specifico e set di estensioni della piattaforma.
 2. **Verificare le estensioni nel contesto comune**: riusare i test originali dove disponibili, ma con il set di estensioni caricate.
-3. **Validare la composizione**: aggiungere scenari cross-extension mantenuti da noi e farli crescere quando ci sono regressioni o bug.
+3. **Validare la composizione**: aggiungere scenari cross-extension mantenuti da noi e farli crescere quando emergono regressioni o bug.
 
 Output atteso:
 
@@ -71,15 +73,13 @@ Output atteso:
 
 ---
 
-## Cosa abbiamo ottenuto con il POC
+## Slide 6
 
-# POC su GitHub Actions
+# Il POC GitHub Actions è fattibile
 
-Realizzato:
+POC realizzato.
 
-![](20260723170339.png)
-
-Perché GitHub:
+Perché GitHub Actions:
 
 - rapidità di realizzazione del POC;
 - runner Ubuntu già disponibili;
@@ -88,48 +88,42 @@ Perché GitHub:
 
 ---
 
-## Perimetro delle estensioni
+## Slide 7
 
-# Set di estensioni di piattaforma da validare
+# Estensioni di piattaforma da validare
 
 Il runtime di validazione deve caricare il set di estensioni utilizzato dalla piattaforma:
 
-> Delta; DuckLake; HTTPFS; Iceberg; PostgreSQL Scanner; Azure; Unity Catalog; MSSQL; Virtual File Provider; BigQuery.
+Delta; DuckLake; HTTPFS; Iceberg; PostgreSQL Scanner; Azure; Unity Catalog; MSSQL; Virtual File Provider; BigQuery.
 
 Stato del POC:
 
 - sono già configurate batterie per HTTPFS, DuckLake, PostgreSQL Scanner, Delta, Iceberg, Azure, Unity Catalog e MSSQL;
 - Virtual File Provider e BigQuery devono essere integrati nel processo;
-- non tutte le estensioni richiedono una batteria dedicata: alcune devono essere caricate e verificate soprattutto nei test congiunti (ICU).
+- non tutte le estensioni richiedono una batteria dedicata: alcune devono essere caricate e verificate soprattutto nei test congiunti, inclusa ICU.
 
 ---
 
-## Cosa manca
+## Slide 8
 
-# Da POC a processo ufficiale
-
-Da completare:
+# Dal POC al processo ufficiale: cosa manca
 
 - test cross-extension in una singola sessione;
 - integrazione Virtual File Provider e BigQuery;
 - report aggregato per il SAL;
-- misurazione tempi, dimensione artifact e log;
-- classificazione test esclusi, parziali o non eseguibili;
+- misurazione di tempi, dimensione degli artifact e log;
+- classificazione dei test esclusi, parziali o non eseguibili;
 - accesso a piattaforme reali per i test oggi coperti solo in parte;
 - spike Telemaco DevOps;
 - decisione sulla piattaforma stabile.
 
-Nota sui test parziali:
-
-- alcune batterie, come Iceberg, Delta/Unity Catalog e HTTPFS, possono eseguire solo una parte dei test senza account o servizi esterni;
-- MinIO copre scenari S3-like locali, ma non sostituisce completamente un provider cloud S3 reale;
-- per completare la validazione serviranno credenziali, account o ambienti dedicati sulle piattaforme per cui le estensioni sono state create.
+Alcune batterie, come Iceberg, Delta/Unity Catalog e HTTPFS, possono eseguire solo una parte dei test senza account o servizi esterni. Per completare la validazione serviranno credenziali, account o ambienti dedicati.
 
 ---
 
-## Dove far girare il processo?
+## Slide 9
 
-# GitHub o Telemaco DevOps?
+# Dove eseguire il processo?
 
 La domanda successiva è organizzativa e infrastrutturale.
 
@@ -138,15 +132,13 @@ Opzioni principali:
 - continuare su GitHub Actions;
 - portare il processo su Telemaco DevOps.
 
-Valutato e scartato:
-
-- GitHub Actions con runner self-hosted Irion.
+Valutato e scartato: GitHub Actions con runner self-hosted Irion.
 
 ---
 
-## GitHub Actions
+## Slide 10
 
-# GitHub: veloce e già dimostrato
+# GitHub Actions è veloce e già dimostrato dal POC
 
 Vantaggi:
 
@@ -166,9 +158,9 @@ Criticità:
 
 ---
 
-## Telemaco DevOps
+## Slide 11
 
-# Telemaco DevOps: interno ma da verificare
+# Telemaco DevOps mantiene il processo interno
 
 Vantaggi:
 
@@ -177,6 +169,12 @@ Vantaggi:
 - accesso al repository interno del Virtual File Provider e ai log associati;
 - controllo su log, retention e processo ufficiale;
 - coerente con un processo aziendale interno.
+
+---
+
+## Slide 12
+
+# Verifiche operative per Telemaco DevOps
 
 Criticità:
 
@@ -190,19 +188,11 @@ Criticità:
 
 ---
 
-## Container, rete, Virtual File Provider, ambienti e copertura Windows
+## Slide 13
 
-# Container, rete, Virtual File Provider, ambienti e copertura Windows
+# I runner devono garantire rete e isolamento
 
-**Punto tecnico da chiarire**
-
-Il processo richiede servizi:
-
-- MinIO/S3;
-- Squid;
-- PostgreSQL;
-- SQL Server;
-- eventuali cataloghi o servizi futuri.
+Il processo richiede servizi quali MinIO/S3, Squid, PostgreSQL, SQL Server ed eventuali cataloghi o servizi futuri.
 
 Sulle macchine runner bisogna verificare:
 
@@ -214,9 +204,11 @@ Sulle macchine runner bisogna verificare:
 - agenti persistenti o effimeri;
 - modalità di isolamento tra esecuzioni.
 
-**Virtual File Provider, ambienti e copertura Windows**
+---
 
-**Il repository interno condiziona la scelta**
+## Slide 14
+
+# Il Virtual File Provider condiziona la scelta
 
 Situazione:
 
@@ -229,32 +221,35 @@ Opzioni realistiche:
 1. portare o replicare il repository su GitHub private;
 2. usare Telemaco DevOps end-to-end.
 
-**Lista della spesa per abilitare i test**
+---
+
+## Slide 15
+
+# Servizi, account e permessi per i test
 
 **Infrastruttura runner**
 
-- Macchine runner Windows o Linux; Docker/Compose; container Linux per build e test della prima fase; rete verso repository e provider; secret store; isolamento, log e cleanup.
+- macchine runner Windows o Linux; Docker/Compose; container Linux per build e test della prima fase;
+- rete verso repository e provider; secret store; isolamento, log e cleanup.
 
 **Servizi locali**
 
-- MinIO + Squid (proxy HTTP usato soprattutto dai test HTTPFS per validare accessi tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
+- MinIO, Squid e server HTTP; Azurite e Azure CLI; PostgreSQL 15/17; SQL Server 2022;
+- catalogo REST Iceberg con MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
 
-**Account cloud**
+**Account cloud e permessi**
 
-- AWS: S3, Glue e S3 Tables;
-- Azure: Blob Storage, ADLS Gen2 e service principal;
-- Databricks: workspace e Unity Catalog;
-- per la matrice Iceberg completa: Cloudflare R2 e Snowflake Open Catalog;
-- Azure SQL/Fabric per i test cloud MSSQL.
+- AWS: S3, Glue e S3 Tables; Azure: Blob Storage, ADLS Gen2 e service principal; Databricks: workspace e Unity Catalog;
+- per Iceberg: Cloudflare R2 e Snowflake Open Catalog; per MSSQL: Azure SQL/Fabric;
+- bucket, container, cataloghi, schemi e database dedicati con permessi di lettura, scrittura, lista, cancellazione e cleanup.
 
-**Risorse e permessi**
+---
 
-- bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
+## Slide 16
 
-**Copertura Windows e perimetro**
+# La copertura Windows completa la validazione
 
-- Fase 1: validazione Linux containerizzata, già dimostrata dal POC.
-- Fase 2: smoke test e scenari cross-extension Windows nativi.
+- **Fase 1**: validazione Linux containerizzata, già dimostrata dal POC.
+- **Fase 2**: smoke test e scenari cross-extension Windows nativi.
 - I servizi di supporto possono restare in container Linux, ma DuckDB, `unittest` ed estensioni Windows devono essere eseguiti nativamente.
-
-BigQuery è escluso da questo inventario.
+- BigQuery è escluso da questo inventario.
