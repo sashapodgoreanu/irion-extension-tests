@@ -176,6 +176,20 @@ Le batterie presenti nel POC comprendono:
 - Unity Catalog;
 - MSSQL.
 
+### Servizi utilizzati dai test delle estensioni
+
+| Estensione | Servizi locali utilizzati dai test | Servizi cloud utilizzati da alcuni test | Cloud indispensabile? |
+|---|---|---|---|
+| HTTPFS | MinIO; Squid; server HTTP Python | AWS S3, soprattutto risorse pubbliche o scenari provider-real | No |
+| DuckLake | SQLite; PostgreSQL 15; MinIO; Quack | Nessuno obbligatorio | No |
+| PostgreSQL Scanner | PostgreSQL 17; PgBouncer e TLS per la copertura estesa | Nessuno | No |
+| Delta | MinIO; Azurite; fixture generate e golden table | Azure Blob Storage; ADLS Gen2; AWS S3 per alcuni test remoti | No |
+| Iceberg | File e fixture locali; catalogo REST Iceberg; MinIO; mitmproxy | AWS Glue; AWS S3 Tables; Cloudflare R2; Snowflake Open Catalog | No |
+| Azure | Azurite; Squid; Azure CLI | Azure Blob Storage; ADLS Gen2 | No per la suite locale; sì per ABFSS e autenticazione reale |
+| Unity Catalog | Server OSS Unity Catalog; Java 17 | Workspace Databricks con Unity Catalog | No per i test OSS; sì per i test specifici Databricks |
+| MSSQL | SQL Server 2022 in container | Azure SQL Database; Microsoft Fabric | No |
+| BigQuery | Nessun servizio locale equivalente usato dalla CI upstream | Progetto e dataset Google BigQuery | Sì |
+
 Il POC è stato realizzato su GitHub Actions perché GitHub offre un ambiente rapido per:
 
 - creare pipeline;
