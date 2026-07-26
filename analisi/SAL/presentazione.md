@@ -190,21 +190,13 @@ Criticità:
 
 ---
 
-## Container, rete, Virtual File Provider, ambienti e copertura Windows
+## Container, rete, Virtual File Provider, ambienti cloud e copertura Windows
 
-# Container, rete, Virtual File Provider, ambienti e copertura Windows
+# Container, rete, Virtual File Provider, ambienti cloud e copertura Windows
 
 **Punto tecnico da chiarire**
 
-Il processo richiede servizi:
-
-- MinIO/S3;
-- Squid;
-- PostgreSQL;
-- SQL Server;
-- eventuali cataloghi o servizi futuri.
-
-Sulle macchine runner bisogna verificare:
+I servizi locali dei test saranno eseguiti tramite container della pipeline. Sulle macchine runner bisogna verificare:
 
 - esecuzione dei container Linux di test;
 - accesso alla rete aziendale dai container;
@@ -214,11 +206,9 @@ Sulle macchine runner bisogna verificare:
 - agenti persistenti o effimeri;
 - modalità di isolamento tra esecuzioni.
 
-**Virtual File Provider, ambienti e copertura Windows**
+**Virtual File Provider**
 
-**Il repository interno condiziona la scelta**
-
-Situazione:
+Il repository interno condiziona la scelta:
 
 - repository Virtual File Provider oggi interno;
 - non raggiungibile dai runner GitHub-hosted;
@@ -231,14 +221,10 @@ Opzioni realistiche:
 
 **Servizi cloud necessari per completare i test**
 
-**Infrastruttura runner**
-
-- Macchine runner Windows o Linux; Docker/Compose; container Linux per build e test della prima fase; rete verso repository e provider cloud; secret store; isolamento, log e cleanup.
-
-**Account cloud richiesti dai test**
+I servizi locali/emulati sono gestiti dai container della pipeline. Questa lista riporta solo gli account o provider cloud necessari quando la batteria richiede una piattaforma reale.
 
 - **BigQuery**: progetto Google Cloud, dataset BigQuery dedicato e service account con credenziali.
-- **Azure / Delta**: Azure Blob Storage, ADLS Gen2 e service principal/access token per i test cloud e ABFSS.
+- **Azure / Delta**: Azure Blob Storage, ADLS Gen2 e service principal/access token per test cloud e ABFSS.
 - **Unity Catalog**: workspace Databricks con Unity Catalog, token/service principal, catalogo e schema di test.
 - **Iceberg cloud**: AWS Glue, AWS S3 Tables, Cloudflare R2 e Snowflake Open Catalog per la matrice cloud Iceberg.
 - **MSSQL cloud**: Azure SQL Database / Microsoft Fabric per il gruppo di test cloud MSSQL.
