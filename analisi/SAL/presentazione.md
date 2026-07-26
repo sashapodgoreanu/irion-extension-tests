@@ -229,32 +229,26 @@ Opzioni realistiche:
 1. portare o replicare il repository su GitHub private;
 2. usare Telemaco DevOps end-to-end.
 
-**Lista della spesa per abilitare i test**
+**Servizi cloud necessari per completare i test**
 
 **Infrastruttura runner**
 
-- Macchine runner Windows o Linux; Docker/Compose; container Linux per build e test della prima fase; rete verso repository e provider; secret store; isolamento, log e cleanup.
+- Macchine runner Windows o Linux; Docker/Compose; container Linux per build e test della prima fase; rete verso repository e provider cloud; secret store; isolamento, log e cleanup.
 
-**Servizi locali**
+**Account cloud richiesti dai test**
 
-- MinIO + Squid (proxy HTTP usato soprattutto dai test HTTPFS per validare accessi tramite proxy) + server HTTP; Azurite + Azure CLI; PostgreSQL 15/17; SQL Server 2022; catalogo REST Iceberg + MinIO; sidecar Quack; PgBouncer/TLS per la copertura estesa.
-
-**Account cloud**
-
-- AWS: S3, Glue e S3 Tables;
-- Azure: Blob Storage, ADLS Gen2 e service principal;
-- Databricks: workspace e Unity Catalog;
-- per la matrice Iceberg completa: Cloudflare R2 e Snowflake Open Catalog;
-- Azure SQL/Fabric per i test cloud MSSQL.
+- **BigQuery**: progetto Google Cloud, dataset BigQuery dedicato e service account con credenziali.
+- **Azure / Delta**: Azure Blob Storage, ADLS Gen2 e service principal/access token per i test cloud e ABFSS.
+- **Unity Catalog**: workspace Databricks con Unity Catalog, token/service principal, catalogo e schema di test.
+- **Iceberg cloud**: AWS Glue, AWS S3 Tables, Cloudflare R2 e Snowflake Open Catalog per la matrice cloud Iceberg.
+- **MSSQL cloud**: Azure SQL Database / Microsoft Fabric per il gruppo di test cloud MSSQL.
 
 **Risorse e permessi**
 
-- bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
+- Bucket, container, cataloghi, schemi e database dedicati, con permessi di lettura, scrittura, lista, cancellazione e cleanup.
 
 **Copertura Windows e perimetro**
 
 - Fase 1: validazione Linux containerizzata, già dimostrata dal POC.
 - Fase 2: smoke test e scenari cross-extension Windows nativi.
 - I servizi di supporto possono restare in container Linux, ma DuckDB, `unittest` ed estensioni Windows devono essere eseguiti nativamente.
-
-BigQuery è escluso da questo inventario.
