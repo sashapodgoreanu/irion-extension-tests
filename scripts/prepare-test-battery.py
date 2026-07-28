@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any
 
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
+VALID_RUNTIME_SETUPS = {"none", "ducklake-postgres-15"}
 
 
 class BatteryError(ValueError):
@@ -34,6 +36,100 @@ def write_init(path: Path, extensions: list[dict[str, str]], excluded: set[str])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def normalize_profiles(
+    raw_profiles: Any,
+    extensions: list[dict[str, str]],
+    runner: str,
+    output_dir: Path,
+) -> list[dict[str, Any]]:
+    if not isinstance(raw_profiles, list) or not raw_profiles:
+        raise BatteryError("profiles must be a non-empty list")
+    resolved_names = {extension["name"] for extension in extensions}
+    profiles: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_profiles):
+        if not isinstance(raw, dict):
+            raise BatteryError(f"profiles[{index}] must be an object")
+        name = required_string(raw, "name")
+        if not PROFILE_NAME.fullmatch(name):
+            raise BatteryError(f"invalid profile name: {name}")
+        if name in seen:
+            raise BatteryError(f"duplicate profile: {name}")
+        seen.add(name)
+        tests = required_string(raw, "tests")
+        runtime_setup = raw.get("runtimeSetup", "none")
+        if runtime_setup not in VALID_RUNTIME_SETUPS:
+            raise BatteryError(f"unsupported runtimeSetup for {name}: {runtime_setup}")
+        raw_test_config = raw.get("testConfig")
+        if runner == "standard" and not isinstance(raw_test_config, dict):
+            raise BatteryError(f"profile {name} requires testConfig for the standard runner")
+        if runner != "standard" and runtime_setup != "none":
+            raise BatteryError(f"profile {name} runtimeSetup requires the standard runner")
+
+        normalized: dict[str, Any] = {
+            "name": name,
+            "tests": tests,
+            "runtimeSetup": runtime_setup,
+        }
+        excluded: set[str] = set()
+        if raw_test_config is not None:
+            if not isinstance(raw_test_config, dict):
+                raise BatteryError(f"profile {name} testConfig must be an object")
+            kind = required_string(raw_test_config, "kind")
+            test_config: dict[str, Any] = {"kind": kind}
+            if kind == "generated":
+                raw_excluded = raw_test_config.get("excludedExtensions", [])
+                raw_static = raw_test_config.get("staticallyLoadedExtensions")
+                if not isinstance(raw_excluded, list):
+                    raise BatteryError(f"profile {name} excludedExtensions must be a list")
+                if not isinstance(raw_static, list) or not raw_static:
+                    raise BatteryError(
+                        f"profile {name} staticallyLoadedExtensions must be a non-empty list"
+                    )
+                for extension_name in raw_excluded:
+                    if not isinstance(extension_name, str) or not EXTENSION_NAME.fullmatch(
+                        extension_name
+                    ):
+                        raise BatteryError(
+                            f"profile {name} contains an invalid excluded extension"
+                        )
+                    if extension_name not in resolved_names:
+                        raise BatteryError(
+                            f"profile {name} excludes unresolved extension {extension_name}"
+                        )
+                    excluded.add(extension_name)
+                for extension_name in raw_static:
+                    if not isinstance(extension_name, str) or not EXTENSION_NAME.fullmatch(
+                        extension_name
+                    ):
+                        raise BatteryError(
+                            f"profile {name} contains an invalid statically loaded extension"
+                        )
+                test_config["excludedExtensions"] = list(raw_excluded)
+                test_config["staticallyLoadedExtensions"] = list(raw_static)
+                description = raw_test_config.get("description")
+                if description is not None:
+                    if not isinstance(description, str) or not description:
+                        raise BatteryError(f"profile {name} description must be a string")
+                    test_config["description"] = description
+            elif kind == "upstream":
+                path = required_string(raw_test_config, "path")
+                if path.startswith("/") or ".." in Path(path).parts:
+                    raise BatteryError(
+                        f"profile {name} upstream path must stay inside the checkout"
+                    )
+                test_config["path"] = path
+            else:
+                raise BatteryError(f"profile {name} has unsupported testConfig kind {kind}")
+            normalized["testConfig"] = test_config
+
+        init_name = f"init-profile-{name}.sql"
+        write_init(output_dir / init_name, extensions, excluded)
+        normalized["initScript"] = init_name
+        profiles.append(normalized)
+    return profiles
+
+
 def main() -> int:
     if len(sys.argv) != 3:
         print(f"usage: {sys.argv[0]} BATTERY_JSON OUTPUT_DIR", file=sys.stderr)
@@ -48,7 +144,6 @@ def main() -> int:
 
         name = required_string(battery, "name")
         runner = required_string(battery, "runner")
-        tests = required_string(battery, "tests")
         pin = required_string(battery, "pin")
         duckdb_version = required_string(battery, "duckdbVersion")
         setup = required_string(battery, "setup")
@@ -76,16 +171,27 @@ def main() -> int:
                 normalized["installFrom"] = install_from
             extensions.append(normalized)
 
+        output_dir.mkdir(parents=True, exist_ok=True)
+        profiles = normalize_profiles(battery.get("profiles"), extensions, runner, output_dir)
         ignored_tests = battery.get("ignoredTests", [])
         if not isinstance(ignored_tests, list):
             raise BatteryError("ignoredTests must be a list")
 
-        output_dir.mkdir(parents=True, exist_ok=True)
         (output_dir / "battery.json").write_text(
             json.dumps(battery, indent=2) + "\n", encoding="utf-8"
         )
         (output_dir / "extensions.json").write_text(
             json.dumps(extensions, indent=2) + "\n", encoding="utf-8"
+        )
+        (output_dir / "profiles.json").write_text(
+            json.dumps(profiles, indent=2) + "\n", encoding="utf-8"
+        )
+        (output_dir / "profiles.tsv").write_text(
+            "".join(
+                f"{profile['name']}\t{profile['tests']}\t{profile['runtimeSetup']}\n"
+                for profile in profiles
+            ),
+            encoding="utf-8",
         )
 
         install_lines = ["-- Generated from config/extensions.yml. Do not edit this file."]
@@ -97,30 +203,25 @@ def main() -> int:
         (output_dir / "install-extensions.sql").write_text(
             "\n".join(install_lines) + "\n", encoding="utf-8"
         )
-
         write_init(output_dir / "init-extensions.sql", extensions, set())
-        write_init(output_dir / "init-without-httpfs.sql", extensions, {"httpfs"})
-        write_init(
-            output_dir / "init-ducklake-autoload.sql",
-            extensions,
-            {"httpfs", "postgres_scanner", "sqlite_scanner"},
-        )
-        write_init(output_dir / "init-without-mssql.sql", extensions, {"mssql"})
 
         global_ignored: list[tuple[str, str]] = []
         profile_ignored: dict[str, list[dict[str, str]]] = defaultdict(list)
+        valid_profiles = {profile["name"] for profile in profiles}
         for index, ignored in enumerate(ignored_tests):
             if not isinstance(ignored, dict):
                 raise BatteryError(f"ignoredTests[{index}] must be an object")
             test_path = required_string(ignored, "path")
             reason = required_string(ignored, "reason")
-            profiles = ignored.get("profiles", [])
-            if not isinstance(profiles, list):
+            profile_names = ignored.get("profiles", [])
+            if not isinstance(profile_names, list):
                 raise BatteryError(f"ignoredTests[{index}].profiles must be a list")
-            if profiles:
-                for profile in profiles:
-                    if not isinstance(profile, str) or not profile:
-                        raise BatteryError(f"ignoredTests[{index}] contains an invalid profile")
+            if profile_names:
+                for profile in profile_names:
+                    if profile not in valid_profiles:
+                        raise BatteryError(
+                            f"ignoredTests[{index}] references unknown profile {profile}"
+                        )
                     profile_ignored[profile].append({"path": test_path, "reason": reason})
             else:
                 global_ignored.append((test_path, reason))
@@ -137,7 +238,7 @@ def main() -> int:
         env_values = {
             "BATTERY_NAME": name,
             "RUNNER_KIND": runner,
-            "TEST_FILTER": tests,
+            "TEST_FILTER": profiles[0]["tests"],
             "UPSTREAM_REF": pin,
             "DUCKDB_VERSION": duckdb_version,
             "SETUP_KIND": setup,
