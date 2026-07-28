@@ -17,6 +17,24 @@ jobs:
         with:
           ref: phase4/composable-services
           fetch-depth: 0
+          show-progress: false
 
       - name: Apply validated Phase 4 payload
-        run: python3 scripts/apply-phase4-payload.py
+        id: apply
+        continue-on-error: true
+        run: python3 scripts/apply-phase4-payload.py >"${RUNNER_TEMP}/phase4-apply.log" 2>&1
+
+      - name: Upload Phase 4 diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase4-apply-diagnostic
+          path: ${{ runner.temp }}/phase4-apply.log
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Propagate apply failure
+        if: steps.apply.outcome != 'success'
+        run: |
+          cat "${RUNNER_TEMP}/phase4-apply.log"
+          exit 1
