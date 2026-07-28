@@ -206,6 +206,14 @@ class ServiceRuntimeTestCase(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("GOOGLE_APPLICATION_CREDENTIALS", result.stderr)
 
+    def test_squid_service_preserves_upstream_directory_and_ipc_contract(self) -> None:
+        script = SERVICE_MANAGER.read_text(encoding="utf-8")
+        self.assertNotIn('mkdir -p "${QA_SERVICE_LOG_DIR}/${name}"', script)
+        self.assertIn("sudo systemctl stop squid", script)
+        self.assertIn("sudo rm -f /dev/shm/squid-*", script)
+        self.assertIn('rm -rf "${log_dir}"', script)
+        self.assertIn('--log_dir "${log_dir}"', script)
+
     def test_service_manager_rejects_unknown_runtime_service(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

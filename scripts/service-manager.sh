@@ -90,12 +90,24 @@ qa_service_start_squid() {
     echo "Squid service script is missing: ${script}" >&2
     return 1
   fi
-  mkdir -p "${QA_SERVICE_LOG_DIR}/${name}"
+  local log_dir="${QA_SERVICE_LOG_DIR}/${name}"
+
+  # Ubuntu packages may start a system Squid instance. The upstream HTTPFS
+  # helper uses a process-global shared-memory name, so stop the packaged
+  # service and remove stale IPC state before starting the isolated proxy.
+  sudo systemctl stop squid >/dev/null 2>&1 \
+    || sudo service squid stop >/dev/null 2>&1 \
+    || true
+  sudo rm -f /dev/shm/squid-* >/dev/null 2>&1 || true
+
+  # run_squid.sh intentionally creates log_dir with plain `mkdir`; do not
+  # pre-create it here. Remove only the job-local directory from prior attempts.
+  rm -rf "${log_dir}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
     ./scripts/run_squid.sh \
       --port "${port}" \
-      --log_dir "${QA_SERVICE_LOG_DIR}/${name}"
+      --log_dir "${log_dir}"
   ) >"${QA_SERVICE_LOG_DIR}/${name}-process.log" 2>&1 &
   local pid=$!
   QA_SERVICE_CLEANUPS+=("pid|${name}|${pid}")
