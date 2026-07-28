@@ -1,4 +1,4 @@
-"""Load, validate, type and resolve the DuckDB extension QA configuration."""
+"""Load, validate, type and compile the DuckDB extension QA configuration."""
 
 from __future__ import annotations
 
@@ -11,6 +11,16 @@ from typing import Any, Mapping, Sequence
 import yaml
 from jsonschema import Draft202012Validator
 from jsonschema.exceptions import ValidationError
+
+from .plan import (
+    ExecutionCase,
+    ExecutionContract,
+    ExecutionExtension,
+    ExecutionIgnoredTest,
+    ExecutionPlan,
+    ExecutionRuntime,
+    ExecutionSource,
+)
 
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
@@ -43,6 +53,9 @@ class ExtensionConfig:
             payload["installFrom"] = self.install_from
         return payload
 
+    def execution_extension(self) -> ExecutionExtension:
+        return ExecutionExtension(name=self.name, install_from=self.install_from)
+
 
 @dataclass(frozen=True, slots=True)
 class IgnoredTestConfig:
@@ -55,6 +68,13 @@ class IgnoredTestConfig:
         if self.profiles:
             payload["profiles"] = list(self.profiles)
         return payload
+
+    def execution_ignored_test(self) -> ExecutionIgnoredTest:
+        return ExecutionIgnoredTest(
+            path=self.path,
+            reason=self.reason,
+            profiles=self.profiles,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,52 +99,9 @@ class QaConfig:
     test_batteries: tuple[BatteryConfig, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class ResolvedBattery:
-    name: str
-    runner: str
-    repository: str
-    pin: str
-    tests: str
-    submodules: str
-    setup: str
-    duckdb_version: str
-    extensions: tuple[ExtensionConfig, ...]
-    ignored_tests: tuple[IgnoredTestConfig, ...]
-
-    def matrix_payload(self) -> dict[str, Any]:
-        return {
-            "name": self.name,
-            "runner": self.runner,
-            "repository": self.repository,
-            "pin": self.pin,
-            "tests": self.tests,
-            "submodules": self.submodules,
-            "setup": self.setup,
-            "duckdbVersion": self.duckdb_version,
-            "extensions": [extension.runtime_payload() for extension in self.extensions],
-            "ignoredTests": [ignored.matrix_payload() for ignored in self.ignored_tests],
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class ResolvedConfig:
-    duckdb_version: str
-    ci_tools_version: str
-    batteries: tuple[ResolvedBattery, ...]
-
-    def matrix(self) -> dict[str, list[dict[str, Any]]]:
-        return {"include": [battery.matrix_payload() for battery in self.batteries]}
-
-    def github_outputs(self) -> tuple[str, ...]:
-        compact_matrix = json.dumps(self.matrix(), separators=(",", ":"))
-        enabled = ",".join(battery.name for battery in self.batteries)
-        return (
-            f"matrix={compact_matrix}",
-            f"duckdb_version={self.duckdb_version}",
-            f"ci_tools_version={self.ci_tools_version}",
-            f"enabled_batteries={enabled}",
-        )
+# Compatibility aliases retained while callers migrate to execution-plan terminology.
+ResolvedBattery = ExecutionCase
+ResolvedConfig = ExecutionPlan
 
 
 def _schema_path(error: ValidationError) -> str:
@@ -179,7 +156,9 @@ def _parse_extension(raw: Mapping[str, Any], path: str) -> ExtensionConfig:
     return ExtensionConfig(name=name, is_used=raw["isUsed"], install_from=install_from)
 
 
-def _parse_extensions(raw: Sequence[Mapping[str, Any]], path: str) -> tuple[ExtensionConfig, ...]:
+def _parse_extensions(
+    raw: Sequence[Mapping[str, Any]], path: str
+) -> tuple[ExtensionConfig, ...]:
     extensions: list[ExtensionConfig] = []
     seen: set[str] = set()
     for index, item in enumerate(raw):
@@ -286,7 +265,9 @@ def load_config(config_path: Path, schema_path: Path | None = None) -> QaConfig:
     return parse_config(validated)
 
 
-def _active_extensions(extensions: Sequence[ExtensionConfig]) -> tuple[ExtensionConfig, ...]:
+def _active_extensions(
+    extensions: Sequence[ExtensionConfig],
+) -> tuple[ExtensionConfig, ...]:
     return tuple(extension for extension in extensions if extension.is_used)
 
 
@@ -327,9 +308,11 @@ def _merge_extensions(
     return tuple(result)
 
 
-def resolve_config(config: QaConfig) -> ResolvedConfig:
+def resolve_config(config: QaConfig) -> ExecutionPlan:
+    """Compile validated configuration into a versioned execution plan."""
+
     active_defaults = _active_extensions(config.default_extensions)
-    batteries: list[ResolvedBattery] = []
+    cases: list[ExecutionCase] = []
     for battery in config.test_batteries:
         if not battery.is_enabled:
             continue
@@ -341,24 +324,33 @@ def resolve_config(config: QaConfig) -> ResolvedConfig:
         )
         if not resolved_extensions:
             raise ConfigError(f"{path} resolves to an empty extension set")
-        batteries.append(
-            ResolvedBattery(
+        cases.append(
+            ExecutionCase(
                 name=battery.name,
-                runner=battery.runner,
-                repository=battery.repository,
-                pin=battery.pin,
-                tests=battery.tests,
-                submodules=battery.submodules,
-                setup=battery.setup,
-                duckdb_version=config.duckdb.version,
-                extensions=resolved_extensions,
-                ignored_tests=battery.ignored_tests,
+                source=ExecutionSource(
+                    repository=battery.repository,
+                    pin=battery.pin,
+                    submodules=battery.submodules,
+                ),
+                contract=ExecutionContract(
+                    runner=battery.runner,
+                    setup=battery.setup,
+                    tests=battery.tests,
+                ),
+                extensions=tuple(
+                    extension.execution_extension() for extension in resolved_extensions
+                ),
+                ignored_tests=tuple(
+                    ignored.execution_ignored_test() for ignored in battery.ignored_tests
+                ),
             )
         )
-    if not batteries:
+    if not cases:
         raise ConfigError("at least one test battery must have isEnabled: true")
-    return ResolvedConfig(
-        duckdb_version=config.duckdb.version,
-        ci_tools_version=config.duckdb.ci_tools_version,
-        batteries=tuple(batteries),
+    return ExecutionPlan(
+        runtime=ExecutionRuntime(
+            duckdb_version=config.duckdb.version,
+            ci_tools_version=config.duckdb.ci_tools_version,
+        ),
+        cases=tuple(cases),
     )
