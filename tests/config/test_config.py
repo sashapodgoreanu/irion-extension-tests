@@ -14,7 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "779d96d9e0be7081b546112e93654e52b776262ee12803856071ce681ffbe485"
+EXPECTED_MATRIX_SHA256 = "92bdf0a64977ce28e8b6f5d2ea51c877ad0969d4900cba6435193e3760cdbe12"
+EXPECTED_PLAN_SHA256 = "bcf0b0e776e31561ed15955484d27a50c9f48aeeba8dfb7262639f4966c626e8"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -35,9 +36,9 @@ class ConfigTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, expected):
             self.load_modified(mutate)
 
-    def test_current_configuration_preserves_matrix_contract(self) -> None:
-        resolved = resolve_config(load_config(CONFIG_PATH))
-        matrix = resolved.matrix()["include"]
+    def test_current_configuration_preserves_profile_contract(self) -> None:
+        plan = resolve_config(load_config(CONFIG_PATH))
+        matrix = plan.matrix()["include"]
         self.assertEqual(
             [item["name"] for item in matrix],
             [
@@ -52,44 +53,38 @@ class ConfigTestCase(unittest.TestCase):
             ],
         )
         self.assertTrue(all(item["duckdbVersion"] == "v1.5.4" for item in matrix))
-        self.assertEqual(matrix[0]["submodules"], "recursive")
-        self.assertEqual(matrix[-1]["submodules"], "false")
         self.assertEqual(
-            [extension["name"] for extension in matrix[0]["extensions"][:9]],
-            [
-                "httpfs",
-                "mssql",
-                "ducklake",
-                "postgres_scanner",
-                "icu",
-                "azure",
-                "delta",
-                "iceberg",
-                "unity_catalog",
-            ],
+            [profile["name"] for profile in matrix[0]["profiles"]],
+            ["sql", "autoload"],
         )
         self.assertEqual(
-            next(
-                extension
-                for extension in matrix[-1]["extensions"]
-                if extension["name"] == "mssql"
-            ),
-            {"name": "mssql", "installFrom": "community"},
+            matrix[0]["profiles"][1]["testConfig"]["excludedExtensions"],
+            ["httpfs"],
         )
-        compact_matrix = resolved.github_outputs()[0].removeprefix("matrix=")
-        self.assertEqual(json.loads(compact_matrix), resolved.matrix())
+        self.assertEqual(
+            [profile["name"] for profile in matrix[1]["profiles"]],
+            ["autoload", "sqlite", "postgres"],
+        )
+        self.assertEqual(
+            matrix[1]["profiles"][2]["runtimeSetup"],
+            "ducklake-postgres-15",
+        )
+        self.assertEqual(matrix[2]["tests"], "test/sql/*")
+        self.assertEqual(matrix[-1]["tests"], "test/sql/*")
+        compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
         self.assertEqual(
             hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest(),
             EXPECTED_MATRIX_SHA256,
         )
+        self.assertEqual(plan.sha256(), EXPECTED_PLAN_SHA256)
 
     def test_disabled_battery_does_not_change_default_extensions(self) -> None:
         config = self.load_modified(
             lambda data: data["testBatteries"]["delta"].update(isEnabled=False)
         )
-        resolved = resolve_config(config)
-        self.assertNotIn("delta", [battery.name for battery in resolved.batteries])
-        httpfs = next(battery for battery in resolved.batteries if battery.name == "httpfs")
+        plan = resolve_config(config)
+        self.assertNotIn("delta", [case.name for case in plan.cases])
+        httpfs = next(case for case in plan.cases if case.name == "httpfs")
         self.assertIn("delta", [extension.name for extension in httpfs.extensions])
 
     def test_disabled_default_does_not_disable_target_battery(self) -> None:
@@ -98,10 +93,10 @@ class ConfigTestCase(unittest.TestCase):
                 item for item in data["defaultExtensions"] if item["name"] == "delta"
             )["isUsed"] = False
 
-        resolved = resolve_config(self.load_modified(mutate))
-        delta = next(battery for battery in resolved.batteries if battery.name == "delta")
+        plan = resolve_config(self.load_modified(mutate))
+        delta = next(case for case in plan.cases if case.name == "delta")
         self.assertIn("delta", [extension.name for extension in delta.extensions])
-        httpfs = next(battery for battery in resolved.batteries if battery.name == "httpfs")
+        httpfs = next(case for case in plan.cases if case.name == "httpfs")
         self.assertNotIn("delta", [extension.name for extension in httpfs.extensions])
 
     def test_conflicting_install_origin_is_rejected(self) -> None:
@@ -118,12 +113,6 @@ class ConfigTestCase(unittest.TestCase):
     def test_unknown_battery_property_is_rejected(self) -> None:
         self.assert_config_error(
             lambda data: data["testBatteries"]["httpfs"].update(ignoredTest=[]),
-            "Additional properties are not allowed",
-        )
-
-    def test_unknown_extension_property_is_rejected(self) -> None:
-        self.assert_config_error(
-            lambda data: data["defaultExtensions"][0].update(source="core"),
             "Additional properties are not allowed",
         )
 
@@ -155,6 +144,51 @@ class ConfigTestCase(unittest.TestCase):
 
         with self.assertRaisesRegex(ConfigError, "at least one test battery"):
             resolve_config(self.load_modified(mutate))
+
+    def test_duplicate_profile_is_rejected(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data["testBatteries"]["httpfs"]["profiles"].append(
+                copy.deepcopy(data["testBatteries"]["httpfs"]["profiles"][0])
+            )
+
+        self.assert_config_error(mutate, "duplicate profile sql")
+
+    def test_ignored_test_cannot_reference_unknown_profile(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data["testBatteries"]["ducklake"]["ignoredTests"][0]["profiles"] = [
+                "missing"
+            ]
+
+        self.assert_config_error(mutate, "references unknown profile missing")
+
+    def test_standard_profile_requires_test_config(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            del data["testBatteries"]["delta"]["profiles"][0]["testConfig"]
+
+        self.assert_config_error(mutate, "testConfig is required for the standard runner")
+
+    def test_specialized_runner_rejects_runtime_setup(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data["testBatteries"]["mssql"]["profiles"][0]["runtimeSetup"] = (
+                "ducklake-postgres-15"
+            )
+
+        self.assert_config_error(mutate, "only supported by the standard runner")
+
+    def test_profile_cannot_exclude_unresolved_extension(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data["testBatteries"]["delta"]["profiles"][0]["testConfig"][
+                "excludedExtensions"
+            ] = ["missing_extension"]
+
+        with self.assertRaisesRegex(ConfigError, "excludes unresolved extension"):
+            resolve_config(self.load_modified(mutate))
+
+    def test_schema_v1_is_rejected_after_profile_migration(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data["schemaVersion"] = 1
+
+        self.assert_config_error(mutate, "schemaVersion must be 2")
 
 
 if __name__ == "__main__":
