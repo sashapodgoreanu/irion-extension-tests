@@ -20,19 +20,36 @@ profiles:
 
 `kind: generated` creates a SQLLogicTest configuration from the resolved extension
 set. `excludedExtensions` controls which extensions are intentionally not loaded
-for that profile. This is used for lifecycle and autoloading tests without adding
-battery-name conditions to the runner.
+for that profile. This supports targeted lifecycle and autoloading tests without
+adding battery-name conditions to the runner.
 
 ```yaml
 - name: autoload
-  tests: test/extension/*
+  tests: test/sql/autoloading/autoload_data_path.test
   testConfig:
     kind: generated
     excludedExtensions:
       - httpfs
+      - postgres_scanner
+      - sqlite_scanner
     staticallyLoadedExtensions:
       - core_functions
+      - parquet
 ```
+
+## HTTPFS scope
+
+The HTTPFS compatibility battery intentionally contains only the `sql` profile:
+
+```yaml
+profiles:
+  - name: sql
+    tests: test/sql/*
+```
+
+The upstream `test/extension/*` suite is outside the maintained HTTPFS compatibility
+scope and is not compiled into the execution plan. It is excluded by omitting that
+profile rather than by moving or individually skipping the upstream files.
 
 ## Upstream configurations
 
