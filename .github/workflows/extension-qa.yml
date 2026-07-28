@@ -1,40 +1,250 @@
 name: DuckDB Extension Compatibility
 
 on:
+  push:
   pull_request:
+  workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  apply-phase4:
-    name: Apply Phase 4 implementation
-    if: ${{ github.event.pull_request.number == 2 }}
+  configure:
+    name: Resolve extension configuration
     runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+      duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
+      ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
+      enabled_batteries: ${{ steps.resolve.outputs.enabled_batteries }}
+      execution_plan_sha256: ${{ steps.resolve.outputs.execution_plan_sha256 }}
+
     steps:
-      - name: Checkout Phase 4 branch
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Install configuration tooling
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
+
+      - name: Compile execution plan and build matrix
+        id: resolve
+        run: |
+          .venv/bin/python scripts/resolve-extension-config.py \
+            config/extensions.yml \
+            --plan-output build/plan/execution-plan.json \
+            >>"${GITHUB_OUTPUT}"
+
+      - name: Persist generated matrix
+        env:
+          MATRIX_JSON: ${{ steps.resolve.outputs.matrix }}
+        run: printf '%s\n' "${MATRIX_JSON}" >build/plan/matrix.json
+
+      - name: Upload execution plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-execution-plan
+          path: build/plan/
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Test configuration contracts
+        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
+
+      - name: Report enabled batteries
+        run: |
+          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
+          echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
+          echo "Execution plan SHA-256: ${{ steps.resolve.outputs.execution_plan_sha256 }}"
+
+  build:
+    name: Prepare DuckDB runtime
+    needs: configure
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: phase4/composable-services
           fetch-depth: 0
-          show-progress: false
+          submodules: recursive
 
-      - name: Apply validated Phase 4 payload
-        id: apply
-        continue-on-error: true
-        run: python3 scripts/apply-phase4-payload.py >"${RUNNER_TEMP}/phase4-apply.log" 2>&1
+      - name: Calculate DuckDB runtime cache key
+        id: duckdb-runtime-key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
 
-      - name: Upload Phase 4 diagnostic
+          DUCKDB_SHA="$(git rev-parse HEAD:duckdb)"
+          CI_TOOLS_SHA="$(git rev-parse HEAD:extension-ci-tools)"
+
+          BUILD_INPUT_HASH="$({
+            printf '%s\n' \
+              'cache-schema=v2' \
+              'runner=ubuntu-24.04' \
+              'architecture=linux-amd64' \
+              'duckdb-version=${{ needs.configure.outputs.duckdb_version }}' \
+              'ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}' \
+              "duckdb-sha=${DUCKDB_SHA}" \
+              "ci-tools-sha=${CI_TOOLS_SHA}"
+            git ls-files -s -- \
+              .gitmodules \
+              CMakeLists.txt \
+              extension_config.cmake \
+              Makefile \
+              scripts/build.sh \
+              src
+          } | sha256sum | cut -d' ' -f1)"
+
+          CACHE_KEY="duckdb-runtime-v2-ubuntu24-linux-amd64-${BUILD_INPUT_HASH}"
+          echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
+          echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
+          echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
+
+      - name: Restore cached DuckDB runtime
+        id: duckdb-runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: build/artifact
+          key: ${{ steps.duckdb-runtime-key.outputs.key }}
+
+      - name: Install build tools
+        if: steps.duckdb-runtime-cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential cmake ninja-build python3
+
+      - name: Build DuckDB runtime
+        if: steps.duckdb-runtime-cache.outputs.cache-hit != 'true'
+        env:
+          DUCKDB_VERSION: ${{ needs.configure.outputs.duckdb_version }}
+          CI_TOOLS_VERSION: ${{ needs.configure.outputs.ci_tools_version }}
+          BUILD_JOBS: 2
+        run: bash scripts/build.sh
+
+      - name: Validate restored or built runtime
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test -f build/artifact/bin/duckdb
+          test -f build/artifact/bin/unittest
+          chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
+          build/artifact/bin/duckdb --version
+          build/artifact/bin/unittest --help >/dev/null
+
+          {
+            echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
+            echo "cache_hit=${{ steps.duckdb-runtime-cache.outputs.cache-hit }}"
+            echo "duckdb_commit=${{ steps.duckdb-runtime-key.outputs.duckdb_sha }}"
+            echo "ci_tools_commit=${{ steps.duckdb-runtime-key.outputs.ci_tools_sha }}"
+          } >>build/artifact/logs/build-info.txt
+
+      - name: Upload shared build
+        uses: actions/upload-artifact@v4
+        with:
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-linux-amd64
+          path: build/artifact/
+          if-no-files-found: error
+          retention-days: 7
+
+  test:
+    name: Test ${{ matrix.name }}
+    needs:
+      - configure
+      - build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
+
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Checkout upstream tests
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.pin }}
+          path: upstream/${{ matrix.name }}
+          fetch-depth: 1
+          submodules: ${{ matrix.submodules }}
+
+      - name: Download shared build
+        uses: actions/download-artifact@v4
+        with:
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-linux-amd64
+          path: build/artifact
+
+      - name: Restore executable permissions
+        run: |
+          chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
+          chmod +x scripts/*.sh scripts/*.py
+
+      - name: Validate Google BigQuery credentials
+        if: contains(matrix.capabilities, 'google-cloud-auth')
+        env:
+          GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
+          BQ_TEST_PROJECT: ${{ secrets.BQ_TEST_PROJECT }}
+          BQ_TEST_DATASET: ${{ secrets.BQ_TEST_DATASET }}
+        run: |
+          set -Eeuo pipefail
+          test -n "${GCS_SERVICE_ACCOUNT_KEY}" || { echo "Missing repository secret GCS_SERVICE_ACCOUNT_KEY" >&2; exit 1; }
+          test -n "${BQ_TEST_PROJECT}" || { echo "Missing repository secret BQ_TEST_PROJECT" >&2; exit 1; }
+          test -n "${BQ_TEST_DATASET}" || { echo "Missing repository secret BQ_TEST_DATASET" >&2; exit 1; }
+
+      - name: Authenticate Google Cloud
+        if: contains(matrix.capabilities, 'google-cloud-auth')
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
+
+      - name: Install service dependencies
+        if: contains(matrix.capabilities, 'squid') || contains(matrix.capabilities, 'postgres-client')
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          packages=()
+          if [[ '${{ contains(matrix.capabilities, 'squid') }}' == 'true' ]]; then
+            packages+=(squid)
+          fi
+          if [[ '${{ contains(matrix.capabilities, 'postgres-client') }}' == 'true' ]]; then
+            packages+=(postgresql-client)
+          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "${packages[@]}"
+
+      - name: Verify container runtime
+        if: contains(matrix.capabilities, 'docker') || contains(matrix.capabilities, 'docker-compose')
+        run: |
+          docker version
+          docker compose version
+
+      - name: Run test battery
+        env:
+          ARTIFACT_DIR: build/artifact
+          BATTERY_CONFIG_JSON: ${{ toJSON(matrix) }}
+          BQ_TEST_PROJECT: ${{ secrets.BQ_TEST_PROJECT }}
+          BQ_TEST_DATASET: ${{ secrets.BQ_TEST_DATASET }}
+        run: |
+          mkdir -p build/config
+          printf '%s\n' "${BATTERY_CONFIG_JSON}" >"build/config/${{ matrix.name }}.json"
+          bash scripts/run-test-battery.sh \
+            "build/config/${{ matrix.name }}.json" \
+            "${{ github.workspace }}/upstream/${{ matrix.name }}"
+
+      - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase4-apply-diagnostic
-          path: ${{ runner.temp }}/phase4-apply.log
-          if-no-files-found: error
-          retention-days: 1
-
-      - name: Propagate apply failure
-        if: steps.apply.outcome != 'success'
-        run: |
-          cat "${RUNNER_TEMP}/phase4-apply.log"
-          exit 1
+          name: logs-${{ matrix.name }}
+          path: build/logs/${{ matrix.name }}/
+          if-no-files-found: warn
+          retention-days: 7
