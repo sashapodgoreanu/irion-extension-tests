@@ -21,11 +21,7 @@ for relative, item in archive.items():
     path.write_bytes(gzip.decompress(base64.b64decode(item["data"])))
     path.chmod(item["mode"])
 
-for relative in (
-    ".github/workflows/apply-phase4.yml",
-    "scripts/apply-phase4-payload.py",
-):
-    (root / relative).unlink(missing_ok=True)
+(root / "scripts" / "apply-phase4-payload.py").unlink()
 for item in (root / ".phase4").iterdir():
     item.unlink()
 (root / ".phase4").rmdir()
