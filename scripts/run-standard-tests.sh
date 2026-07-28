@@ -82,6 +82,14 @@ case "${SETUP_KIND}" in
     # shellcheck disable=SC1091
     source "${SCRIPT_DIR}/setup-httpfs.sh" "${RUNTIME_ROOT}" "${UPSTREAM_ROOT}"
     ;;
+  bigquery-gcp)
+    for variable_name in GOOGLE_APPLICATION_CREDENTIALS BQ_TEST_PROJECT BQ_TEST_DATASET; do
+      if [[ -z "${!variable_name:-}" ]]; then
+        echo "BigQuery setup requires ${variable_name}" >&2
+        exit 1
+      fi
+    done
+    ;;
   *)
     echo "Unsupported standard-runner setup: ${SETUP_KIND}" >&2
     exit 2
