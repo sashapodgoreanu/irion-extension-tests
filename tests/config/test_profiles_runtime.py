@@ -14,6 +14,7 @@ CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 PREPARE_BATTERY = REPOSITORY_ROOT / "scripts" / "prepare-test-battery.py"
 PREPARE_PROFILE = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
 STANDARD_RUNNER = REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh"
+POSTGRES_RUNNER = REPOSITORY_ROOT / "scripts" / "run-postgres-scanner-tests.sh"
 
 
 class ProfileRuntimeTestCase(unittest.TestCase):
@@ -122,6 +123,14 @@ class ProfileRuntimeTestCase(unittest.TestCase):
         self.assertNotIn('elif [[ "${TEST_NAME}" ==', script)
         self.assertIn('case "${SETUP_KIND}" in', script)
         self.assertIn('done <"${PROFILES_TSV}"', script)
+
+    def test_postgres_runner_owns_setup_before_profile_delegation(self) -> None:
+        script = POSTGRES_RUNNER.read_text(encoding="utf-8")
+        self.assertIn('SETUP_KIND=none bash "${STANDARD_RUNNER}"', script)
+        self.assertNotIn(
+            '"${UPSTREAM_ROOT}" \\\n  "${TEST_FILTER}" || status=$?',
+            script,
+        )
 
 
 if __name__ == "__main__":
