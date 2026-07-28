@@ -49,6 +49,19 @@ class ProfileRuntimeTestCase(unittest.TestCase):
                 ["sql\ttest/sql/*\tnone", "autoload\ttest/extension/*\tnone"],
             )
 
+    def test_postgres_profile_declares_generated_test_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime, _ = self.prepare_case("postgres_scanner", Path(directory))
+            profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(profiles), 1)
+            profile = profiles[0]
+            self.assertEqual(profile["name"], "all")
+            self.assertEqual(profile["testConfig"]["kind"], "generated")
+            self.assertEqual(
+                profile["testConfig"]["staticallyLoadedExtensions"],
+                ["core_functions", "parquet"],
+            )
+
     def test_generated_profile_builds_sqllogictest_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
