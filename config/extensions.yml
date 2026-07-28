@@ -131,6 +131,13 @@ testBatteries:
     profiles:
       - name: all
         tests: test/sql/*
+        testConfig:
+          kind: generated
+          description: PostgreSQL scanner compatibility profile
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
     extensions:
       - name: postgres_scanner
         isUsed: true
