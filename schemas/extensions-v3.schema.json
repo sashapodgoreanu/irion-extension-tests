@@ -16,7 +16,10 @@
         "ciToolsVersion": {"type": "string", "minLength": 1}
       }
     },
-    "defaultExtensions": {"type": "array", "items": {"$ref": "#/$defs/extension"}},
+    "defaultExtensions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/extension"}
+    },
     "testBatteries": {
       "type": "object",
       "minProperties": 1,
@@ -27,6 +30,9 @@
   "$defs": {
     "extensionName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
     "profileName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "serviceName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "simpleName": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"},
+    "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
     "extension": {
       "type": "object",
       "additionalProperties": false,
@@ -37,38 +43,68 @@
         "installFrom": {"$ref": "#/$defs/extensionName"}
       }
     },
+    "pythonHttpService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "python-http"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "squidService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "squid"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "httpfsMinioService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "httpfs-minio"}
+      }
+    },
+    "postgresService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "version", "database", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "postgres"},
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "database": {"$ref": "#/$defs/simpleName"},
+        "username": {"$ref": "#/$defs/simpleName"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "sqlserverService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "version", "database", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "sqlserver"},
+        "version": {"const": "2022"},
+        "database": {"$ref": "#/$defs/simpleName"},
+        "username": {"$ref": "#/$defs/simpleName"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
     "service": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type"],
-          "properties": {
-            "type": {"enum": ["python-http", "squid", "minio"]},
-            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "version", "database"],
-          "properties": {
-            "type": {"const": "postgres"},
-            "version": {"enum": ["15", "17"]},
-            "database": {"type": "string", "minLength": 1},
-            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "version"],
-          "properties": {
-            "type": {"const": "sqlserver"},
-            "version": {"const": "2022"},
-            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
-          }
-        }
+        {"$ref": "#/$defs/pythonHttpService"},
+        {"$ref": "#/$defs/squidService"},
+        {"$ref": "#/$defs/httpfsMinioService"},
+        {"$ref": "#/$defs/postgresService"},
+        {"$ref": "#/$defs/sqlserverService"}
       ]
     },
     "prerequisite": {
@@ -76,13 +112,7 @@
       "additionalProperties": false,
       "required": ["type"],
       "properties": {
-        "type": {"const": "google-cloud"},
-        "requiredVariables": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}
-        }
+        "type": {"enum": ["google-bigquery"]}
       }
     },
     "generatedTestConfig": {
@@ -123,7 +153,6 @@
         "tests": {"type": "string", "minLength": 1},
         "services": {
           "type": "array",
-          "uniqueItems": true,
           "items": {"$ref": "#/$defs/service"}
         },
         "testConfig": {
@@ -151,16 +180,28 @@
     "battery": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["isEnabled", "runner", "repository", "pin", "profiles"],
-      "dependentRequired": {
-        "allowFailure": ["failureReason"],
-        "failureReason": ["allowFailure"]
-      },
+      "required": [
+        "isEnabled",
+        "runner",
+        "repository",
+        "pin",
+        "services",
+        "prerequisites",
+        "profiles"
+      ],
       "properties": {
         "isEnabled": {"type": "boolean"},
         "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
         "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
         "pin": {"type": "string", "minLength": 1},
+        "services": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/service"}
+        },
+        "prerequisites": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/prerequisite"}
+        },
         "profiles": {
           "type": "array",
           "minItems": 1,
@@ -172,18 +213,6 @@
             {"enum": ["true", "false", "recursive"]}
           ]
         },
-        "services": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/service"}
-        },
-        "prerequisites": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"$ref": "#/$defs/prerequisite"}
-        },
-        "allowFailure": {"type": "boolean"},
-        "failureReason": {"type": "string", "minLength": 1},
         "extensions": {
           "type": "array",
           "items": {"$ref": "#/$defs/extension"}
@@ -192,23 +221,7 @@
           "type": "array",
           "items": {"$ref": "#/$defs/ignoredTest"}
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {"allowFailure": {"const": true}},
-            "required": ["allowFailure"]
-          },
-          "then": {"required": ["failureReason"]}
-        },
-        {
-          "if": {
-            "properties": {"allowFailure": {"const": false}},
-            "required": ["allowFailure"]
-          },
-          "then": {"not": {"required": ["failureReason"]}}
-        }
-      ]
+      }
     }
   }
 }

@@ -36,14 +36,19 @@ testBatteries:
     pin: c3f215ab360f04dc3d3d5305fa81849c0121f111
     submodules: recursive
     services:
-      - type: python-http
+      - name: http-server
+        type: python-http
         port: 8008
-      - type: squid
+      - name: proxy
+        type: squid
         port: 3128
-      - type: minio
+      - name: object-store
+        type: httpfs-minio
+    prerequisites: []
     profiles:
       - name: sql
         tests: test/sql/*
+        services: []
         testConfig:
           kind: generated
           description: HTTPFS compatibility SQL suite
@@ -74,9 +79,12 @@ testBatteries:
     repository: duckdb/ducklake
     pin: d318a545571d7d46eb751fa2aa5f6f4389285d3c
     submodules: recursive
+    services: []
+    prerequisites: []
     profiles:
       - name: autoload
         tests: test/sql/autoloading/autoload_data_path.test
+        services: []
         testConfig:
           kind: generated
           description: DuckLake filesystem autoloading profile with HTTPFS initially unloaded
@@ -89,15 +97,18 @@ testBatteries:
             - parquet
       - name: sqlite
         tests: test/sql/*
+        services: []
         testConfig:
           kind: upstream
           path: test/configs/sqlite.json
       - name: postgres
         tests: test/sql/*
         services:
-          - type: postgres
+          - name: postgres-catalog
+            type: postgres
             version: "15"
             database: ducklakedb
+            username: postgres
             port: 5432
         testConfig:
           kind: upstream
@@ -128,13 +139,17 @@ testBatteries:
     pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
     submodules: recursive
     services:
-      - type: postgres
+      - name: postgres
+        type: postgres
         version: "17"
         database: postgres
+        username: postgres
         port: 5432
+    prerequisites: []
     profiles:
       - name: all
         tests: test/sql/*
+        services: []
         testConfig:
           kind: generated
           description: PostgreSQL scanner compatibility profile
@@ -161,9 +176,12 @@ testBatteries:
     repository: duckdb/duckdb-delta
     pin: 45c40878601b54b4188b09e08732fe0d576ad222
     submodules: recursive
+    services: []
+    prerequisites: []
     profiles:
       - name: all
         tests: test/sql/*
+        services: []
         testConfig:
           kind: generated
           excludedExtensions: []
@@ -193,11 +211,12 @@ testBatteries:
     repository: duckdb/duckdb-iceberg
     pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
     submodules: recursive
-    allowFailure: true
-    failureReason: External cloud account and catalog prerequisites are not available in this repository
+    services: []
+    prerequisites: []
     profiles:
       - name: all
         tests: test/sql/local/*
+        services: []
         testConfig:
           kind: generated
           excludedExtensions: []
@@ -221,9 +240,12 @@ testBatteries:
     repository: duckdb/duckdb-azure
     pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
     submodules: recursive
+    services: []
+    prerequisites: []
     profiles:
       - name: all
         tests: test/sql/*
+        services: []
         testConfig:
           kind: generated
           excludedExtensions: []
@@ -241,9 +263,12 @@ testBatteries:
     repository: duckdb/unity_catalog
     pin: d52a7ee8678a23a8e0f950e955b9ffa1df0c3395
     submodules: recursive
+    services: []
+    prerequisites: []
     profiles:
       - name: all
         tests: test/sql/*
+        services: []
         testConfig:
           kind: generated
           excludedExtensions: []
@@ -269,17 +294,13 @@ testBatteries:
     repository: hafenkran/duckdb-bigquery
     pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
     submodules: recursive
-    allowFailure: true
-    failureReason: Google Cloud service-account credentials and test project variables are not available in this repository
+    services: []
     prerequisites:
-      - type: google-cloud
-        requiredVariables:
-          - GOOGLE_APPLICATION_CREDENTIALS
-          - BQ_TEST_PROJECT
-          - BQ_TEST_DATASET
+      - type: google-bigquery
     profiles:
       - name: all
         tests: test/sql/*
+        services: []
         testConfig:
           kind: generated
           description: Google BigQuery compatibility profile
@@ -300,12 +321,17 @@ testBatteries:
     pin: v0.2.1
     submodules: false
     services:
-      - type: sqlserver
+      - name: sqlserver
+        type: sqlserver
         version: "2022"
+        database: master
+        username: sa
         port: 1433
+    prerequisites: []
     profiles:
       - name: all
         tests: test/sql/*
+        services: []
     extensions:
       - name: mssql
         isUsed: true

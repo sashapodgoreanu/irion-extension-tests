@@ -25,29 +25,25 @@
   "$defs": {
     "extensionName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
     "profileName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "serviceName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
     "service": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["type"],
+      "required": ["name", "type"],
       "properties": {
-        "type": {"enum": ["python-http", "squid", "minio", "postgres", "sqlserver"]},
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"enum": ["python-http", "squid", "httpfs-minio", "postgres", "sqlserver"]},
+        "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
         "version": {"type": "string", "minLength": 1},
         "database": {"type": "string", "minLength": 1},
-        "port": {"type": "integer", "minimum": 1, "maximum": 65535}
-      }
+        "username": {"type": "string", "minLength": 1}
+      },
+      "additionalProperties": false
     },
     "prerequisite": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type"],
-      "properties": {
-        "type": {"const": "google-cloud"},
-        "requiredVariables": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}
-        }
-      }
+      "properties": {"type": {"enum": ["google-bigquery"]}}
     },
     "testConfig": {
       "oneOf": [
@@ -89,10 +85,7 @@
       "properties": {
         "name": {"$ref": "#/$defs/profileName"},
         "tests": {"type": "string", "minLength": 1},
-        "services": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/service"}
-        },
+        "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
         "testConfig": {"$ref": "#/$defs/testConfig"}
       }
     },
@@ -138,24 +131,21 @@
         "execution": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["runner", "services", "prerequisites", "profiles", "allowFailure"],
+          "required": ["runner", "services", "prerequisites", "capabilities", "profiles"],
           "properties": {
             "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
-            "services": {
+            "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
+            "prerequisites": {"type": "array", "items": {"$ref": "#/$defs/prerequisite"}},
+            "capabilities": {
               "type": "array",
-              "items": {"$ref": "#/$defs/service"}
-            },
-            "prerequisites": {
-              "type": "array",
-              "items": {"$ref": "#/$defs/prerequisite"}
+              "uniqueItems": true,
+              "items": {"enum": ["squid", "docker", "docker-compose", "postgres-client", "google-cloud-auth"]}
             },
             "profiles": {
               "type": "array",
               "minItems": 1,
               "items": {"$ref": "#/$defs/profile"}
-            },
-            "allowFailure": {"type": "boolean"},
-            "failureReason": {"type": "string", "minLength": 1}
+            }
           }
         },
         "extensions": {

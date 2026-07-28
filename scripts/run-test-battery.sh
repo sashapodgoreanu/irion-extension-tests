@@ -7,6 +7,7 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-build/artifact}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREPARE_SCRIPT="${SCRIPT_DIR}/prepare-test-battery.py"
+SERVICE_MANAGER="${SCRIPT_DIR}/service-manager.sh"
 BATTERY_NAME_HINT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "${BATTERY_CONFIG_FILE}")"
 BATTERY_RUNTIME_CONFIG_DIR="${RUNNER_TEMP:-${PWD}/build/runtime}/battery-config/${BATTERY_NAME_HINT}"
 
@@ -14,10 +15,16 @@ rm -rf "${BATTERY_RUNTIME_CONFIG_DIR}"
 python3 "${PREPARE_SCRIPT}" "${BATTERY_CONFIG_FILE}" "${BATTERY_RUNTIME_CONFIG_DIR}"
 # shellcheck disable=SC1091
 source "${BATTERY_RUNTIME_CONFIG_DIR}/battery.env"
+# shellcheck disable=SC1091
+source "${SERVICE_MANAGER}"
 
 LOG_DIR="${PWD}/build/logs/${BATTERY_NAME}"
 IGNORED_TEST_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/ignored-tests/${BATTERY_NAME}"
-mkdir -p "${LOG_DIR}" "${IGNORED_TEST_ROOT}"
+RUNTIME_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/${BATTERY_NAME}"
+SERVICE_RUNTIME_ROOT="${RUNTIME_ROOT}/services"
+mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}" "${IGNORED_TEST_ROOT}" "${LOG_DIR}/services"
+export HOME="${RUNTIME_ROOT}/home"
+export TMPDIR="${RUNTIME_ROOT}/tmp"
 
 ignore_upstream_test() {
   local relative_path=$1
@@ -52,28 +59,35 @@ fi
 export ARTIFACT_DIR
 export BATTERY_RUNTIME_CONFIG_DIR
 export DUCKDB_VERSION
-export SETUP_KIND
 export MSSQL_RELEASE_TAG="${UPSTREAM_REF}"
 
+qa_prerequisite_check_file "${BATTERY_RUNTIME_CONFIG_DIR}/prerequisites.json"
+qa_service_manager_init "${SERVICE_RUNTIME_ROOT}" "${UPSTREAM_ROOT}" "${LOG_DIR}/services"
+trap qa_service_stop_all EXIT
+qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"
+
+status=0
 case "${RUNNER_KIND}" in
   standard)
-    exec bash "${SCRIPT_DIR}/run-standard-tests.sh" \
+    bash "${SCRIPT_DIR}/run-standard-tests.sh" \
       "${BATTERY_NAME}" \
-      "${UPSTREAM_ROOT}"
+      "${UPSTREAM_ROOT}" || status=$?
     ;;
   postgres-scanner)
-    exec bash "${SCRIPT_DIR}/run-postgres-scanner-tests.sh" \
+    bash "${SCRIPT_DIR}/run-postgres-scanner-tests.sh" \
       "${UPSTREAM_ROOT}" \
       "${TEST_FILTER}" \
-      "${UPSTREAM_REF}"
+      "${UPSTREAM_REF}" || status=$?
     ;;
   mssql-release)
-    exec bash "${SCRIPT_DIR}/run-mssql-configured-tests.sh" \
+    bash "${SCRIPT_DIR}/run-mssql-configured-tests.sh" \
       "${UPSTREAM_ROOT}" \
-      "${TEST_FILTER}"
+      "${TEST_FILTER}" || status=$?
     ;;
   *)
     echo "Unsupported test battery runner: ${RUNNER_KIND}" >&2
-    exit 2
+    status=2
     ;;
 esac
+
+exit "${status}"

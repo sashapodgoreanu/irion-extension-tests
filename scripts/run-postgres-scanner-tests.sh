@@ -117,10 +117,9 @@ PY
 ) 2>&1 | tee "${LOG_DIR}/services/postgres-fixtures.log"
 
 status=0
-# PostgreSQL 17 and its fixtures are owned by this specialized runner. The
-# standard runner must only execute the declarative profiles and must not try
-# to apply the workflow-level setup contract a second time.
-SETUP_KIND=none bash "${STANDARD_RUNNER}" \
+# The composable service manager owns PostgreSQL 17. The specialized runner
+# prepares fixtures and delegates only declarative profile execution.
+bash "${STANDARD_RUNNER}" \
   postgres_scanner \
   "${UPSTREAM_ROOT}" || status=$?
 

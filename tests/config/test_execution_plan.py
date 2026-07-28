@@ -13,25 +13,29 @@ from qa import load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-PLAN_SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "execution-plan-v2.schema.json"
+PLAN_SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "execution-plan-v3.schema.json"
 RESOLVER_PATH = REPOSITORY_ROOT / "scripts" / "resolve-extension-config.py"
 
 
 class ExecutionPlanTestCase(unittest.TestCase):
-    def test_plan_payload_is_valid_against_v2_schema(self) -> None:
+    def test_plan_payload_is_valid_against_v3_schema(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
         schema = json.loads(PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
         errors = list(Draft202012Validator(schema).iter_errors(plan.payload()))
         self.assertEqual(errors, [])
-        self.assertEqual(plan.payload()["schemaVersion"], 2)
+        self.assertEqual(plan.payload()["schemaVersion"], 3)
 
-    def test_matrix_is_derived_from_plan_profiles(self) -> None:
+    def test_matrix_is_derived_from_service_plan(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
         for case, matrix_case in zip(plan.cases, plan.matrix()["include"], strict=True):
+            execution = case.contract.payload()
             self.assertEqual(matrix_case["name"], case.name)
-            self.assertEqual(matrix_case["profiles"], case.contract.payload()["profiles"])
-            self.assertEqual(matrix_case["tests"], case.contract.profiles[0].tests)
+            self.assertEqual(matrix_case["profiles"], execution["profiles"])
+            self.assertEqual(matrix_case["services"], execution["services"])
+            self.assertEqual(matrix_case["prerequisites"], execution["prerequisites"])
+            self.assertEqual(matrix_case["capabilities"], execution["capabilities"])
+            self.assertNotIn("setup", matrix_case)
 
     def test_plan_json_round_trip_preserves_payload(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
@@ -40,7 +44,7 @@ class ExecutionPlanTestCase(unittest.TestCase):
             plan.write_json(path)
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), plan.payload())
 
-    def test_cli_persists_profile_plan_and_outputs_matrix(self) -> None:
+    def test_cli_persists_service_plan_and_outputs_matrix(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "execution-plan.json"
             result = subprocess.run(
@@ -57,22 +61,21 @@ class ExecutionPlanTestCase(unittest.TestCase):
                 cwd=REPOSITORY_ROOT,
             )
             payload = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(payload["schemaVersion"], 2)
-            httpfs_profiles = payload["cases"][0]["execution"]["profiles"]
+            self.assertEqual(payload["schemaVersion"], 3)
+            httpfs_execution = payload["cases"][0]["execution"]
             self.assertEqual(
-                [profile["name"] for profile in httpfs_profiles],
-                ["sql"],
+                [item["type"] for item in httpfs_execution["services"]],
+                ["python-http", "squid", "httpfs-minio"],
             )
-            self.assertNotIn(
-                "test/extension/*",
-                [profile["tests"] for profile in httpfs_profiles],
-            )
+            self.assertEqual(httpfs_execution["capabilities"], ["squid", "docker-compose"])
             outputs = dict(
                 line.split("=", 1)
                 for line in result.stdout.splitlines()
                 if "=" in line
             )
-            self.assertEqual(json.loads(outputs["matrix"])["include"][0]["name"], "httpfs")
+            matrix = json.loads(outputs["matrix"])["include"]
+            self.assertEqual(matrix[0]["name"], "httpfs")
+            self.assertNotIn("setup", matrix[0])
             self.assertEqual(
                 outputs["execution_plan_sha256"],
                 resolve_config(load_config(CONFIG_PATH)).sha256(),

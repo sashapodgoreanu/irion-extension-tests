@@ -37,32 +37,22 @@ class ExecutionExtension:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionService:
-    type: str
-    version: str | None = None
-    database: str | None = None
-    port: int | None = None
+    name: str
+    service_type: str
+    options: tuple[tuple[str, Any], ...] = ()
 
     def payload(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"type": self.type}
-        if self.version is not None:
-            result["version"] = self.version
-        if self.database is not None:
-            result["database"] = self.database
-        if self.port is not None:
-            result["port"] = self.port
+        result: dict[str, Any] = {"name": self.name, "type": self.service_type}
+        result.update(dict(self.options))
         return result
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionPrerequisite:
-    type: str
-    required_variables: tuple[str, ...] = ()
+    prerequisite_type: str
 
-    def payload(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"type": self.type}
-        if self.required_variables:
-            result["requiredVariables"] = list(self.required_variables)
-        return result
+    def payload(self) -> dict[str, str]:
+        return {"type": self.prerequisite_type}
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,21 +105,17 @@ class ExecutionContract:
     runner: str
     services: tuple[ExecutionService, ...]
     prerequisites: tuple[ExecutionPrerequisite, ...]
+    capabilities: tuple[str, ...]
     profiles: tuple[ExecutionProfile, ...]
-    allow_failure: bool = False
-    failure_reason: str | None = None
 
     def payload(self) -> dict[str, Any]:
-        result: dict[str, Any] = {
+        return {
             "runner": self.runner,
             "services": [service.payload() for service in self.services],
             "prerequisites": [item.payload() for item in self.prerequisites],
+            "capabilities": list(self.capabilities),
             "profiles": [profile.payload() for profile in self.profiles],
-            "allowFailure": self.allow_failure,
         }
-        if self.failure_reason is not None:
-            result["failureReason"] = self.failure_reason
-        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -150,8 +136,7 @@ class ExecutionCase:
         }
 
     def matrix_payload(self, duckdb_version: str) -> dict[str, Any]:
-        service_types = {service.type for service in self.contract.services}
-        prerequisite_types = {item.type for item in self.contract.prerequisites}
+        profiles = [profile.payload() for profile in self.contract.profiles]
         return {
             "name": self.name,
             "runner": self.contract.runner,
@@ -162,23 +147,10 @@ class ExecutionCase:
             "duckdbVersion": duckdb_version,
             "services": [service.payload() for service in self.contract.services],
             "prerequisites": [item.payload() for item in self.contract.prerequisites],
-            "profiles": [profile.payload() for profile in self.contract.profiles],
+            "capabilities": list(self.contract.capabilities),
+            "profiles": profiles,
             "extensions": [extension.payload() for extension in self.extensions],
             "ignoredTests": [ignored.payload() for ignored in self.ignored_tests],
-            "allowFailure": self.contract.allow_failure,
-            "failureReason": self.contract.failure_reason or "",
-            "requiresGoogleCloud": "google-cloud" in prerequisite_types,
-            "requiresHttpfsServices": {"python-http", "squid", "minio"}.issubset(
-                service_types
-            ),
-            "requiresPostgres17": any(
-                service.type == "postgres" and service.version == "17"
-                for service in self.contract.services
-            ),
-            "requiresSqlServer2022": any(
-                service.type == "sqlserver" and service.version == "2022"
-                for service in self.contract.services
-            ),
         }
 
 
