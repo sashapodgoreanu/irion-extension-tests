@@ -14,6 +14,8 @@ payload = "".join(
 )
 archive = json.loads(gzip.decompress(base64.b64decode(payload)))
 for relative, item in archive.items():
+    if relative == ".github/workflows/extension-qa.yml":
+        continue
     path = root / relative
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(gzip.decompress(base64.b64decode(item["data"])))
