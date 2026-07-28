@@ -56,6 +56,13 @@ if [[ "${UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
   fi
 fi
 
+DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
+if [[ ! -x "${DUCKDB_BIN}" ]]; then
+  echo "DuckDB runtime is missing or not executable: ${DUCKDB_BIN}" >&2
+  exit 1
+fi
+export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
+
 export ARTIFACT_DIR
 export BATTERY_RUNTIME_CONFIG_DIR
 export DUCKDB_VERSION
