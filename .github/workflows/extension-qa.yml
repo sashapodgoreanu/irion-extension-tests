@@ -21,6 +21,7 @@ jobs:
       duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
       ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
       enabled_batteries: ${{ steps.resolve.outputs.enabled_batteries }}
+      execution_plan_sha256: ${{ steps.resolve.outputs.execution_plan_sha256 }}
 
     steps:
       - name: Checkout QA repository
@@ -34,14 +35,27 @@ jobs:
       - name: Test configuration contracts
         run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
 
-      - name: Validate configuration and build matrix
+      - name: Compile execution plan and build matrix
         id: resolve
-        run: .venv/bin/python scripts/resolve-extension-config.py config/extensions.yml >>"${GITHUB_OUTPUT}"
+        run: |
+          .venv/bin/python scripts/resolve-extension-config.py \
+            config/extensions.yml \
+            --plan-output build/plan/execution-plan.json \
+            >>"${GITHUB_OUTPUT}"
 
       - name: Report enabled batteries
         run: |
           echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
           echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
+          echo "Execution plan SHA-256: ${{ steps.resolve.outputs.execution_plan_sha256 }}"
+
+      - name: Upload execution plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-execution-plan
+          path: build/plan/execution-plan.json
+          if-no-files-found: error
+          retention-days: 7
 
   build:
     name: Prepare DuckDB runtime
