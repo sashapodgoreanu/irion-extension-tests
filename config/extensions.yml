@@ -24,6 +24,9 @@ defaultExtensions:
     isUsed: true
   - name: unity_catalog
     isUsed: true
+  - name: bigquery
+    isUsed: true
+    installFrom: community
 
 testBatteries:
   httpfs:
@@ -248,6 +251,29 @@ testBatteries:
         isUsed: true
       - name: tpcds
         isUsed: true
+    ignoredTests: []
+
+  bigquery:
+    isEnabled: true
+    runner: standard
+    repository: hafenkran/duckdb-bigquery
+    pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
+    submodules: recursive
+    setup: bigquery-gcp
+    profiles:
+      - name: all
+        tests: test/sql/*
+        testConfig:
+          kind: generated
+          description: Google BigQuery compatibility profile
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
+    extensions:
+      - name: bigquery
+        isUsed: true
+        installFrom: community
     ignoredTests: []
 
   mssql:
