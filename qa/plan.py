@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-EXECUTION_PLAN_SCHEMA_VERSION = 1
+EXECUTION_PLAN_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,16 +63,34 @@ class ExecutionSource:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionProfile:
+    name: str
+    tests: str
+    runtime_setup: str
+    test_config: dict[str, Any] | None
+
+    def payload(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "name": self.name,
+            "tests": self.tests,
+            "runtimeSetup": self.runtime_setup,
+        }
+        if self.test_config is not None:
+            result["testConfig"] = self.test_config
+        return result
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionContract:
     runner: str
     setup: str
-    tests: str
+    profiles: tuple[ExecutionProfile, ...]
 
-    def payload(self) -> dict[str, str]:
+    def payload(self) -> dict[str, Any]:
         return {
             "runner": self.runner,
             "setup": self.setup,
-            "tests": self.tests,
+            "profiles": [profile.payload() for profile in self.profiles],
         }
 
 
@@ -94,17 +112,17 @@ class ExecutionCase:
         }
 
     def matrix_payload(self, duckdb_version: str) -> dict[str, Any]:
-        """Preserve the phase-1 GitHub Actions matrix contract exactly."""
-
+        profiles = [profile.payload() for profile in self.contract.profiles]
         return {
             "name": self.name,
             "runner": self.contract.runner,
             "repository": self.source.repository,
             "pin": self.source.pin,
-            "tests": self.contract.tests,
+            "tests": self.contract.profiles[0].tests,
             "submodules": self.source.submodules,
             "setup": self.contract.setup,
             "duckdbVersion": duckdb_version,
+            "profiles": profiles,
             "extensions": [extension.payload() for extension in self.extensions],
             "ignoredTests": [ignored.payload() for ignored in self.ignored_tests],
         }
@@ -118,8 +136,6 @@ class ExecutionPlan:
 
     @property
     def batteries(self) -> tuple[ExecutionCase, ...]:
-        """Backward-compatible name used by phase-1 callers and tests."""
-
         return self.cases
 
     @property
