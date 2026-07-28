@@ -14,8 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "2cbe03e04f85286fafae9ed3f49665814ed41fa76d036c5821849ad015a42501"
-EXPECTED_PLAN_SHA256 = "ed2aff68d97c88563c3d01d094e5ce8b6968f8f6159a690729c0d082497c3dbe"
+EXPECTED_MATRIX_SHA256 = "5068d6e3e62d3b20c6699e1ecb99fbe500d53234678f9fdbbfdfa3b3558acd61"
+EXPECTED_PLAN_SHA256 = "9d9ac807962de49eb76b27e287ec12ee40c90759760d4ec3b2d1babb0bd5ffba"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -97,8 +97,30 @@ class ConfigTestCase(unittest.TestCase):
 
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
-        self.assertEqual(bigquery["prerequisites"], [{"type": "google-bigquery"}])
-        self.assertEqual(bigquery["capabilities"], ["google-cloud-auth"])
+        self.assertEqual(
+            bigquery["prerequisites"],
+            [
+                {"type": "google-bigquery"},
+                {"type": "external-cloud-account"},
+            ],
+        )
+        self.assertEqual(
+            bigquery["capabilities"], ["google-cloud-auth", "accepted-failure"]
+        )
+
+        iceberg = next(case for case in matrix if case["name"] == "iceberg")
+        self.assertEqual(
+            iceberg["prerequisites"], [{"type": "external-cloud-account"}]
+        )
+        self.assertEqual(iceberg["capabilities"], ["accepted-failure"])
+        self.assertEqual(
+            [
+                case["name"]
+                for case in matrix
+                if "accepted-failure" in case["capabilities"]
+            ],
+            ["iceberg", "bigquery"],
+        )
 
         mssql = next(case for case in matrix if case["name"] == "mssql")
         self.assertEqual(mssql["services"][0]["type"], "sqlserver")

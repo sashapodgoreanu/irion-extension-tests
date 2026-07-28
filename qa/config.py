@@ -33,7 +33,9 @@ VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
 VALID_SERVICE_TYPES = frozenset(
     {"python-http", "squid", "httpfs-minio", "postgres", "sqlserver"}
 )
-VALID_PREREQUISITE_TYPES = frozenset({"google-bigquery"})
+VALID_PREREQUISITE_TYPES = frozenset(
+    {"google-bigquery", "external-cloud-account"}
+)
 SUPPORTED_SCHEMA_VERSION = 3
 
 SERVICE_CAPABILITIES: dict[str, tuple[str, ...]] = {
@@ -45,6 +47,7 @@ SERVICE_CAPABILITIES: dict[str, tuple[str, ...]] = {
 }
 PREREQUISITE_CAPABILITIES: dict[str, tuple[str, ...]] = {
     "google-bigquery": ("google-cloud-auth",),
+    "external-cloud-account": ("accepted-failure",),
 }
 
 

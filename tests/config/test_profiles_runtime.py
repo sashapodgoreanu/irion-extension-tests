@@ -87,11 +87,14 @@ class ServiceRuntimeTestCase(unittest.TestCase):
             )
             self.assertEqual(
                 json.loads((runtime / "prerequisites.json").read_text(encoding="utf-8")),
-                [{"type": "google-bigquery"}],
+                [
+                    {"type": "google-bigquery"},
+                    {"type": "external-cloud-account"},
+                ],
             )
             self.assertEqual(
                 json.loads((runtime / "capabilities.json").read_text(encoding="utf-8")),
-                ["google-cloud-auth"],
+                ["google-cloud-auth", "accepted-failure"],
             )
 
     def test_generated_profile_still_builds_sqllogictest_config(self) -> None:
@@ -158,6 +161,10 @@ class ServiceRuntimeTestCase(unittest.TestCase):
         self.assertIn("contains(matrix.capabilities, 'postgres-client')", workflow)
         self.assertIn("contains(matrix.capabilities, 'docker-compose')", workflow)
         self.assertIn("uses: google-github-actions/auth@v3", workflow)
+        self.assertIn(
+            "continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}",
+            workflow,
+        )
         self.assertNotIn("action-setup-postgres", workflow)
 
     def test_prerequisite_checker_accepts_empty_and_rejects_missing_bigquery_env(self) -> None:
@@ -170,6 +177,20 @@ class ServiceRuntimeTestCase(unittest.TestCase):
                 check=True,
                 cwd=REPOSITORY_ROOT,
             )
+            external = root / "external.json"
+            external.write_text(
+                '[{"type":"external-cloud-account"}]\n', encoding="utf-8"
+            )
+            subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'source "{SERVICE_MANAGER}"; qa_prerequisite_check_file "{external}"',
+                ],
+                check=True,
+                cwd=REPOSITORY_ROOT,
+            )
+
             bigquery = root / "bigquery.json"
             bigquery.write_text('[{"type":"google-bigquery"}]\n', encoding="utf-8")
             env = dict(os.environ)

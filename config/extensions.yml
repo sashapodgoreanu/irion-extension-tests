@@ -212,7 +212,8 @@ testBatteries:
     pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
     submodules: recursive
     services: []
-    prerequisites: []
+    prerequisites:
+      - type: external-cloud-account
     profiles:
       - name: all
         tests: test/sql/local/*
@@ -297,6 +298,7 @@ testBatteries:
     services: []
     prerequisites:
       - type: google-bigquery
+      - type: external-cloud-account
     profiles:
       - name: all
         tests: test/sql/*

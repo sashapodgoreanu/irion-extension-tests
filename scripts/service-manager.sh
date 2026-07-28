@@ -296,6 +296,9 @@ PY
           fi
         done
         ;;
+      external-cloud-account)
+        # Metadata-only prerequisite: CI may accept this battery's failure.
+        ;;
       *)
         echo "Unsupported prerequisite: ${prerequisite}" >&2
         return 2
