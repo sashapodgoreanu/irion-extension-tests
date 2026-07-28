@@ -1,0 +1,214 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irion.example/schemas/extension-qa/v3",
+  "title": "Irion DuckDB extension QA configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "duckdb", "defaultExtensions", "testBatteries"],
+  "properties": {
+    "schemaVersion": {"const": 3},
+    "duckdb": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "ciToolsVersion"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1},
+        "ciToolsVersion": {"type": "string", "minLength": 1}
+      }
+    },
+    "defaultExtensions": {"type": "array", "items": {"$ref": "#/$defs/extension"}},
+    "testBatteries": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+      "additionalProperties": {"$ref": "#/$defs/battery"}
+    }
+  },
+  "$defs": {
+    "extensionName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "profileName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "isUsed"],
+      "properties": {
+        "name": {"$ref": "#/$defs/extensionName"},
+        "isUsed": {"type": "boolean"},
+        "installFrom": {"$ref": "#/$defs/extensionName"}
+      }
+    },
+    "service": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": {
+            "type": {"enum": ["python-http", "squid", "minio"]},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "version", "database"],
+          "properties": {
+            "type": {"const": "postgres"},
+            "version": {"enum": ["15", "17"]},
+            "database": {"type": "string", "minLength": 1},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "version"],
+          "properties": {
+            "type": {"const": "sqlserver"},
+            "version": {"const": "2022"},
+            "port": {"type": "integer", "minimum": 1, "maximum": 65535}
+          }
+        }
+      ]
+    },
+    "prerequisite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"const": "google-cloud"},
+        "requiredVariables": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[A-Z][A-Z0-9_]*$"}
+        }
+      }
+    },
+    "generatedTestConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "staticallyLoadedExtensions"],
+      "properties": {
+        "kind": {"const": "generated"},
+        "description": {"type": "string", "minLength": 1},
+        "excludedExtensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/extensionName"}
+        },
+        "staticallyLoadedExtensions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/extensionName"}
+        }
+      }
+    },
+    "upstreamTestConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {"const": "upstream"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "tests"],
+      "properties": {
+        "name": {"$ref": "#/$defs/profileName"},
+        "tests": {"type": "string", "minLength": 1},
+        "services": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/service"}
+        },
+        "testConfig": {
+          "oneOf": [
+            {"$ref": "#/$defs/generatedTestConfig"},
+            {"$ref": "#/$defs/upstreamTestConfig"}
+          ]
+        }
+      }
+    },
+    "ignoredTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "profiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/profileName"}
+        }
+      }
+    },
+    "battery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["isEnabled", "runner", "repository", "pin", "profiles"],
+      "dependentRequired": {
+        "allowFailure": ["failureReason"],
+        "failureReason": ["allowFailure"]
+      },
+      "properties": {
+        "isEnabled": {"type": "boolean"},
+        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+        "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+        "pin": {"type": "string", "minLength": 1},
+        "profiles": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/profile"}
+        },
+        "submodules": {
+          "oneOf": [
+            {"type": "boolean"},
+            {"enum": ["true", "false", "recursive"]}
+          ]
+        },
+        "services": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/service"}
+        },
+        "prerequisites": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/prerequisite"}
+        },
+        "allowFailure": {"type": "boolean"},
+        "failureReason": {"type": "string", "minLength": 1},
+        "extensions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/extension"}
+        },
+        "ignoredTests": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ignoredTest"}
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {"allowFailure": {"const": true}},
+            "required": ["allowFailure"]
+          },
+          "then": {"required": ["failureReason"]}
+        },
+        {
+          "if": {
+            "properties": {"allowFailure": {"const": false}},
+            "required": ["allowFailure"]
+          },
+          "then": {"not": {"required": ["failureReason"]}}
+        }
+      ]
+    }
+  }
+}
