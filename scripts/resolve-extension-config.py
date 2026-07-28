@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Validate config/extensions.yml and emit the GitHub Actions matrix."""
+"""Validate QA configuration, persist its execution plan and emit Actions outputs."""
 
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -13,13 +14,24 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from qa import ConfigError, load_config, resolve_config  # noqa: E402
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("config_yaml", type=Path)
+    parser.add_argument(
+        "--plan-output",
+        type=Path,
+        help="write the resolved, versioned execution plan to this JSON path",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(f"usage: {sys.argv[0]} CONFIG_YAML", file=sys.stderr)
-        return 2
+    args = parse_args()
     try:
-        resolved = resolve_config(load_config(Path(sys.argv[1])))
-        for output in resolved.github_outputs():
+        plan = resolve_config(load_config(args.config_yaml))
+        if args.plan_output is not None:
+            plan.write_json(args.plan_output)
+        for output in plan.github_outputs():
             print(output)
         return 0
     except ConfigError as exc:
