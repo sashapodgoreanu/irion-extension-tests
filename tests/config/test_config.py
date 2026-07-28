@@ -14,8 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "b128bcfd79eaa89688fa49a90734daf721a635cb8fcaa29fbf80f6655022d0f7"
-EXPECTED_PLAN_SHA256 = "08fd08a19fa21627380e486d7c9e7f6c6dcdbd4ba3d19d4d70316c6a8987b4a7"
+EXPECTED_MATRIX_SHA256 = "34aff462e20945fecfb1dde14a45320881c31932e2369947d7b2c6bd8d0bbdf6"
+EXPECTED_PLAN_SHA256 = "4f078beb4e23c15bdad4678149d547f65f122337a01a473a6a939d3b7194db02"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -55,11 +55,12 @@ class ConfigTestCase(unittest.TestCase):
         self.assertTrue(all(item["duckdbVersion"] == "v1.5.4" for item in matrix))
         self.assertEqual(
             [profile["name"] for profile in matrix[0]["profiles"]],
-            ["sql", "autoload"],
+            ["sql"],
         )
-        self.assertEqual(
-            matrix[0]["profiles"][1]["testConfig"]["excludedExtensions"],
-            ["httpfs"],
+        self.assertEqual(matrix[0]["profiles"][0]["tests"], "test/sql/*")
+        self.assertNotIn(
+            "test/extension/*",
+            [profile["tests"] for profile in matrix[0]["profiles"]],
         )
         self.assertEqual(
             [profile["name"] for profile in matrix[1]["profiles"]],
