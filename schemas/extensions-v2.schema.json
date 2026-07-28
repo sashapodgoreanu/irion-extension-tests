@@ -120,7 +120,7 @@
           ]
         },
         "setup": {
-          "enum": ["none", "httpfs-services", "ducklake-catalogs", "postgres-17", "sqlserver-2022"]
+          "enum": ["none", "httpfs-services", "ducklake-catalogs", "postgres-17", "sqlserver-2022", "bigquery-gcp"]
         },
         "extensions": {
           "type": "array",
