@@ -11,6 +11,7 @@ from qa import load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
 PREPARE_BATTERY = REPOSITORY_ROOT / "scripts" / "prepare-test-battery.py"
 PREPARE_PROFILE = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
 STANDARD_RUNNER = REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh"
@@ -40,6 +41,7 @@ class ProfileRuntimeTestCase(unittest.TestCase):
             self.assertEqual([item["name"] for item in profiles], ["sql"])
             normal_init = (runtime / "init-profile-sql.sql").read_text(encoding="utf-8")
             self.assertIn("LOAD httpfs;", normal_init)
+            self.assertIn("LOAD bigquery;", normal_init)
             self.assertFalse((runtime / "init-profile-autoload.sql").exists())
             self.assertEqual(
                 (runtime / "profiles.tsv").read_text(encoding="utf-8").splitlines(),
@@ -62,6 +64,23 @@ class ProfileRuntimeTestCase(unittest.TestCase):
                 profile["testConfig"]["staticallyLoadedExtensions"],
                 ["core_functions", "parquet"],
             )
+
+    def test_bigquery_battery_uses_global_community_extension(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime, matrix_case = self.prepare_case("bigquery", Path(directory))
+            self.assertEqual(matrix_case["setup"], "bigquery-gcp")
+            profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
+            self.assertEqual([profile["name"] for profile in profiles], ["all"])
+            self.assertEqual(profiles[0]["tests"], "test/sql/*")
+            extensions = json.loads(
+                (runtime / "extensions.json").read_text(encoding="utf-8")
+            )
+            bigquery = next(
+                extension for extension in extensions if extension["name"] == "bigquery"
+            )
+            self.assertEqual(bigquery["installFrom"], "community")
+            init_sql = (runtime / "init-profile-all.sql").read_text(encoding="utf-8")
+            self.assertIn("LOAD bigquery;", init_sql)
 
     def test_generated_httpfs_sql_profile_builds_sqllogictest_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -91,6 +110,7 @@ class ProfileRuntimeTestCase(unittest.TestCase):
                 ["core_functions", "parquet"],
             )
             self.assertIn("LOAD httpfs;", config["on_new_connection"])
+            self.assertIn("LOAD bigquery;", config["on_new_connection"])
             self.assertTrue(config["summarize_failures"])
 
     def test_upstream_profile_preserves_upstream_settings_and_adds_skips(self) -> None:
@@ -128,6 +148,7 @@ class ProfileRuntimeTestCase(unittest.TestCase):
             config = json.loads(destination.read_text(encoding="utf-8"))
             self.assertIn("parquet", config["statically_loaded_extensions"])
             self.assertIn("ducklake", config["statically_loaded_extensions"])
+            self.assertIn("bigquery", config["statically_loaded_extensions"])
             self.assertIn("SET threads=1;", config["on_new_connection"])
             self.assertEqual(
                 config["skip_tests"][0]["paths"],
@@ -139,7 +160,20 @@ class ProfileRuntimeTestCase(unittest.TestCase):
         self.assertNotIn('if [[ "${TEST_NAME}" ==', script)
         self.assertNotIn('elif [[ "${TEST_NAME}" ==', script)
         self.assertIn('case "${SETUP_KIND}" in', script)
+        self.assertIn("bigquery-gcp)", script)
+        self.assertIn("GOOGLE_APPLICATION_CREDENTIALS", script)
+        self.assertIn("BQ_TEST_PROJECT", script)
+        self.assertIn("BQ_TEST_DATASET", script)
         self.assertIn('done <"${PROFILES_TSV}"', script)
+
+    def test_bigquery_workflow_auth_is_selected_by_setup(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("if: matrix.setup == 'bigquery-gcp'", workflow)
+        self.assertIn("uses: google-github-actions/auth@v3", workflow)
+        self.assertIn("GCS_SERVICE_ACCOUNT_KEY", workflow)
+        self.assertIn("BQ_TEST_PROJECT", workflow)
+        self.assertIn("BQ_TEST_DATASET", workflow)
+        self.assertNotIn("matrix.name == 'bigquery'", workflow)
 
     def test_postgres_runner_owns_setup_before_profile_delegation(self) -> None:
         script = POSTGRES_RUNNER.read_text(encoding="utf-8")
