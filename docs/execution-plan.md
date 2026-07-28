@@ -12,20 +12,23 @@ The plan is the boundary between configuration and orchestration. It records:
 - the DuckDB and extension-ci-tools runtime versions;
 - every enabled test case;
 - the immutable upstream repository and pin;
-- the current runner, setup and SQLLogicTest filter;
+- the selected runner and battery-level setup;
+- the ordered declarative profiles executed by the case;
+- each profile's test filter, SQLLogicTest configuration and runtime setup;
 - the resolved ordered extension set;
 - ignored tests and their profile scope.
 
-The GitHub Actions matrix is derived from the execution plan. During this phase,
-the matrix payload remains byte-for-byte compatible with the previous resolver
-contract, so test runners continue to consume the same JSON.
+The GitHub Actions matrix is derived from the execution plan. The legacy `tests`
+field remains in each matrix row for the specialized PostgreSQL and MSSQL runners;
+it is derived from the first profile. The standard runner consumes the complete
+`profiles` collection and does not branch on the battery name.
 
 ## Artifact contract
 
-The document uses `schemaVersion: 1` and is validated by:
+The current document uses `schemaVersion: 2` and is validated by:
 
 ```text
-schemas/execution-plan-v1.schema.json
+schemas/execution-plan-v2.schema.json
 ```
 
 The configure job uploads the plan as the `qa-execution-plan` workflow artifact
