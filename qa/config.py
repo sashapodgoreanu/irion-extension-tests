@@ -1,4 +1,4 @@
-"""Load, validate, type and compile the DuckDB extension QA configuration."""
+"""Load, validate, type and resolve the DuckDB extension QA configuration."""
 
 from __future__ import annotations
 
@@ -18,17 +18,20 @@ from .plan import (
     ExecutionExtension,
     ExecutionIgnoredTest,
     ExecutionPlan,
+    ExecutionProfile,
     ExecutionRuntime,
     ExecutionSource,
 )
 
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
+PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
 VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
 VALID_SETUPS = frozenset(
     {"none", "httpfs-services", "ducklake-catalogs", "postgres-17", "sqlserver-2022"}
 )
-VALID_PROFILES = frozenset({"sqlite", "postgres"})
+VALID_RUNTIME_SETUPS = frozenset({"none", "ducklake-postgres-15"})
+SUPPORTED_SCHEMA_VERSION = 2
 
 
 class ConfigError(ValueError):
@@ -58,6 +61,62 @@ class ExtensionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class GeneratedTestConfig:
+    excluded_extensions: tuple[str, ...]
+    statically_loaded_extensions: tuple[str, ...]
+    description: str | None = None
+    kind: str = "generated"
+
+    def payload(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "kind": self.kind,
+            "excludedExtensions": list(self.excluded_extensions),
+            "staticallyLoadedExtensions": list(self.statically_loaded_extensions),
+        }
+        if self.description is not None:
+            result["description"] = self.description
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class UpstreamTestConfig:
+    path: str
+    kind: str = "upstream"
+
+    def payload(self) -> dict[str, str]:
+        return {"kind": self.kind, "path": self.path}
+
+
+TestConfig = GeneratedTestConfig | UpstreamTestConfig
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileConfig:
+    name: str
+    tests: str
+    runtime_setup: str = "none"
+    test_config: TestConfig | None = None
+
+    def matrix_payload(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "name": self.name,
+            "tests": self.tests,
+            "runtimeSetup": self.runtime_setup,
+        }
+        if self.test_config is not None:
+            result["testConfig"] = self.test_config.payload()
+        return result
+
+    def execution_profile(self) -> ExecutionProfile:
+        return ExecutionProfile(
+            name=self.name,
+            tests=self.tests,
+            runtime_setup=self.runtime_setup,
+            test_config=self.test_config.payload() if self.test_config is not None else None,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class IgnoredTestConfig:
     path: str
     reason: str
@@ -84,9 +143,9 @@ class BatteryConfig:
     runner: str
     repository: str
     pin: str
-    tests: str
     submodules: str
     setup: str
+    profiles: tuple[ProfileConfig, ...]
     extensions: tuple[ExtensionConfig, ...]
     ignored_tests: tuple[IgnoredTestConfig, ...]
 
@@ -99,8 +158,7 @@ class QaConfig:
     test_batteries: tuple[BatteryConfig, ...]
 
 
-# Compatibility aliases retained while callers migrate to execution-plan terminology.
-ResolvedBattery = ExecutionCase
+# Compatibility alias retained while callers migrate to execution-plan terminology.
 ResolvedConfig = ExecutionPlan
 
 
@@ -144,6 +202,13 @@ def _normalize_submodules(value: bool | str) -> str:
     return value
 
 
+def _ensure_relative_path(value: str, path: str) -> str:
+    normalized = value.strip()
+    if normalized.startswith("/") or ".." in Path(normalized).parts:
+        raise ConfigError(f"{path} must stay inside the upstream checkout")
+    return normalized
+
+
 def _parse_extension(raw: Mapping[str, Any], path: str) -> ExtensionConfig:
     name = raw["name"].strip()
     if not EXTENSION_NAME.fullmatch(name):
@@ -156,9 +221,7 @@ def _parse_extension(raw: Mapping[str, Any], path: str) -> ExtensionConfig:
     return ExtensionConfig(name=name, is_used=raw["isUsed"], install_from=install_from)
 
 
-def _parse_extensions(
-    raw: Sequence[Mapping[str, Any]], path: str
-) -> tuple[ExtensionConfig, ...]:
+def _parse_extensions(raw: Sequence[Mapping[str, Any]], path: str) -> tuple[ExtensionConfig, ...]:
     extensions: list[ExtensionConfig] = []
     seen: set[str] = set()
     for index, item in enumerate(raw):
@@ -170,21 +233,70 @@ def _parse_extensions(
     return tuple(extensions)
 
 
+def _parse_test_config(raw: Mapping[str, Any], path: str) -> TestConfig:
+    kind = raw["kind"]
+    if kind == "generated":
+        excluded = tuple(raw.get("excludedExtensions", ()))
+        statically_loaded = tuple(raw.get("staticallyLoadedExtensions", ()))
+        return GeneratedTestConfig(
+            excluded_extensions=excluded,
+            statically_loaded_extensions=statically_loaded,
+            description=raw.get("description"),
+        )
+    if kind == "upstream":
+        return UpstreamTestConfig(path=_ensure_relative_path(raw["path"], f"{path}.path"))
+    raise ConfigError(f"{path}.kind is unsupported: {kind}")
+
+
+def _parse_profiles(
+    raw: Sequence[Mapping[str, Any]], path: str, runner: str
+) -> tuple[ProfileConfig, ...]:
+    profiles: list[ProfileConfig] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        item_path = f"{path}[{index}]"
+        name = item["name"].strip()
+        if not PROFILE_NAME.fullmatch(name):
+            raise ConfigError(f"{item_path}.name contains unsupported characters: {name}")
+        if name in seen:
+            raise ConfigError(f"{path} contains duplicate profile {name}")
+        seen.add(name)
+        runtime_setup = item.get("runtimeSetup", "none")
+        if runtime_setup not in VALID_RUNTIME_SETUPS:
+            raise ConfigError(f"{item_path}.runtimeSetup is unsupported: {runtime_setup}")
+        test_config_raw = item.get("testConfig")
+        test_config = (
+            _parse_test_config(test_config_raw, f"{item_path}.testConfig")
+            if test_config_raw is not None
+            else None
+        )
+        if runner == "standard" and test_config is None:
+            raise ConfigError(f"{item_path}.testConfig is required for the standard runner")
+        if runner != "standard" and runtime_setup != "none":
+            raise ConfigError(
+                f"{item_path}.runtimeSetup is only supported by the standard runner"
+            )
+        profiles.append(
+            ProfileConfig(
+                name=name,
+                tests=item["tests"].strip(),
+                runtime_setup=runtime_setup,
+                test_config=test_config,
+            )
+        )
+    return tuple(profiles)
+
+
 def _parse_ignored_test(raw: Mapping[str, Any], path: str) -> IgnoredTestConfig:
-    test_path = raw["path"].strip()
+    test_path = _ensure_relative_path(raw["path"], f"{path}.path")
     reason = raw["reason"].strip()
-    if test_path.startswith("/") or ".." in Path(test_path).parts:
-        raise ConfigError(f"{path}.path must stay inside the upstream checkout")
     if any(character in test_path or character in reason for character in ("\t", "\n")):
         raise ConfigError(f"{path} cannot contain tabs or newlines")
-    profiles = tuple(raw.get("profiles", ()))
-    unsupported = sorted(set(profiles) - VALID_PROFILES)
-    if unsupported:
-        raise ConfigError(
-            f"{path}.profiles contains unsupported profile {unsupported[0]}; "
-            f"supported profiles: {', '.join(sorted(VALID_PROFILES))}"
-        )
-    return IgnoredTestConfig(path=test_path, reason=reason, profiles=profiles)
+    return IgnoredTestConfig(
+        path=test_path,
+        reason=reason,
+        profiles=tuple(raw.get("profiles", ())),
+    )
 
 
 def _parse_ignored_tests(
@@ -227,6 +339,17 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
                 f"{path}.setup is unsupported: {setup}; "
                 f"supported setups: {', '.join(sorted(VALID_SETUPS))}"
             )
+        profiles = _parse_profiles(raw["profiles"], f"{path}.profiles", runner)
+        profile_names = {profile.name for profile in profiles}
+        ignored_tests = _parse_ignored_tests(
+            raw.get("ignoredTests", ()), f"{path}.ignoredTests"
+        )
+        for ignored in ignored_tests:
+            unknown_profiles = sorted(set(ignored.profiles) - profile_names)
+            if unknown_profiles:
+                raise ConfigError(
+                    f"{path}.ignoredTests references unknown profile {unknown_profiles[0]}"
+                )
         batteries.append(
             BatteryConfig(
                 name=name,
@@ -234,13 +357,11 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
                 runner=runner,
                 repository=repository,
                 pin=raw["pin"].strip(),
-                tests=raw["tests"].strip(),
                 submodules=_normalize_submodules(raw.get("submodules", False)),
                 setup=setup,
+                profiles=profiles,
                 extensions=_parse_extensions(raw.get("extensions", ()), f"{path}.extensions"),
-                ignored_tests=_parse_ignored_tests(
-                    raw.get("ignoredTests", ()), f"{path}.ignoredTests"
-                ),
+                ignored_tests=ignored_tests,
             )
         )
 
@@ -253,21 +374,30 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
 
 
 def load_config(config_path: Path, schema_path: Path | None = None) -> QaConfig:
-    if schema_path is None:
-        schema_path = Path(__file__).resolve().parents[1] / "schemas" / "extensions-v1.schema.json"
     try:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ConfigError(str(exc)) from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"invalid YAML: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError("root must be a mapping")
+    schema_version = data.get("schemaVersion")
+    if schema_version != SUPPORTED_SCHEMA_VERSION:
+        raise ConfigError(
+            f"schemaVersion must be {SUPPORTED_SCHEMA_VERSION}; found {schema_version!r}"
+        )
+    if schema_path is None:
+        schema_path = (
+            Path(__file__).resolve().parents[1]
+            / "schemas"
+            / f"extensions-v{SUPPORTED_SCHEMA_VERSION}.schema.json"
+        )
     validated = _validate_schema(data, schema_path)
     return parse_config(validated)
 
 
-def _active_extensions(
-    extensions: Sequence[ExtensionConfig],
-) -> tuple[ExtensionConfig, ...]:
+def _active_extensions(extensions: Sequence[ExtensionConfig]) -> tuple[ExtensionConfig, ...]:
     return tuple(extension for extension in extensions if extension.is_used)
 
 
@@ -324,6 +454,16 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
         )
         if not resolved_extensions:
             raise ConfigError(f"{path} resolves to an empty extension set")
+        resolved_names = {extension.name for extension in resolved_extensions}
+        for profile in battery.profiles:
+            if isinstance(profile.test_config, GeneratedTestConfig):
+                unknown = sorted(
+                    set(profile.test_config.excluded_extensions) - resolved_names
+                )
+                if unknown:
+                    raise ConfigError(
+                        f"{path}.profiles.{profile.name} excludes unresolved extension {unknown[0]}"
+                    )
         cases.append(
             ExecutionCase(
                 name=battery.name,
@@ -335,7 +475,9 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
                 contract=ExecutionContract(
                     runner=battery.runner,
                     setup=battery.setup,
-                    tests=battery.tests,
+                    profiles=tuple(
+                        profile.execution_profile() for profile in battery.profiles
+                    ),
                 ),
                 extensions=tuple(
                     extension.execution_extension() for extension in resolved_extensions
