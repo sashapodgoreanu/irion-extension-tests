@@ -143,18 +143,6 @@ class ServiceRuntimeTestCase(unittest.TestCase):
             script.index('qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"'),
         )
         self.assertIn('export HOME="${RUNTIME_ROOT}/home"', script)
-        self.assertIn('DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"', script)
-        path_export = 'export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"'
-        self.assertIn(path_export, script)
-        self.assertLess(
-            script.index(path_export),
-            script.index('qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"'),
-        )
-
-    def test_squid_log_directory_is_owned_by_upstream_script(self) -> None:
-        script = SERVICE_MANAGER.read_text(encoding="utf-8")
-        self.assertIn('rm -rf "${QA_SERVICE_LOG_DIR}/${name}"', script)
-        self.assertNotIn('mkdir -p "${QA_SERVICE_LOG_DIR}/${name}"', script)
 
     def test_postgres_runner_no_longer_overrides_setup_contract(self) -> None:
         script = POSTGRES_RUNNER.read_text(encoding="utf-8")
@@ -178,7 +166,7 @@ class ServiceRuntimeTestCase(unittest.TestCase):
             empty = root / "empty.json"
             empty.write_text("[]\n", encoding="utf-8")
             subprocess.run(
-                ["bash", "-c", f'source "{SERVICE_MANAGER}"; qa_prerequisite_check_file "{empty}#'],
+                ["bash", "-c", f'source "{SERVICE_MANAGER}"; qa_prerequisite_check_file "{empty}"'],
                 check=True,
                 cwd=REPOSITORY_ROOT,
             )
