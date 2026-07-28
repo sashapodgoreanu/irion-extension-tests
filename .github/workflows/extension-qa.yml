@@ -9,7 +9,7 @@ permissions:
 jobs:
   apply-phase4:
     name: Apply Phase 4 implementation
-    if: ${{ github.event.pull_request.number == 3 }}
+    if: ${{ github.event.pull_request.number == 2 }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Phase 4 branch
