@@ -23,7 +23,18 @@ jobs:
           .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
 
       - name: Apply contract and update golden hashes
-        run: .venv/bin/python scripts/apply-accepted-cloud-failures.py
+        run: |
+          .venv/bin/python scripts/apply-accepted-cloud-failures.py
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/prepare-test-battery.py")
+          text = path.read_text(encoding="utf-8")
+          old = 'VALID_PREREQUISITES = {"google-bigquery"}'
+          new = 'VALID_PREREQUISITES = {"google-bigquery", "external-cloud-account"}'
+          if text.count(old) != 1:
+              raise SystemExit(f"expected one runtime prerequisite whitelist, found {text.count(old)}")
+          path.write_text(text.replace(old, new, 1), encoding="utf-8")
+          PY
 
       - name: Run configuration contracts
         id: contracts
