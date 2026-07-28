@@ -117,10 +117,12 @@ PY
 ) 2>&1 | tee "${LOG_DIR}/services/postgres-fixtures.log"
 
 status=0
-bash "${STANDARD_RUNNER}" \
+# PostgreSQL 17 and its fixtures are owned by this specialized runner. The
+# standard runner must only execute the declarative profiles and must not try
+# to apply the workflow-level setup contract a second time.
+SETUP_KIND=none bash "${STANDARD_RUNNER}" \
   postgres_scanner \
-  "${UPSTREAM_ROOT}" \
-  "${TEST_FILTER}" || status=$?
+  "${UPSTREAM_ROOT}" || status=$?
 
 if [[ -f "${UNITTEST_LOG}" ]] && grep -Eq '^require-env (POSTGRES_TEST_DATABASE_AVAILABLE|POSTGRES_TEST_SLOW): [1-9][0-9]*$' "${UNITTEST_LOG}"; then
   echo "Mandatory Postgres scanner integration tests were skipped" >&2
