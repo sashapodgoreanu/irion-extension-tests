@@ -10,6 +10,7 @@ PREPARE_SCRIPT="${SCRIPT_DIR}/prepare-test-battery.py"
 SERVICE_MANAGER="${SCRIPT_DIR}/service-manager.sh"
 BATTERY_NAME_HINT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "${BATTERY_CONFIG_FILE}")"
 BATTERY_RUNTIME_CONFIG_DIR="${RUNNER_TEMP:-${PWD}/build/runtime}/battery-config/${BATTERY_NAME_HINT}"
+DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 
 rm -rf "${BATTERY_RUNTIME_CONFIG_DIR}"
 python3 "${PREPARE_SCRIPT}" "${BATTERY_CONFIG_FILE}" "${BATTERY_RUNTIME_CONFIG_DIR}"
@@ -25,6 +26,15 @@ SERVICE_RUNTIME_ROOT="${RUNTIME_ROOT}/services"
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}" "${IGNORED_TEST_ROOT}" "${LOG_DIR}/services"
 export HOME="${RUNTIME_ROOT}/home"
 export TMPDIR="${RUNTIME_ROOT}/tmp"
+
+# Services may invoke DuckDB while preparing their fixtures. Make the packaged
+# runtime available before prerequisite checks and before any service starts,
+# rather than relying on a later runner-specific PATH modification.
+if [[ ! -x "${DUCKDB_BIN}" ]]; then
+  echo "DuckDB runtime is missing or not executable: ${DUCKDB_BIN}" >&2
+  exit 1
+fi
+export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
 
 ignore_upstream_test() {
   local relative_path=$1
