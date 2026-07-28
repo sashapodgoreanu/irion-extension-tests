@@ -14,8 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "34aff462e20945fecfb1dde14a45320881c31932e2369947d7b2c6bd8d0bbdf6"
-EXPECTED_PLAN_SHA256 = "4f078beb4e23c15bdad4678149d547f65f122337a01a473a6a939d3b7194db02"
+EXPECTED_MATRIX_SHA256 = "PENDING_BIGQUERY_MATRIX_SHA256"
+EXPECTED_PLAN_SHA256 = "PENDING_BIGQUERY_PLAN_SHA256"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -49,6 +49,7 @@ class ConfigTestCase(unittest.TestCase):
                 "iceberg",
                 "azure",
                 "unity_catalog",
+                "bigquery",
                 "mssql",
             ],
         )
@@ -72,6 +73,28 @@ class ConfigTestCase(unittest.TestCase):
         )
         self.assertEqual(matrix[2]["tests"], "test/sql/*")
         self.assertEqual(matrix[-1]["tests"], "test/sql/*")
+
+        for case in matrix:
+            bigquery = next(
+                extension
+                for extension in case["extensions"]
+                if extension["name"] == "bigquery"
+            )
+            self.assertEqual(bigquery["installFrom"], "community")
+
+        bigquery_case = next(case for case in matrix if case["name"] == "bigquery")
+        self.assertEqual(bigquery_case["repository"], "hafenkran/duckdb-bigquery")
+        self.assertEqual(
+            bigquery_case["pin"],
+            "0c55a9b81646002edc0c73f36b703c8c39cea2ab",
+        )
+        self.assertEqual(bigquery_case["setup"], "bigquery-gcp")
+        self.assertEqual(
+            [profile["name"] for profile in bigquery_case["profiles"]],
+            ["all"],
+        )
+        self.assertEqual(bigquery_case["profiles"][0]["tests"], "test/sql/*")
+
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
         self.assertEqual(
             hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest(),
