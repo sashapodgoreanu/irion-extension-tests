@@ -33,20 +33,21 @@ class ProfileRuntimeTestCase(unittest.TestCase):
         )
         return runtime, matrix_case
 
-    def test_prepare_battery_generates_profile_specific_init_scripts(self) -> None:
+    def test_prepare_battery_excludes_httpfs_extension_suite(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime, _ = self.prepare_case("httpfs", Path(directory))
             profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
-            self.assertEqual([item["name"] for item in profiles], ["sql", "autoload"])
+            self.assertEqual([item["name"] for item in profiles], ["sql"])
             normal_init = (runtime / "init-profile-sql.sql").read_text(encoding="utf-8")
-            autoload_init = (runtime / "init-profile-autoload.sql").read_text(
-                encoding="utf-8"
-            )
             self.assertIn("LOAD httpfs;", normal_init)
-            self.assertNotIn("LOAD httpfs;", autoload_init)
+            self.assertFalse((runtime / "init-profile-autoload.sql").exists())
             self.assertEqual(
                 (runtime / "profiles.tsv").read_text(encoding="utf-8").splitlines(),
-                ["sql\ttest/sql/*\tnone", "autoload\ttest/extension/*\tnone"],
+                ["sql\ttest/sql/*\tnone"],
+            )
+            self.assertNotIn(
+                "test/extension/*",
+                (runtime / "profiles.tsv").read_text(encoding="utf-8"),
             )
 
     def test_postgres_profile_declares_generated_test_config(self) -> None:
@@ -62,19 +63,19 @@ class ProfileRuntimeTestCase(unittest.TestCase):
                 ["core_functions", "parquet"],
             )
 
-    def test_generated_profile_builds_sqllogictest_config(self) -> None:
+    def test_generated_httpfs_sql_profile_builds_sqllogictest_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             runtime, _ = self.prepare_case("httpfs", root)
             upstream = root / "upstream"
             upstream.mkdir()
-            destination = root / "autoload.json"
+            destination = root / "sql.json"
             subprocess.run(
                 [
                     sys.executable,
                     str(PREPARE_PROFILE),
                     str(runtime / "profiles.json"),
-                    "autoload",
+                    "sql",
                     str(upstream),
                     str(destination),
                     str(runtime / "extensions.json"),
@@ -85,8 +86,11 @@ class ProfileRuntimeTestCase(unittest.TestCase):
                 cwd=REPOSITORY_ROOT,
             )
             config = json.loads(destination.read_text(encoding="utf-8"))
-            self.assertEqual(config["statically_loaded_extensions"], ["core_functions"])
-            self.assertNotIn("LOAD httpfs;", config["on_new_connection"])
+            self.assertEqual(
+                config["statically_loaded_extensions"],
+                ["core_functions", "parquet"],
+            )
+            self.assertIn("LOAD httpfs;", config["on_new_connection"])
             self.assertTrue(config["summarize_failures"])
 
     def test_upstream_profile_preserves_upstream_settings_and_adds_skips(self) -> None:
