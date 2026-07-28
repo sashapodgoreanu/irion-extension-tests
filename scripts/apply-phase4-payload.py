@@ -24,8 +24,8 @@ for relative in (
     "scripts/apply-phase4-payload.py",
 ):
     (root / relative).unlink(missing_ok=True)
-for chunk in (root / ".phase4").glob("chunk-*"):
-    chunk.unlink()
+for item in (root / ".phase4").iterdir():
+    item.unlink()
 (root / ".phase4").rmdir()
 
 subprocess.run(["git", "config", "user.name", "github-actions[bot]"], check=True)
