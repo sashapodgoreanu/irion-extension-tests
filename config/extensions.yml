@@ -1,4 +1,4 @@
-schemaVersion: 2
+schemaVersion: 3
 
 duckdb:
   version: v1.5.4
@@ -35,7 +35,12 @@ testBatteries:
     repository: duckdb/duckdb-httpfs
     pin: c3f215ab360f04dc3d3d5305fa81849c0121f111
     submodules: recursive
-    setup: httpfs-services
+    services:
+      - type: python-http
+        port: 8008
+      - type: squid
+        port: 3128
+      - type: minio
     profiles:
       - name: sql
         tests: test/sql/*
@@ -69,7 +74,6 @@ testBatteries:
     repository: duckdb/ducklake
     pin: d318a545571d7d46eb751fa2aa5f6f4389285d3c
     submodules: recursive
-    setup: ducklake-catalogs
     profiles:
       - name: autoload
         tests: test/sql/autoloading/autoload_data_path.test
@@ -90,7 +94,11 @@ testBatteries:
           path: test/configs/sqlite.json
       - name: postgres
         tests: test/sql/*
-        runtimeSetup: ducklake-postgres-15
+        services:
+          - type: postgres
+            version: "15"
+            database: ducklakedb
+            port: 5432
         testConfig:
           kind: upstream
           path: test/configs/postgres.json
@@ -119,7 +127,11 @@ testBatteries:
     repository: duckdb/duckdb-postgres
     pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
     submodules: recursive
-    setup: postgres-17
+    services:
+      - type: postgres
+        version: "17"
+        database: postgres
+        port: 5432
     profiles:
       - name: all
         tests: test/sql/*
@@ -149,7 +161,6 @@ testBatteries:
     repository: duckdb/duckdb-delta
     pin: 45c40878601b54b4188b09e08732fe0d576ad222
     submodules: recursive
-    setup: none
     profiles:
       - name: all
         tests: test/sql/*
@@ -182,7 +193,8 @@ testBatteries:
     repository: duckdb/duckdb-iceberg
     pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
     submodules: recursive
-    setup: none
+    allowFailure: true
+    failureReason: External cloud account and catalog prerequisites are not available in this repository
     profiles:
       - name: all
         tests: test/sql/local/*
@@ -209,7 +221,6 @@ testBatteries:
     repository: duckdb/duckdb-azure
     pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
     submodules: recursive
-    setup: none
     profiles:
       - name: all
         tests: test/sql/*
@@ -230,7 +241,6 @@ testBatteries:
     repository: duckdb/unity_catalog
     pin: d52a7ee8678a23a8e0f950e955b9ffa1df0c3395
     submodules: recursive
-    setup: none
     profiles:
       - name: all
         tests: test/sql/*
@@ -259,7 +269,14 @@ testBatteries:
     repository: hafenkran/duckdb-bigquery
     pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
     submodules: recursive
-    setup: bigquery-gcp
+    allowFailure: true
+    failureReason: Google Cloud service-account credentials and test project variables are not available in this repository
+    prerequisites:
+      - type: google-cloud
+        requiredVariables:
+          - GOOGLE_APPLICATION_CREDENTIALS
+          - BQ_TEST_PROJECT
+          - BQ_TEST_DATASET
     profiles:
       - name: all
         tests: test/sql/*
@@ -282,7 +299,10 @@ testBatteries:
     repository: hugr-lab/mssql-extension
     pin: v0.2.1
     submodules: false
-    setup: sqlserver-2022
+    services:
+      - type: sqlserver
+        version: "2022"
+        port: 1433
     profiles:
       - name: all
         tests: test/sql/*
