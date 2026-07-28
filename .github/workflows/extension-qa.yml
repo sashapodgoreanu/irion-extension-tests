@@ -26,10 +26,13 @@ jobs:
       - name: Checkout QA repository
         uses: actions/checkout@v4
 
-      - name: Install configuration parser
+      - name: Install configuration tooling
         run: |
           python3 -m venv .venv
-          .venv/bin/python -m pip install --disable-pip-version-check PyYAML==6.0.2
+          .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
+
+      - name: Test configuration contracts
+        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
 
       - name: Validate configuration and build matrix
         id: resolve
