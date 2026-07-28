@@ -14,8 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "92bdf0a64977ce28e8b6f5d2ea51c877ad0969d4900cba6435193e3760cdbe12"
-EXPECTED_PLAN_SHA256 = "bcf0b0e776e31561ed15955484d27a50c9f48aeeba8dfb7262639f4966c626e8"
+EXPECTED_MATRIX_SHA256 = "b128bcfd79eaa89688fa49a90734daf721a635cb8fcaa29fbf80f6655022d0f7"
+EXPECTED_PLAN_SHA256 = "08fd08a19fa21627380e486d7c9e7f6c6dcdbd4ba3d19d4d70316c6a8987b4a7"
 
 
 class ConfigTestCase(unittest.TestCase):
