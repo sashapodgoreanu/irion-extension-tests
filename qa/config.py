@@ -28,7 +28,14 @@ PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
 VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
 VALID_SETUPS = frozenset(
-    {"none", "httpfs-services", "ducklake-catalogs", "postgres-17", "sqlserver-2022"}
+    {
+        "none",
+        "httpfs-services",
+        "ducklake-catalogs",
+        "postgres-17",
+        "sqlserver-2022",
+        "bigquery-gcp",
+    }
 )
 VALID_RUNTIME_SETUPS = frozenset({"none", "ducklake-postgres-15"})
 SUPPORTED_SCHEMA_VERSION = 2
