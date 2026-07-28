@@ -43,15 +43,6 @@ testBatteries:
           staticallyLoadedExtensions:
             - core_functions
             - parquet
-      - name: autoload
-        tests: test/extension/*
-        testConfig:
-          kind: generated
-          description: HTTPFS autoloading profile with HTTPFS initially unloaded
-          excludedExtensions:
-            - httpfs
-          staticallyLoadedExtensions:
-            - core_functions
     extensions:
       - name: httpfs
         isUsed: true
@@ -68,8 +59,6 @@ testBatteries:
     ignoredTests:
       - path: test/sql/copy/s3/parquet_s3_tpcds.test_slow
         reason: Requires TPC-DS answer fixtures that are not present in the standalone HTTPFS checkout
-      - path: test/extension/autoloading_base.test
-        reason: Assumes no dynamically installed extensions, while the compatibility battery intentionally installs multiple extensions
 
   ducklake:
     isEnabled: true
