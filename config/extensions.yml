@@ -1,16 +1,9 @@
-schemaVersion: 1
+schemaVersion: 2
 
 duckdb:
   version: v1.5.4
   ciToolsVersion: v1.5.4
 
-# Shared compatibility baseline. isUsed controls only whether an extension is
-# installed and loaded by default in every enabled battery. It does not enable
-# or disable any test battery.
-#
-# Ordering is intentional: filesystem providers load before Delta, and Delta
-# loads before Unity Catalog. ICU is a shared runtime dependency but has no
-# dedicated test battery.
 defaultExtensions:
   - name: httpfs
     isUsed: true
@@ -32,24 +25,33 @@ defaultExtensions:
   - name: unity_catalog
     isUsed: true
 
-# Battery scheduling is independent from defaultExtensions:
-# - isEnabled: false suppresses only that battery job;
-# - disabling a battery never removes an extension from the shared baseline;
-# - setting a default extension isUsed: false never disables its battery.
-#
-# Each battery explicitly declares its target extension in extensions. The
-# resolver merges and de-duplicates it with the active defaults. Therefore a
-# target can remain available to its own battery even when removed from the
-# shared default baseline.
 testBatteries:
   httpfs:
     isEnabled: true
     runner: standard
     repository: duckdb/duckdb-httpfs
     pin: c3f215ab360f04dc3d3d5305fa81849c0121f111
-    tests: test/sql/*
     submodules: recursive
     setup: httpfs-services
+    profiles:
+      - name: sql
+        tests: test/sql/*
+        testConfig:
+          kind: generated
+          description: HTTPFS compatibility SQL suite
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
+      - name: autoload
+        tests: test/extension/*
+        testConfig:
+          kind: generated
+          description: HTTPFS autoloading profile with HTTPFS initially unloaded
+          excludedExtensions:
+            - httpfs
+          staticallyLoadedExtensions:
+            - core_functions
     extensions:
       - name: httpfs
         isUsed: true
@@ -74,9 +76,32 @@ testBatteries:
     runner: standard
     repository: duckdb/ducklake
     pin: d318a545571d7d46eb751fa2aa5f6f4389285d3c
-    tests: test/sql/*
     submodules: recursive
     setup: ducklake-catalogs
+    profiles:
+      - name: autoload
+        tests: test/sql/autoloading/autoload_data_path.test
+        testConfig:
+          kind: generated
+          description: DuckLake filesystem autoloading profile with HTTPFS initially unloaded
+          excludedExtensions:
+            - httpfs
+            - postgres_scanner
+            - sqlite_scanner
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
+      - name: sqlite
+        tests: test/sql/*
+        testConfig:
+          kind: upstream
+          path: test/configs/sqlite.json
+      - name: postgres
+        tests: test/sql/*
+        runtimeSetup: ducklake-postgres-15
+        testConfig:
+          kind: upstream
+          path: test/configs/postgres.json
     extensions:
       - name: ducklake
         isUsed: true
@@ -101,9 +126,11 @@ testBatteries:
     runner: postgres-scanner
     repository: duckdb/duckdb-postgres
     pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
-    tests: test/sql/*
     submodules: recursive
     setup: postgres-17
+    profiles:
+      - name: all
+        tests: test/sql/*
     extensions:
       - name: postgres_scanner
         isUsed: true
@@ -122,9 +149,17 @@ testBatteries:
     runner: standard
     repository: duckdb/duckdb-delta
     pin: 45c40878601b54b4188b09e08732fe0d576ad222
-    tests: test/sql/*
     submodules: recursive
     setup: none
+    profiles:
+      - name: all
+        tests: test/sql/*
+        testConfig:
+          kind: generated
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
     extensions:
       - name: httpfs
         isUsed: true
@@ -147,9 +182,17 @@ testBatteries:
     runner: standard
     repository: duckdb/duckdb-iceberg
     pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
-    tests: test/sql/local/*
     submodules: recursive
     setup: none
+    profiles:
+      - name: all
+        tests: test/sql/local/*
+        testConfig:
+          kind: generated
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
     extensions:
       - name: httpfs
         isUsed: true
@@ -166,9 +209,17 @@ testBatteries:
     runner: standard
     repository: duckdb/duckdb-azure
     pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
-    tests: test/sql/*
     submodules: recursive
     setup: none
+    profiles:
+      - name: all
+        tests: test/sql/*
+        testConfig:
+          kind: generated
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
     extensions:
       - name: azure
         isUsed: true
@@ -179,9 +230,17 @@ testBatteries:
     runner: standard
     repository: duckdb/unity_catalog
     pin: d52a7ee8678a23a8e0f950e955b9ffa1df0c3395
-    tests: test/sql/*
     submodules: recursive
     setup: none
+    profiles:
+      - name: all
+        tests: test/sql/*
+        testConfig:
+          kind: generated
+          excludedExtensions: []
+          staticallyLoadedExtensions:
+            - core_functions
+            - parquet
     extensions:
       - name: httpfs
         isUsed: true
@@ -200,9 +259,11 @@ testBatteries:
     runner: mssql-release
     repository: hugr-lab/mssql-extension
     pin: v0.2.1
-    tests: test/sql/*
     submodules: false
     setup: sqlserver-2022
+    profiles:
+      - name: all
+        tests: test/sql/*
     extensions:
       - name: mssql
         isUsed: true
