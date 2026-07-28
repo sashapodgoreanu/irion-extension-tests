@@ -32,9 +32,6 @@ jobs:
           python3 -m venv .venv
           .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
 
-      - name: Test configuration contracts
-        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
-
       - name: Compile execution plan and build matrix
         id: resolve
         run: |
@@ -43,19 +40,27 @@ jobs:
             --plan-output build/plan/execution-plan.json \
             >>"${GITHUB_OUTPUT}"
 
-      - name: Report enabled batteries
-        run: |
-          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
-          echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
-          echo "Execution plan SHA-256: ${{ steps.resolve.outputs.execution_plan_sha256 }}"
+      - name: Persist generated matrix
+        env:
+          MATRIX_JSON: ${{ steps.resolve.outputs.matrix }}
+        run: printf '%s\n' "${MATRIX_JSON}" >build/plan/matrix.json
 
       - name: Upload execution plan
         uses: actions/upload-artifact@v4
         with:
           name: qa-execution-plan
-          path: build/plan/execution-plan.json
+          path: build/plan/
           if-no-files-found: error
           retention-days: 7
+
+      - name: Test configuration contracts
+        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
+
+      - name: Report enabled batteries
+        run: |
+          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
+          echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
+          echo "Execution plan SHA-256: ${{ steps.resolve.outputs.execution_plan_sha256 }}"
 
   build:
     name: Prepare DuckDB runtime
