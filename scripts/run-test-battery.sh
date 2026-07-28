@@ -52,14 +52,14 @@ fi
 export ARTIFACT_DIR
 export BATTERY_RUNTIME_CONFIG_DIR
 export DUCKDB_VERSION
+export SETUP_KIND
 export MSSQL_RELEASE_TAG="${UPSTREAM_REF}"
 
 case "${RUNNER_KIND}" in
   standard)
     exec bash "${SCRIPT_DIR}/run-standard-tests.sh" \
       "${BATTERY_NAME}" \
-      "${UPSTREAM_ROOT}" \
-      "${TEST_FILTER}"
+      "${UPSTREAM_ROOT}"
     ;;
   postgres-scanner)
     exec bash "${SCRIPT_DIR}/run-postgres-scanner-tests.sh" \
