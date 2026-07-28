@@ -90,9 +90,7 @@ qa_service_start_squid() {
     echo "Squid service script is missing: ${script}" >&2
     return 1
   fi
-  # The pinned upstream script owns creation of its log directory and uses
-  # plain `mkdir`, so the path must not exist before it starts.
-  rm -rf "${QA_SERVICE_LOG_DIR}/${name}"
+  mkdir -p "${QA_SERVICE_LOG_DIR}/${name}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
     ./scripts/run_squid.sh \
@@ -124,9 +122,9 @@ qa_service_start_httpfs_minio() {
   for host in \
     duckdb-minio.com \
     test-bucket.duckdb-minio.com \
-    test-buckket-2.duckdb-minio.com \
+    test-bucket-2.duckdb-minio.com \
     test-bucket-public.duckdb-minio.com; do
-    if ! grep -Eq "(^|[[:space:]])$${host}([[:space:]]|$)" /etc/hosts; then
+    if ! grep -Eq "(^|[[:space:]])${host}([[:space:]]|$)" /etc/hosts; then
       echo "127.0.0.1 ${host}" | sudo tee -a /etc/hosts >/dev/null
     fi
   done
@@ -205,29 +203,140 @@ qa_service_start_sqlserver() {
   export MSSQL_TEST_USER="${username}"
   export MSSQL_TEST_PASS="${password}"
   export MSSQL_TEST_DB="${database}"
-  export MSSQL_TEST_DSN="Ù\™\IÓTÔÔSÕTÕÒÔÕK	ÓTÔÔSÕTÕÔÔ•NÑ]X˜\ÙOIÓTÔÔSÕTÕÑŸNÕ\Ù\ˆYIÓTÔÔSÕTÕÕTÑTŸNÔ\ÜÝÛÜ™IÓTÔÔSÕTÕÔTÔßH‚ˆ^ÜTÔÔSÕTÕÕT’OH›\ÜÜ[‹ËÉÓTÔÔSÕTÕÕTÑTŸN‰ÓTÔÔSÕTÕÔTÔßP	ÓTÔÔSÕTÕÒÔÕN‰ÓTÔÔSÕTÕÔÔ•KÉÓTÔÔSÕTÕÑŸH‚ˆ^ÜTÔÔSÕTÕ—ÑÓH”Ù\™\IÓTÔÔSÕTÕÒÔÕK	ÓTÔÔSÕTÕÔÔ•NÑ]X˜\ÙOU\ÝŽÕ\Ù\ˆYIÓTÔÔSÕTÕÕTÑTŸNÔ\ÜÝÛÜ™IÓTÔÔSÕTÕÔTÔßH‚ˆ^ÜTÔÔSÕTÕ—ÕT’OH›\ÜÜ[‹ËÉÓTÔÔSÕTÕÕTÑTŸN‰ÓTÔÔSÕTÕÔTÔßP	ÓTÔÔSÕTÕÒÔÕN‰ÓTÔÔSÕTÕÔÔ•KÕ\Ýˆ‚ˆ^ÜTÔÔSÕTÕÔÑT•‘TH‰ÓTÔÔSÕTÕÑÓŸH‚ˆ^ÜTÔÔSÕTÕÐÓÓ“‘PÕSÓ—ÔÕ’S‘ÏH‰ÓTÔSÕTÕÑÓŸH‚‚ˆØ]ˆ‰ÔPWÔÑT•’PÑWÕTÕ‘PSWÔ“ÓÕKË™[ˆˆSÑ‚“TÔÔSÕTÕÒÔÕIÓTÔÔSÕTÕÒÔÕB“TÔÔSÕTÕÔÔ•IÓTÔÔSÕTÕÔÔ•B“TÔÔSÕTÕÕTÑTIÓTÔÔSÕTÕÕTÑTŸB“TÔÔSÕTÕÔTÔÏIÓTÔÔSÕTÕÔTÔßB“TÔÔSÕTÕÑIÓTÔÔSÕTÕÑŸB‘SÑ‚‚ˆØÚÙ\ˆÛÛ\ÜÙHYˆ‰ØÛÛ\ÜÙWÙš[_Hˆ\‰Ü›Ú™XÝHˆ\YÜ[Ù\™\‚ˆØØ[ÛÛZ[™\‚ˆÛÛZ[™\H‰
-ØÚÙ\ˆÛÛ\ÜÙHYˆ‰ØÛÛ\ÜÙWÙš[_Hˆ\‰Ü›Ú™XÝHˆÈ\HÜ[Ù\™\ŠH‚ˆYˆÖÈ^ˆ‰ØÛÛZ[™\ŸHˆWNÈ[‚ˆXÚÈ”ÔSÙ\™\ˆÙ\šXÙH	Û˜[Y_HY›ÝÜ™X]HHÛÛZ[™\ˆˆ‰Œ‚ˆ™]\›ˆBˆšBˆPWÔÑT•’PÑWÐÓPS•TÊÏJ˜ÛÛ\ÜÙ_	Û˜[Y__	ØÛÛ\ÜÙWÙš[__	Ü›Ú™XÝHŠBˆ›ÜˆÈ[ˆ	
-Ù\HHŒ
-NÈÂˆYˆØÚÙ\ˆ^XÈ‰ØÛÛZ[™\ŸHˆÛÜÛ\ÜÜ[]ÛÛÌNØš[‹ÜÜ[ÛYˆTÈØØ[ÜÝUH‰Ý\Ù\›˜[Y_HˆT‰Ü\ÜÝÛÜ™HˆPÈˆTH	ÔÑSPÕIÈ‹Ù]‹Û[‰ŒNÈ[‚ˆ^ÜÔSÑT•‘T—ÒQH‰ØÛÛZ[™\ŸH‚ˆ^ÜTÔÔSÐÓÓTÔÑWÑ’SOH‰ØÛÛ\ÜÙWÙš[_H‚ˆ^ÜTÔÔSÐÓÓTÔÑWÔ“Ò‘PÕH‰Ü›Ú™XÝH‚ˆ™]\›ˆˆšBˆÛY\‚ˆÛ™BˆXÚÈ”ÔSÙ\™\ˆÙ\šXÙH	Û˜[Y_HY›Ý™XÛÛYH™XYHˆ‰Œ‚ˆ™]\›ˆBŸB‚œXWÜÙ\šXÙWÜÝ\Ùš[J
-HÂˆØØ[Ù\šXÙ\×Ùš[OIBˆYˆÖÈHYˆ‰ÜÙ\šXÙ\×Ùš[_HˆWNÈ[‚ˆXÚÈ”Ù\šXÙ\ÈX[šY™\Ý\ÈZ\ÜÚ[™Îˆ	ÜÙ\šXÙ\×Ùš[_Hˆ‰Œ‚ˆ™]\›ˆBˆšBˆÚ[HQ”ÏIß	È™XY\ˆ˜[YHÙ\šXÙWÝ\HÜ™\œÚ[Ûˆ]X˜\ÙH\Ù\›˜[YNÈÂˆÖÈ[ˆ‰Û˜[Y_HˆWHÛÛ[YBˆØ\ÙH‰ÜÙ\šXÙWÝ\_Hˆ[‚ˆ]Û‹Z
-BˆXWÜÙ\šXÙWÜÝ\Ü]Û—Ú‰Û˜[Y_Hˆ‰ÜÜH‚ˆÎÂˆÜ]ZY
-BˆXWÜÙ\šXÙWÜÝ\ÜÜ]ZY‰Û˜[Y_Hˆ‰ÜÜH‚ˆÎÂˆœË[Z[š[ÊBˆXWÜÙ\šXÙWÜÝ\Úœ×ÛZ[š[È‰Û˜[Y_H‚ˆÎÂˆÜÝÜ™\ÊBˆXWÜÙ\šXÙWÜÝ\ÜÜÝÜ™\Èˆ‰Û˜[Y_Hˆ‰ÜÜHˆ‰Ý™\œÚ[ÛŸHˆ‰Ù]X˜\Ù_Hˆ‰Ý\Ù\›˜[YN‹\ÜÝÜ™\ßH‚ˆÎÂˆÜ[Ù\™\ŠBˆXWÜÙ\šXÙWÜÝ\ÜÜ[Ù\™\ˆˆ‰Û˜[Y_Hˆ‰ÜÜHˆ‰Ý™\œÚ[ÛŸHˆ‰Ù]X˜\Ù_Hˆ‰Ý\Ù\›˜[YN‹\Ø_H‚ˆÎÂˆ
-ŠBˆXÚÈ•[œÝ\ÜYÙ\šXÙH\Nˆ	ÜÙ\šXÙWÝ\_Hˆ‰Œ‚ˆ™]\›ˆ‚ˆÎÂˆ\ØXÂˆÛ™H
-XWÜÙ\šXÙWÜ›ÝÜÈ‰ÜÙ\šXÙ\×Ùš[_HŠBŸB‚œXWÜ™\™\]Z\Ú]WØÚXÚ×Ùš[J
-HÂˆØØ[™\™\]Z\Ú]\×Ùš[OIBˆ]ÛŒÈH‰Ü™\™\]Z\Ú]\×Ùš[_Hˆ	ÔIÈÚ[HQ”ÏH™XY\ˆ™\™\]Z\Ú]NÈÂš[\ÜœÛÛ‚š[\ÜÞ\Â™œ›ÛH]Xˆ[\Ü]š][\ÈHœÛÛ‹›ØYÊ]
-Þ\Ë˜\™Ý–ÌWJKœ™XYÝ^
-[˜ÛÙ[™ÏH]‹NŠJBšYˆ›Ý\Ú[œÝ[˜ÙJ][\Ë\Ý
-N‚ˆ˜Z\ÙHÞ\Ý[Q^]
-œ™\™\]Z\Ú]\ÈX[šY™\Ý]\ÝÛÛZ[ˆH\ÝŠB™›Üˆ][H[ˆ][\Î‚ˆš[
-][VÈ\H—JB”BˆØ\ÙH‰Ü™\™\]Z\Ú]_Hˆ[‚ˆÛÛÙÛKXšYÜ]Y\žJBˆ›Üˆ˜\šXX›WÛ˜[YH[ˆÓÓÑÓWÐTPÐUSÓ—ÐÔ‘QS•PSÈ”WÕTÕÔ“Ò‘PÕ”WÕTÕÑUTÑUÈÂˆYˆÖÈ^ˆ‰È]˜\šXX›WÛ˜[YN‹_HˆWNÈ[‚ˆXÚÈ‘ÛÛÙÛHšYÔ]Y\žH™\™\]Z\Ú]H™\]Z\™\È	Ý˜\šXX›WÛ˜[Y_Hˆ‰Œ‚ˆ™]\›ˆBˆšBˆÛ™BˆÎÂˆ
-ŠBˆXÚÈ•[œÝ\ÜY™\™\]Z\Ú]Nˆ	Ü™\™\]Z\Ú]_Hˆ‰Œ‚ˆ™]\›ˆ‚ˆÎÂˆ\ØXÂˆÛ™BŸB‚œXWÜÙ\šXÙWÜÝÜØ[
+  export MSSQL_TEST_DSN="Server=${MSSQL_TEST_HOST},${MSSQL_TEST_PORT};Database=${MSSQL_TEST_DB};User Id=${MSSQL_TEST_USER};Password=${MSSQL_TEST_PASS}"
+  export MSSQL_TEST_URI="mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/${MSSQL_TEST_DB}"
+  export MSSQL_TESTDB_DSN="Server=${MSSQL_TEST_HOST},${MSSQL_TEST_PORT};Database=TestDB;User Id=${MSSQL_TEST_USER};Password=${MSSQL_TEST_PASS}"
+  export MSSQL_TESTDB_URI="mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/TestDB"
+  export MSSQL_TEST_SERVER="${MSSQL_TEST_DSN}"
+  export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_DSN}"
 
-HÂˆØØ[[™^XÝ[ÛˆÚ[™˜[YH˜[YH^˜Bˆ›Üˆ
+  cat >"${QA_SERVICE_UPSTREAM_ROOT}/.env" <<EOF
+MSSQL_TEST_HOST=${MSSQL_TEST_HOST}
+MSSQL_TEST_PORT=${MSSQL_TEST_PORT}
+MSSQL_TEST_USER=${MSSQL_TEST_USER}
+MSSQL_TEST_PASS=${MSSQL_TEST_PASS}
+MSSQL_TEST_DB=${MSSQL_TEST_DB}
+EOF
 
-[™^IÈÔPWÔÑT•’PÑWÐÓPS•TÖÐ_KLNÈ[™^LÈ[™^KJJNÈÂˆXÝ[ÛH‰ÔPWÔÑT•’PÑWÐÓPS•TÖÚ[™^_H‚ˆQ”ÏIß	È™XY\ˆÚ[™˜[YH˜[YH^˜H‰ØXÝ[ÛŸH‚ˆØ\ÙH‰ÚÚ[™Hˆ[‚ˆY
-BˆYˆÖÈ[ˆ‰Ý˜[Y_HˆWH	‰ˆÚ[L‰Ý˜[Y_Hˆ‹Ù]‹Û[È[‚ˆÚ[‰Ý˜[Y_HˆYBˆØZ]‰Ý˜[Y_Hˆ‹Ù]‹Û[YBˆšBˆÎÂˆœË[Z[š[ÊBˆ
-ˆÙ‰ÔPWÔÑT•’PÑWÕTÕ‘PSWÔ“ÓÕH‚ˆØÚÙ\ˆÛÛ\ÜÙHYˆ‰Ý˜[Y_Hˆ\XÚÙ‹[Z[š[ÈÙÜÈK[›ËXÛÛÜ‚ˆ
-Hˆ‰ÔPWÔÑT•’PÑWÓÑ×ÑTŸKÉÛ˜[Y_K›ÙÈˆ‰ŒHYBˆ
-ˆÙ‰ÔPWÔÑT•’PÑWÕTÕ‘PSWÔ“ÓÕH‚ˆØÚÙ\ˆÛÛ\ÜÙHYˆ‰Ý˜[Y_Hˆ\XÚÙ‹[Z[š[ÈÝÛˆK]›Û[Y\ÈK\™[[Ý™K[Üœ[œÂˆ
-Hˆ‰ÔPWÔÑT•’PÑWÓÑ×ÑTŸKÉÛ˜[Y_K›ÙÈˆ‰ŒHYBˆÎÂˆÛÛZ[™\ŠBˆØÚÙ\ˆÙÜÈ‰Ý˜[Y_Hˆˆ‰ÔPWÔÑT•’PÑWÓÑ×ÑTŸKÉÛ˜[Y_K›ÙÈˆ‰ŒHYBˆØÚÙ\ˆ›HYˆ‰Ý˜[Y_Hˆ‹Ù]‹Û[‰ŒHYBˆÎÂˆÛÛ\ÜÙJBˆØÚÙ\ˆÛÛ\ÜÙHYˆ‰Ý˜[Y_Hˆ\‰Ù^˜_HˆÙÜÈK[›ËXÛÛÜˆˆˆ‰ÔPWÔÑT•’PÑWÓÑ×ÑTŸKÉÛ˜[Y_K›ÙÈˆ‰ŒHYBˆØÚÙ\ˆÛÛ\ÜÙHYˆ‰Ý˜[Y_Hˆ\‰Ù^˜_HˆÝÛˆK]›Û[Y\ÈK\™[[Ý™K[Üœ[œÈˆˆ‰ÔPWÔÑT•’PÑWÓÑ×ÑTŸKÉÛ˜[Y_K›ÙÈˆ‰ŒHYBˆÎÂˆ\ØXÂˆÛ™BˆPWÔÑT•’PÑWÐÓPS•TÏJ
-BŸB
+  docker compose -f "${compose_file}" -p "${project}" up -d sqlserver
+  local container
+  container="$(docker compose -f "${compose_file}" -p "${project}" ps -q sqlserver)"
+  if [[ -z "${container}" ]]; then
+    echo "SQL Server service ${name} did not create a container" >&2
+    return 1
+  fi
+  QA_SERVICE_CLEANUPS+=("compose|${name}|${compose_file}|${project}")
+  for _ in $(seq 1 60); do
+    if docker exec "${container}" /opt/mssql-tools18/bin/sqlcmd \
+        -S localhost -U "${username}" -P "${password}" -C \
+        -Q 'SELECT 1' >/dev/null 2>&1; then
+      export SQLSERVER_ID="${container}"
+      export MSSQL_COMPOSE_FILE="${compose_file}"
+      export MSSQL_COMPOSE_PROJECT="${project}"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "SQL Server service ${name} did not become ready" >&2
+  return 1
+}
+
+qa_service_start_file() {
+  local services_file=$1
+  if [[ ! -f "${services_file}" ]]; then
+    echo "Services manifest is missing: ${services_file}" >&2
+    return 1
+  fi
+  while IFS='|' read -r name service_type port version database username; do
+    [[ -n "${name}" ]] || continue
+    case "${service_type}" in
+      python-http)
+        qa_service_start_python_http "${name}" "${port}"
+        ;;
+      squid)
+        qa_service_start_squid "${name}" "${port}"
+        ;;
+      httpfs-minio)
+        qa_service_start_httpfs_minio "${name}"
+        ;;
+      postgres)
+        qa_service_start_postgres \
+          "${name}" "${port}" "${version}" "${database}" "${username:-postgres}"
+        ;;
+      sqlserver)
+        qa_service_start_sqlserver \
+          "${name}" "${port}" "${version}" "${database}" "${username:-sa}"
+        ;;
+      *)
+        echo "Unsupported service type: ${service_type}" >&2
+        return 2
+        ;;
+    esac
+  done < <(qa_service_rows "${services_file}")
+}
+
+qa_prerequisite_check_file() {
+  local prerequisites_file=$1
+  python3 - "${prerequisites_file}" <<'PY' | while IFS= read -r prerequisite; do
+import json
+import sys
+from pathlib import Path
+items = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if not isinstance(items, list):
+    raise SystemExit("prerequisites manifest must contain a list")
+for item in items:
+    print(item["type"])
+PY
+    case "${prerequisite}" in
+      google-bigquery)
+        for variable_name in GOOGLE_APPLICATION_CREDENTIALS BQ_TEST_PROJECT BQ_TEST_DATASET; do
+          if [[ -z "${!variable_name:-}" ]]; then
+            echo "Google BigQuery prerequisite requires ${variable_name}" >&2
+            return 1
+          fi
+        done
+        ;;
+      *)
+        echo "Unsupported prerequisite: ${prerequisite}" >&2
+        return 2
+        ;;
+    esac
+  done
+}
+
+qa_service_stop_all() {
+  local index action kind name value extra
+  for ((index=${#QA_SERVICE_CLEANUPS[@]}-1; index>=0; index--)); do
+    action="${QA_SERVICE_CLEANUPS[index]}"
+    IFS='|' read -r kind name value extra <<<"${action}"
+    case "${kind}" in
+      pid)
+        if [[ -n "${value}" ]] && kill -0 "${value}" 2>/dev/null; then
+          kill "${value}" || true
+          wait "${value}" 2>/dev/null || true
+        fi
+        ;;
+      httpfs-minio)
+        (
+          cd "${QA_SERVICE_UPSTREAM_ROOT}"
+          docker compose -f "${value}" -p duckdb-minio logs --no-color
+        ) >"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
+        (
+          cd "${QA_SERVICE_UPSTREAM_ROOT}"
+          docker compose -f "${value}" -p duckdb-minio down --volumes --remove-orphans
+        ) >>"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
+        ;;
+      container)
+        docker logs "${value}" >"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
+        docker rm -f "${value}" >/dev/null 2>&1 || true
+        ;;
+      compose)
+        docker compose -f "${value}" -p "${extra}" logs --no-color \
+          >"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
+        docker compose -f "${value}" -p "${extra}" down --volumes --remove-orphans \
+          >>"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
+        ;;
+    esac
+  done
+  QA_SERVICE_CLEANUPS=()
+}
