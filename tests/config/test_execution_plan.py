@@ -58,9 +58,14 @@ class ExecutionPlanTestCase(unittest.TestCase):
             )
             payload = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(payload["schemaVersion"], 2)
+            httpfs_profiles = payload["cases"][0]["execution"]["profiles"]
             self.assertEqual(
-                [profile["name"] for profile in payload["cases"][0]["execution"]["profiles"]],
-                ["sql", "autoload"],
+                [profile["name"] for profile in httpfs_profiles],
+                ["sql"],
+            )
+            self.assertNotIn(
+                "test/extension/*",
+                [profile["tests"] for profile in httpfs_profiles],
             )
             outputs = dict(
                 line.split("=", 1)
