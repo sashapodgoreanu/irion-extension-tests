@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-EXECUTION_PLAN_SCHEMA_VERSION = 2
+EXECUTION_PLAN_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +33,26 @@ class ExecutionExtension:
         if self.install_from is not None:
             result["installFrom"] = self.install_from
         return result
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionService:
+    name: str
+    service_type: str
+    options: tuple[tuple[str, Any], ...] = ()
+
+    def payload(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"name": self.name, "type": self.service_type}
+        result.update(dict(self.options))
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionPrerequisite:
+    prerequisite_type: str
+
+    def payload(self) -> dict[str, str]:
+        return {"type": self.prerequisite_type}
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,14 +86,14 @@ class ExecutionSource:
 class ExecutionProfile:
     name: str
     tests: str
-    runtime_setup: str
+    services: tuple[ExecutionService, ...]
     test_config: dict[str, Any] | None
 
     def payload(self) -> dict[str, Any]:
         result: dict[str, Any] = {
             "name": self.name,
             "tests": self.tests,
-            "runtimeSetup": self.runtime_setup,
+            "services": [service.payload() for service in self.services],
         }
         if self.test_config is not None:
             result["testConfig"] = self.test_config
@@ -83,13 +103,17 @@ class ExecutionProfile:
 @dataclass(frozen=True, slots=True)
 class ExecutionContract:
     runner: str
-    setup: str
+    services: tuple[ExecutionService, ...]
+    prerequisites: tuple[ExecutionPrerequisite, ...]
+    capabilities: tuple[str, ...]
     profiles: tuple[ExecutionProfile, ...]
 
     def payload(self) -> dict[str, Any]:
         return {
             "runner": self.runner,
-            "setup": self.setup,
+            "services": [service.payload() for service in self.services],
+            "prerequisites": [item.payload() for item in self.prerequisites],
+            "capabilities": list(self.capabilities),
             "profiles": [profile.payload() for profile in self.profiles],
         }
 
@@ -120,8 +144,10 @@ class ExecutionCase:
             "pin": self.source.pin,
             "tests": self.contract.profiles[0].tests,
             "submodules": self.source.submodules,
-            "setup": self.contract.setup,
             "duckdbVersion": duckdb_version,
+            "services": [service.payload() for service in self.contract.services],
+            "prerequisites": [item.payload() for item in self.contract.prerequisites],
+            "capabilities": list(self.contract.capabilities),
             "profiles": profiles,
             "extensions": [extension.payload() for extension in self.extensions],
             "ignoredTests": [ignored.payload() for ignored in self.ignored_tests],

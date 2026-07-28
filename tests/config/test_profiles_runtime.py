@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,10 +16,13 @@ WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
 PREPARE_BATTERY = REPOSITORY_ROOT / "scripts" / "prepare-test-battery.py"
 PREPARE_PROFILE = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
 STANDARD_RUNNER = REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh"
+BATTERY_RUNNER = REPOSITORY_ROOT / "scripts" / "run-test-battery.sh"
 POSTGRES_RUNNER = REPOSITORY_ROOT / "scripts" / "run-postgres-scanner-tests.sh"
+SERVICE_MANAGER = REPOSITORY_ROOT / "scripts" / "service-manager.sh"
+MSSQL_PATCHER = REPOSITORY_ROOT / "scripts" / "prepare-mssql-configured-runner.py"
 
 
-class ProfileRuntimeTestCase(unittest.TestCase):
+class ServiceRuntimeTestCase(unittest.TestCase):
     def prepare_case(self, case_name: str, root: Path) -> tuple[Path, dict]:
         plan = resolve_config(load_config(CONFIG_PATH))
         matrix_case = next(
@@ -34,55 +38,63 @@ class ProfileRuntimeTestCase(unittest.TestCase):
         )
         return runtime, matrix_case
 
-    def test_prepare_battery_excludes_httpfs_extension_suite(self) -> None:
+    def test_httpfs_runtime_contains_composable_service_manifests(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            runtime, _ = self.prepare_case("httpfs", Path(directory))
-            profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
-            self.assertEqual([item["name"] for item in profiles], ["sql"])
-            normal_init = (runtime / "init-profile-sql.sql").read_text(encoding="utf-8")
-            self.assertIn("LOAD httpfs;", normal_init)
-            self.assertIn("LOAD bigquery;", normal_init)
-            self.assertFalse((runtime / "init-profile-autoload.sql").exists())
+            runtime, matrix_case = self.prepare_case("httpfs", Path(directory))
+            services = json.loads((runtime / "services.json").read_text(encoding="utf-8"))
+            self.assertEqual(services, matrix_case["services"])
+            self.assertEqual(
+                [item["type"] for item in services],
+                ["python-http", "squid", "httpfs-minio"],
+            )
+            self.assertEqual(
+                json.loads((runtime / "capabilities.json").read_text(encoding="utf-8")),
+                ["squid", "docker-compose"],
+            )
+            self.assertEqual(
+                json.loads((runtime / "profile-services-sql.json").read_text(encoding="utf-8")),
+                [],
+            )
             self.assertEqual(
                 (runtime / "profiles.tsv").read_text(encoding="utf-8").splitlines(),
-                ["sql\ttest/sql/*\tnone"],
+                ["sql\ttest/sql/*"],
             )
-            self.assertNotIn(
-                "test/extension/*",
-                (runtime / "profiles.tsv").read_text(encoding="utf-8"),
-            )
+            env_text = (runtime / "battery.env").read_text(encoding="utf-8")
+            self.assertNotIn("SETUP_KIND", env_text)
 
-    def test_postgres_profile_declares_generated_test_config(self) -> None:
+    def test_ducklake_postgres_service_is_profile_scoped(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            runtime, _ = self.prepare_case("postgres_scanner", Path(directory))
-            profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
-            self.assertEqual(len(profiles), 1)
-            profile = profiles[0]
-            self.assertEqual(profile["name"], "all")
-            self.assertEqual(profile["testConfig"]["kind"], "generated")
+            runtime, _ = self.prepare_case("ducklake", Path(directory))
             self.assertEqual(
-                profile["testConfig"]["staticallyLoadedExtensions"],
-                ["core_functions", "parquet"],
+                json.loads((runtime / "services.json").read_text(encoding="utf-8")), []
+            )
+            services = json.loads(
+                (runtime / "profile-services-postgres.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(services[0]["type"], "postgres")
+            self.assertEqual(services[0]["version"], "15")
+            self.assertEqual(services[0]["database"], "ducklakedb")
+            self.assertEqual(
+                json.loads((runtime / "profile-services-autoload.json").read_text(encoding="utf-8")),
+                [],
             )
 
-    def test_bigquery_battery_uses_global_community_extension(self) -> None:
+    def test_bigquery_prerequisite_is_separate_from_services(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            runtime, matrix_case = self.prepare_case("bigquery", Path(directory))
-            self.assertEqual(matrix_case["setup"], "bigquery-gcp")
-            profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
-            self.assertEqual([profile["name"] for profile in profiles], ["all"])
-            self.assertEqual(profiles[0]["tests"], "test/sql/*")
-            extensions = json.loads(
-                (runtime / "extensions.json").read_text(encoding="utf-8")
+            runtime, _ = self.prepare_case("bigquery", Path(directory))
+            self.assertEqual(
+                json.loads((runtime / "services.json").read_text(encoding="utf-8")), []
             )
-            bigquery = next(
-                extension for extension in extensions if extension["name"] == "bigquery"
+            self.assertEqual(
+                json.loads((runtime / "prerequisites.json").read_text(encoding="utf-8")),
+                [{"type": "google-bigquery"}],
             )
-            self.assertEqual(bigquery["installFrom"], "community")
-            init_sql = (runtime / "init-profile-all.sql").read_text(encoding="utf-8")
-            self.assertIn("LOAD bigquery;", init_sql)
+            self.assertEqual(
+                json.loads((runtime / "capabilities.json").read_text(encoding="utf-8")),
+                ["google-cloud-auth"],
+            )
 
-    def test_generated_httpfs_sql_profile_builds_sqllogictest_config(self) -> None:
+    def test_generated_profile_still_builds_sqllogictest_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             runtime, _ = self.prepare_case("httpfs", root)
@@ -106,82 +118,140 @@ class ProfileRuntimeTestCase(unittest.TestCase):
             )
             config = json.loads(destination.read_text(encoding="utf-8"))
             self.assertEqual(
-                config["statically_loaded_extensions"],
-                ["core_functions", "parquet"],
+                config["statically_loaded_extensions"], ["core_functions", "parquet"]
             )
             self.assertIn("LOAD httpfs;", config["on_new_connection"])
             self.assertIn("LOAD bigquery;", config["on_new_connection"])
-            self.assertTrue(config["summarize_failures"])
 
-    def test_upstream_profile_preserves_upstream_settings_and_adds_skips(self) -> None:
+    def test_standard_runner_uses_profile_service_manager(self) -> None:
+        script = STANDARD_RUNNER.read_text(encoding="utf-8")
+        self.assertNotIn("SETUP_KIND", script)
+        self.assertNotIn('case "${runtime_setup}"', script)
+        self.assertIn('source "${SERVICE_MANAGER}"', script)
+        self.assertIn('qa_service_start_file "${profile_services}"', script)
+        self.assertIn('qa_service_stop_all', script)
+        self.assertIn("done <\"${PROFILES_TSV}\"", script)
+
+    def test_battery_runner_owns_battery_service_lifecycle(self) -> None:
+        script = BATTERY_RUNNER.read_text(encoding="utf-8")
+        self.assertNotIn("SETUP_KIND", script)
+        self.assertIn('qa_prerequisite_check_file', script)
+        self.assertIn('trap qa_service_stop_all EXIT', script)
+        self.assertIn('qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"', script)
+        self.assertLess(
+            script.index("trap qa_service_stop_all EXIT"),
+            script.index('qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"'),
+        )
+        self.assertIn('export HOME="${RUNTIME_ROOT}/home"', script)
+
+    def test_postgres_runner_no_longer_overrides_setup_contract(self) -> None:
+        script = POSTGRES_RUNNER.read_text(encoding="utf-8")
+        self.assertNotIn("SETUP_KIND", script)
+        self.assertIn('bash "${STANDARD_RUNNER}"', script)
+        self.assertIn("PostgreSQL test service did not become ready", script)
+
+    def test_workflow_selects_dependencies_from_capabilities(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertNotIn("matrix.setup", workflow)
+        self.assertIn("contains(matrix.capabilities, 'google-cloud-auth')", workflow)
+        self.assertIn("contains(matrix.capabilities, 'squid')", workflow)
+        self.assertIn("contains(matrix.capabilities, 'postgres-client')", workflow)
+        self.assertIn("contains(matrix.capabilities, 'docker-compose')", workflow)
+        self.assertIn("uses: google-github-actions/auth@v3", workflow)
+        self.assertNotIn("action-setup-postgres", workflow)
+
+    def test_prerequisite_checker_accepts_empty_and_rejects_missing_bigquery_env(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            runtime, _ = self.prepare_case("ducklake", root)
-            upstream = root / "upstream"
-            source = upstream / "test" / "configs" / "sqlite.json"
-            source.parent.mkdir(parents=True)
-            source.write_text(
-                json.dumps(
-                    {
-                        "statically_loaded_extensions": ["core_functions"],
-                        "on_new_connection": "SET threads=1;",
-                    }
-                ),
-                encoding="utf-8",
-            )
-            destination = root / "sqlite.json"
+            empty = root / "empty.json"
+            empty.write_text("[]\n", encoding="utf-8")
             subprocess.run(
-                [
-                    sys.executable,
-                    str(PREPARE_PROFILE),
-                    str(runtime / "profiles.json"),
-                    "sqlite",
-                    str(upstream),
-                    str(destination),
-                    str(runtime / "extensions.json"),
-                    str(runtime / "profile-skips.json"),
-                    str(runtime),
-                ],
+                ["bash", "-c", f'source "{SERVICE_MANAGER}"; qa_prerequisite_check_file "{empty}"'],
                 check=True,
                 cwd=REPOSITORY_ROOT,
             )
-            config = json.loads(destination.read_text(encoding="utf-8"))
-            self.assertIn("parquet", config["statically_loaded_extensions"])
-            self.assertIn("ducklake", config["statically_loaded_extensions"])
-            self.assertIn("bigquery", config["statically_loaded_extensions"])
-            self.assertIn("SET threads=1;", config["on_new_connection"])
-            self.assertEqual(
-                config["skip_tests"][0]["paths"],
-                ["test/sql/data_inlining/postgres_identifier_limit.test"],
+            bigquery = root / "bigquery.json"
+            bigquery.write_text('[{"type":"google-bigquery"}]\n', encoding="utf-8")
+            env = dict(os.environ)
+            for name in ("GOOGLE_APPLICATION_CREDENTIALS", "BQ_TEST_PROJECT", "BQ_TEST_DATASET"):
+                env.pop(name, None)
+            result = subprocess.run(
+                ["bash", "-c", f'set -o pipefail; source "{SERVICE_MANAGER}"; qa_prerequisite_check_file "{bigquery}"'],
+                cwd=REPOSITORY_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
             )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("GOOGLE_APPLICATION_CREDENTIALS", result.stderr)
 
-    def test_standard_runner_does_not_branch_on_battery_name(self) -> None:
-        script = STANDARD_RUNNER.read_text(encoding="utf-8")
-        self.assertNotIn('if [[ "${TEST_NAME}" ==', script)
-        self.assertNotIn('elif [[ "${TEST_NAME}" ==', script)
-        self.assertIn('case "${SETUP_KIND}" in', script)
-        self.assertIn("bigquery-gcp)", script)
-        self.assertIn("GOOGLE_APPLICATION_CREDENTIALS", script)
-        self.assertIn("BQ_TEST_PROJECT", script)
-        self.assertIn("BQ_TEST_DATASET", script)
-        self.assertIn('done <"${PROFILES_TSV}"', script)
+    def test_service_manager_rejects_unknown_runtime_service(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "services.json"
+            manifest.write_text('[{"name":"bad","type":"unknown"}]\n', encoding="utf-8")
+            result = subprocess.run(
+                [
+                    "bash",
+                    "-c",
+                    f'source "{SERVICE_MANAGER}"; qa_service_manager_init "{root}/runtime" "{root}" "{root}/logs"; qa_service_start_file "{manifest}"',
+                ],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("Unsupported service type", result.stderr)
 
-    def test_bigquery_workflow_auth_is_selected_by_setup(self) -> None:
-        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        self.assertIn("if: matrix.setup == 'bigquery-gcp'", workflow)
-        self.assertIn("uses: google-github-actions/auth@v3", workflow)
-        self.assertIn("GCS_SERVICE_ACCOUNT_KEY", workflow)
-        self.assertIn("BQ_TEST_PROJECT", workflow)
-        self.assertIn("BQ_TEST_DATASET", workflow)
-        self.assertNotIn("matrix.name == 'bigquery'", workflow)
-
-    def test_postgres_runner_owns_setup_before_profile_delegation(self) -> None:
-        script = POSTGRES_RUNNER.read_text(encoding="utf-8")
-        self.assertIn('SETUP_KIND=none bash "${STANDARD_RUNNER}"', script)
-        self.assertNotIn(
-            '"${UPSTREAM_ROOT}" \\\n  "${TEST_FILTER}" || status=$?',
-            script,
-        )
+    def test_mssql_patcher_removes_legacy_service_lifecycle(self) -> None:
+        fixture = '''#!/usr/bin/env bash
+DUCKDB_VERSION_DIRECTORY="v1.5.4"
+cleanup() {
+  if [[ "${MSSQL_COMPOSE_STARTED:-0}" == "1" ]]; then
+    docker compose down
+  fi
+}
+trap cleanup EXIT
+python3 - <<'PYCODE'
+config = {
+    "skip_tests": [
+        {"paths": ["legacy"]}
+    ],
+}
+PYCODE
+docker compose -f "${COMPOSE_FILE}" up -d sqlserver
+export MSSQL_COMPOSE_STARTED=1
+SQLSERVER_ID="$(docker compose -f "${COMPOSE_FILE}" ps -q sqlserver)"
+if [[ -z "${SQLSERVER_ID}" ]]; then
+  exit 1
+fi
+for _ in $(seq 1 60); do
+  if docker exec "${SQLSERVER_ID}" true; then
+    break
+  fi
+done
+if ! docker exec "${SQLSERVER_ID}" true; then
+  echo "SQL Server did not become ready" >&2
+  exit 1
+fi
+echo continue
+'''
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source.sh"
+            destination = root / "destination.sh"
+            source.write_text(fixture, encoding="utf-8")
+            subprocess.run(
+                [sys.executable, str(MSSQL_PATCHER), str(source), str(destination), "v1.5.4"],
+                check=True,
+                cwd=REPOSITORY_ROOT,
+            )
+            patched = destination.read_text(encoding="utf-8")
+            self.assertNotIn("MSSQL_COMPOSE_STARTED", patched)
+            self.assertNotIn('docker compose -f "${COMPOSE_FILE}" up', patched)
+            self.assertIn('SQLSERVER_ID="${SQLSERVER_ID:?', patched)
+            self.assertIn("echo continue", patched)
+            self.assertNotIn('"skip_tests": [', patched)
 
 
 if __name__ == "__main__":

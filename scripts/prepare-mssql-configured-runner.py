@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create a runtime MSSQL base runner controlled by config/extensions.yml."""
+"""Create an MSSQL runtime runner controlled by declarative QA services."""
 
 from __future__ import annotations
 
@@ -9,6 +9,17 @@ from pathlib import Path
 
 class PatchError(ValueError):
     pass
+
+
+SQLSERVER_REPLACEMENT = [
+    'SQLSERVER_ID="${SQLSERVER_ID:?SQL Server service container id is required}"',
+    'if ! docker exec "${SQLSERVER_ID}" /opt/mssql-tools18/bin/sqlcmd \\',
+    '    -S localhost -U "${MSSQL_TEST_USER}" -P "${MSSQL_TEST_PASS}" -C \\',
+    "    -Q 'SELECT 1' >/dev/null 2>&1; then",
+    '  echo "SQL Server service is not ready" >&2',
+    '  exit 1',
+    'fi',
+]
 
 
 def main() -> int:
@@ -23,6 +34,8 @@ def main() -> int:
         lines = source.read_text(encoding="utf-8").splitlines()
         version_replacements = 0
         skip_blocks = 0
+        cleanup_blocks = 0
+        lifecycle_blocks = 0
         output: list[str] = []
         index = 0
         while index < len(lines):
@@ -43,6 +56,28 @@ def main() -> int:
                     if depth == 0:
                         break
                 continue
+            if line == "cleanup() {":
+                cleanup_blocks += 1
+                while index < len(lines) and lines[index] != "trap cleanup EXIT":
+                    index += 1
+                if index >= len(lines):
+                    raise PatchError("MSSQL cleanup trap terminator was not found")
+                index += 1
+                continue
+            if line == 'docker compose -f "${COMPOSE_FILE}" up -d sqlserver':
+                lifecycle_blocks += 1
+                saw_failure = False
+                while index < len(lines):
+                    current = lines[index]
+                    if 'echo "SQL Server did not become ready"' in current:
+                        saw_failure = True
+                    index += 1
+                    if saw_failure and current == "fi":
+                        break
+                if not saw_failure:
+                    raise PatchError("SQL Server readiness block terminator was not found")
+                output.extend(SQLSERVER_REPLACEMENT)
+                continue
             output.append(line)
             index += 1
 
@@ -52,6 +87,12 @@ def main() -> int:
             )
         if skip_blocks != 1:
             raise PatchError(f"expected one legacy skip_tests block, found {skip_blocks}")
+        if cleanup_blocks != 1:
+            raise PatchError(f"expected one SQL Server cleanup block, found {cleanup_blocks}")
+        if lifecycle_blocks != 1:
+            raise PatchError(
+                f"expected one SQL Server lifecycle block, found {lifecycle_blocks}"
+            )
 
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("\n".join(output) + "\n", encoding="utf-8")

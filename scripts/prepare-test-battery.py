@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate runtime SQL and metadata for one resolved test battery."""
+"""Generate runtime SQL, service manifests and metadata for one resolved battery."""
 
 from __future__ import annotations
 
@@ -13,7 +13,9 @@ from typing import Any
 
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
-VALID_RUNTIME_SETUPS = {"none", "ducklake-postgres-15"}
+SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
+VALID_SERVICE_TYPES = {"python-http", "squid", "httpfs-minio", "postgres", "sqlserver"}
+VALID_PREREQUISITES = {"google-bigquery"}
 
 
 class BatteryError(ValueError):
@@ -36,11 +38,51 @@ def write_init(path: Path, extensions: list[dict[str, str]], excluded: set[str])
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def normalize_services(raw_services: Any, path: str) -> list[dict[str, Any]]:
+    if not isinstance(raw_services, list):
+        raise BatteryError(f"{path} must be a list")
+    services: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, raw in enumerate(raw_services):
+        if not isinstance(raw, dict):
+            raise BatteryError(f"{path}[{index}] must be an object")
+        name = required_string(raw, "name")
+        service_type = required_string(raw, "type")
+        if not SERVICE_NAME.fullmatch(name):
+            raise BatteryError(f"{path}[{index}] has invalid service name {name}")
+        if name in seen:
+            raise BatteryError(f"{path} contains duplicate service {name}")
+        if service_type not in VALID_SERVICE_TYPES:
+            raise BatteryError(f"{path}[{index}] has unsupported type {service_type}")
+        seen.add(name)
+        services.append(dict(raw))
+    return services
+
+
+def normalize_prerequisites(raw: Any) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        raise BatteryError("prerequisites must be a list")
+    prerequisites: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            raise BatteryError(f"prerequisites[{index}] must be an object")
+        prerequisite_type = required_string(item, "type")
+        if prerequisite_type not in VALID_PREREQUISITES:
+            raise BatteryError(f"unsupported prerequisite: {prerequisite_type}")
+        if prerequisite_type in seen:
+            raise BatteryError(f"duplicate prerequisite: {prerequisite_type}")
+        seen.add(prerequisite_type)
+        prerequisites.append({"type": prerequisite_type})
+    return prerequisites
+
+
 def normalize_profiles(
     raw_profiles: Any,
     extensions: list[dict[str, str]],
     runner: str,
     output_dir: Path,
+    battery_service_names: set[str],
 ) -> list[dict[str, Any]]:
     if not isinstance(raw_profiles, list) or not raw_profiles:
         raise BatteryError("profiles must be a non-empty list")
@@ -57,19 +99,22 @@ def normalize_profiles(
             raise BatteryError(f"duplicate profile: {name}")
         seen.add(name)
         tests = required_string(raw, "tests")
-        runtime_setup = raw.get("runtimeSetup", "none")
-        if runtime_setup not in VALID_RUNTIME_SETUPS:
-            raise BatteryError(f"unsupported runtimeSetup for {name}: {runtime_setup}")
+        services = normalize_services(raw.get("services", []), f"profiles[{index}].services")
+        overlap = battery_service_names & {service["name"] for service in services}
+        if overlap:
+            raise BatteryError(
+                f"profile {name} duplicates battery service {sorted(overlap)[0]}"
+            )
+        if runner != "standard" and services:
+            raise BatteryError(f"profile {name} services require the standard runner")
         raw_test_config = raw.get("testConfig")
         if runner == "standard" and not isinstance(raw_test_config, dict):
             raise BatteryError(f"profile {name} requires testConfig for the standard runner")
-        if runner != "standard" and runtime_setup != "none":
-            raise BatteryError(f"profile {name} runtimeSetup requires the standard runner")
 
         normalized: dict[str, Any] = {
             "name": name,
             "tests": tests,
-            "runtimeSetup": runtime_setup,
+            "services": services,
         }
         excluded: set[str] = set()
         if raw_test_config is not None:
@@ -126,6 +171,9 @@ def normalize_profiles(
         init_name = f"init-profile-{name}.sql"
         write_init(output_dir / init_name, extensions, excluded)
         normalized["initScript"] = init_name
+        (output_dir / f"profile-services-{name}.json").write_text(
+            json.dumps(services, indent=2) + "\n", encoding="utf-8"
+        )
         profiles.append(normalized)
     return profiles
 
@@ -146,7 +194,13 @@ def main() -> int:
         runner = required_string(battery, "runner")
         pin = required_string(battery, "pin")
         duckdb_version = required_string(battery, "duckdbVersion")
-        setup = required_string(battery, "setup")
+        services = normalize_services(battery.get("services"), "services")
+        prerequisites = normalize_prerequisites(battery.get("prerequisites"))
+        capabilities = battery.get("capabilities")
+        if not isinstance(capabilities, list) or not all(
+            isinstance(item, str) and item for item in capabilities
+        ):
+            raise BatteryError("capabilities must be a list of strings")
 
         raw_extensions = battery.get("extensions")
         if not isinstance(raw_extensions, list) or not raw_extensions:
@@ -172,25 +226,30 @@ def main() -> int:
             extensions.append(normalized)
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        profiles = normalize_profiles(battery.get("profiles"), extensions, runner, output_dir)
+        profiles = normalize_profiles(
+            battery.get("profiles"),
+            extensions,
+            runner,
+            output_dir,
+            {service["name"] for service in services},
+        )
         ignored_tests = battery.get("ignoredTests", [])
         if not isinstance(ignored_tests, list):
             raise BatteryError("ignoredTests must be a list")
 
-        (output_dir / "battery.json").write_text(
-            json.dumps(battery, indent=2) + "\n", encoding="utf-8"
-        )
-        (output_dir / "extensions.json").write_text(
-            json.dumps(extensions, indent=2) + "\n", encoding="utf-8"
-        )
-        (output_dir / "profiles.json").write_text(
-            json.dumps(profiles, indent=2) + "\n", encoding="utf-8"
-        )
+        for filename, payload in (
+            ("battery.json", battery),
+            ("extensions.json", extensions),
+            ("services.json", services),
+            ("prerequisites.json", prerequisites),
+            ("capabilities.json", capabilities),
+            ("profiles.json", profiles),
+        ):
+            (output_dir / filename).write_text(
+                json.dumps(payload, indent=2) + "\n", encoding="utf-8"
+            )
         (output_dir / "profiles.tsv").write_text(
-            "".join(
-                f"{profile['name']}\t{profile['tests']}\t{profile['runtimeSetup']}\n"
-                for profile in profiles
-            ),
+            "".join(f"{profile['name']}\t{profile['tests']}\n" for profile in profiles),
             encoding="utf-8",
         )
 
@@ -241,7 +300,6 @@ def main() -> int:
             "TEST_FILTER": profiles[0]["tests"],
             "UPSTREAM_REF": pin,
             "DUCKDB_VERSION": duckdb_version,
-            "SETUP_KIND": setup,
         }
         (output_dir / "battery.env").write_text(
             "".join(f"{key}={shlex.quote(value)}\n" for key, value in env_values.items()),

@@ -14,8 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "f71a202f51dd57ad361944df0ae2e4b58cfe7d08fd2bf0346d95a4c0bc1f228d"
-EXPECTED_PLAN_SHA256 = "5c05cc18c1ead682281eec63f7d4b00739676401c9067b0c6cd92a91bd98f57b"
+EXPECTED_MATRIX_SHA256 = "2cbe03e04f85286fafae9ed3f49665814ed41fa76d036c5821849ad015a42501"
+EXPECTED_PLAN_SHA256 = "ed2aff68d97c88563c3d01d094e5ce8b6968f8f6159a690729c0d082497c3dbe"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -36,7 +36,7 @@ class ConfigTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, expected):
             self.load_modified(mutate)
 
-    def test_current_configuration_preserves_profile_contract(self) -> None:
+    def test_current_configuration_preserves_batteries_and_compiles_services(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
         matrix = plan.matrix()["include"]
         self.assertEqual(
@@ -54,46 +54,61 @@ class ConfigTestCase(unittest.TestCase):
             ],
         )
         self.assertTrue(all(item["duckdbVersion"] == "v1.5.4" for item in matrix))
+        self.assertTrue(all("setup" not in item for item in matrix))
+
+        httpfs = matrix[0]
         self.assertEqual(
-            [profile["name"] for profile in matrix[0]["profiles"]],
-            ["sql"],
+            [(item["name"], item["type"]) for item in httpfs["services"]],
+            [
+                ("http-server", "python-http"),
+                ("proxy", "squid"),
+                ("object-store", "httpfs-minio"),
+            ],
         )
-        self.assertEqual(matrix[0]["profiles"][0]["tests"], "test/sql/*")
+        self.assertEqual(httpfs["capabilities"], ["squid", "docker-compose"])
+        self.assertEqual([profile["name"] for profile in httpfs["profiles"]], ["sql"])
         self.assertNotIn(
-            "test/extension/*",
-            [profile["tests"] for profile in matrix[0]["profiles"]],
+            "test/extension/*", [profile["tests"] for profile in httpfs["profiles"]]
+        )
+
+        ducklake = matrix[1]
+        postgres_profile = next(
+            profile for profile in ducklake["profiles"] if profile["name"] == "postgres"
         )
         self.assertEqual(
-            [profile["name"] for profile in matrix[1]["profiles"]],
-            ["autoload", "sqlite", "postgres"],
+            postgres_profile["services"],
+            [
+                {
+                    "name": "postgres-catalog",
+                    "type": "postgres",
+                    "database": "ducklakedb",
+                    "port": 5432,
+                    "username": "postgres",
+                    "version": "15",
+                }
+            ],
         )
-        self.assertEqual(
-            matrix[1]["profiles"][2]["runtimeSetup"],
-            "ducklake-postgres-15",
-        )
-        self.assertEqual(matrix[2]["tests"], "test/sql/*")
-        self.assertEqual(matrix[-1]["tests"], "test/sql/*")
+        self.assertEqual(ducklake["capabilities"], ["docker", "postgres-client"])
+
+        postgres = matrix[2]
+        self.assertEqual(postgres["services"][0]["type"], "postgres")
+        self.assertEqual(postgres["services"][0]["version"], "17")
+        self.assertEqual(postgres["capabilities"], ["docker", "postgres-client"])
+
+        bigquery = next(case for case in matrix if case["name"] == "bigquery")
+        self.assertEqual(bigquery["services"], [])
+        self.assertEqual(bigquery["prerequisites"], [{"type": "google-bigquery"}])
+        self.assertEqual(bigquery["capabilities"], ["google-cloud-auth"])
+
+        mssql = next(case for case in matrix if case["name"] == "mssql")
+        self.assertEqual(mssql["services"][0]["type"], "sqlserver")
+        self.assertEqual(mssql["capabilities"], ["docker-compose"])
 
         for case in matrix:
-            bigquery = next(
-                extension
-                for extension in case["extensions"]
-                if extension["name"] == "bigquery"
+            extension = next(
+                item for item in case["extensions"] if item["name"] == "bigquery"
             )
-            self.assertEqual(bigquery["installFrom"], "community")
-
-        bigquery_case = next(case for case in matrix if case["name"] == "bigquery")
-        self.assertEqual(bigquery_case["repository"], "hafenkran/duckdb-bigquery")
-        self.assertEqual(
-            bigquery_case["pin"],
-            "0c55a9b81646002edc0c73f36b703c8c39cea2ab",
-        )
-        self.assertEqual(bigquery_case["setup"], "bigquery-gcp")
-        self.assertEqual(
-            [profile["name"] for profile in bigquery_case["profiles"]],
-            ["all"],
-        )
-        self.assertEqual(bigquery_case["profiles"][0]["tests"], "test/sql/*")
+            self.assertEqual(extension["installFrom"], "community")
 
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
         self.assertEqual(
@@ -111,18 +126,6 @@ class ConfigTestCase(unittest.TestCase):
         httpfs = next(case for case in plan.cases if case.name == "httpfs")
         self.assertIn("delta", [extension.name for extension in httpfs.extensions])
 
-    def test_disabled_default_does_not_disable_target_battery(self) -> None:
-        def mutate(data: dict[str, Any]) -> None:
-            next(
-                item for item in data["defaultExtensions"] if item["name"] == "delta"
-            )["isUsed"] = False
-
-        plan = resolve_config(self.load_modified(mutate))
-        delta = next(case for case in plan.cases if case.name == "delta")
-        self.assertIn("delta", [extension.name for extension in delta.extensions])
-        httpfs = next(case for case in plan.cases if case.name == "httpfs")
-        self.assertNotIn("delta", [extension.name for extension in httpfs.extensions])
-
     def test_conflicting_install_origin_is_rejected(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
             next(
@@ -134,70 +137,70 @@ class ConfigTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "conflicts with the resolved installFrom"):
             resolve_config(self.load_modified(mutate))
 
-    def test_unknown_battery_property_is_rejected(self) -> None:
+    def test_legacy_setup_property_is_rejected(self) -> None:
         self.assert_config_error(
-            lambda data: data["testBatteries"]["httpfs"].update(ignoredTest=[]),
+            lambda data: data["testBatteries"]["httpfs"].update(
+                setup="httpfs-services"
+            ),
             "Additional properties are not allowed",
         )
 
-    def test_disabled_battery_is_still_validated(self) -> None:
+    def test_legacy_runtime_setup_property_is_rejected(self) -> None:
+        self.assert_config_error(
+            lambda data: data["testBatteries"]["ducklake"]["profiles"][2].update(
+                runtimeSetup="ducklake-postgres-15"
+            ),
+            "Additional properties are not allowed",
+        )
+
+    def test_duplicate_battery_service_is_rejected(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
-            data["testBatteries"]["delta"]["isEnabled"] = False
-            data["testBatteries"]["delta"]["runner"] = "unknown"
-
-        self.assert_config_error(mutate, "is not one of")
-
-    def test_duplicate_extension_is_rejected(self) -> None:
-        def mutate(data: dict[str, Any]) -> None:
-            data["defaultExtensions"].append(copy.deepcopy(data["defaultExtensions"][0]))
-
-        self.assert_config_error(mutate, "duplicate extension httpfs")
-
-    def test_ignored_path_cannot_escape_checkout(self) -> None:
-        def mutate(data: dict[str, Any]) -> None:
-            data["testBatteries"]["httpfs"]["ignoredTests"][0]["path"] = (
-                "../outside.test"
+            data["testBatteries"]["httpfs"]["services"].append(
+                copy.deepcopy(data["testBatteries"]["httpfs"]["services"][0])
             )
 
-        self.assert_config_error(mutate, "must stay inside the upstream checkout")
+        self.assert_config_error(mutate, "duplicate service http-server")
 
-    def test_at_least_one_battery_must_be_enabled(self) -> None:
+    def test_duplicate_prerequisite_is_rejected(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
-            for battery in data["testBatteries"].values():
-                battery["isEnabled"] = False
-
-        with self.assertRaisesRegex(ConfigError, "at least one test battery"):
-            resolve_config(self.load_modified(mutate))
-
-    def test_duplicate_profile_is_rejected(self) -> None:
-        def mutate(data: dict[str, Any]) -> None:
-            data["testBatteries"]["httpfs"]["profiles"].append(
-                copy.deepcopy(data["testBatteries"]["httpfs"]["profiles"][0])
+            data["testBatteries"]["bigquery"]["prerequisites"].append(
+                {"type": "google-bigquery"}
             )
 
-        self.assert_config_error(mutate, "duplicate profile sql")
+        self.assert_config_error(mutate, "duplicate prerequisite google-bigquery")
 
-    def test_ignored_test_cannot_reference_unknown_profile(self) -> None:
+    def test_profile_service_cannot_shadow_battery_service(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
-            data["testBatteries"]["ducklake"]["ignoredTests"][0]["profiles"] = [
-                "missing"
+            data["testBatteries"]["httpfs"]["profiles"][0]["services"] = [
+                {"name": "proxy", "type": "squid", "port": 4128}
             ]
 
-        self.assert_config_error(mutate, "references unknown profile missing")
+        self.assert_config_error(mutate, "duplicates battery service proxy")
 
-    def test_standard_profile_requires_test_config(self) -> None:
+    def test_specialized_runner_rejects_profile_services(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
-            del data["testBatteries"]["delta"]["profiles"][0]["testConfig"]
-
-        self.assert_config_error(mutate, "testConfig is required for the standard runner")
-
-    def test_specialized_runner_rejects_runtime_setup(self) -> None:
-        def mutate(data: dict[str, Any]) -> None:
-            data["testBatteries"]["mssql"]["profiles"][0]["runtimeSetup"] = (
-                "ducklake-postgres-15"
-            )
+            data["testBatteries"]["mssql"]["profiles"][0]["services"] = [
+                {
+                    "name": "extra-postgres",
+                    "type": "postgres",
+                    "version": "15",
+                    "database": "testdb",
+                    "port": 5543,
+                }
+            ]
 
         self.assert_config_error(mutate, "only supported by the standard runner")
+
+    def test_service_contract_is_strict(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            data["testBatteries"]["httpfs"]["services"][0]["unknown"] = True
+
+        self.assert_config_error(mutate, "is not valid under any of the given schemas")
+
+    def test_schema_v2_is_rejected_after_service_migration(self) -> None:
+        self.assert_config_error(
+            lambda data: data.update(schemaVersion=2), "schemaVersion must be 3"
+        )
 
     def test_profile_cannot_exclude_unresolved_extension(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
@@ -208,11 +211,13 @@ class ConfigTestCase(unittest.TestCase):
         with self.assertRaisesRegex(ConfigError, "excludes unresolved extension"):
             resolve_config(self.load_modified(mutate))
 
-    def test_schema_v1_is_rejected_after_profile_migration(self) -> None:
+    def test_at_least_one_battery_must_be_enabled(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
-            data["schemaVersion"] = 1
+            for battery in data["testBatteries"].values():
+                battery["isEnabled"] = False
 
-        self.assert_config_error(mutate, "schemaVersion must be 2")
+        with self.assertRaisesRegex(ConfigError, "at least one test battery"):
+            resolve_config(self.load_modified(mutate))
 
 
 if __name__ == "__main__":

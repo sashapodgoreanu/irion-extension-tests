@@ -75,9 +75,6 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # This cache contains only the packaged DuckDB CLI + unittest runtime.
-      # Battery pins and extension lists do not enter the artifact; each test job
-      # installs its resolved extension set in an isolated HOME.
       - name: Calculate DuckDB runtime cache key
         id: duckdb-runtime-key
         shell: bash
@@ -191,8 +188,8 @@ jobs:
           chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
           chmod +x scripts/*.sh scripts/*.py
 
-      - name: Validate BigQuery test credentials
-        if: matrix.setup == 'bigquery-gcp'
+      - name: Validate Google BigQuery credentials
+        if: contains(matrix.capabilities, 'google-cloud-auth')
         env:
           GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
           BQ_TEST_PROJECT: ${{ secrets.BQ_TEST_PROJECT }}
@@ -204,31 +201,31 @@ jobs:
           test -n "${BQ_TEST_DATASET}" || { echo "Missing repository secret BQ_TEST_DATASET" >&2; exit 1; }
 
       - name: Authenticate Google Cloud
-        if: matrix.setup == 'bigquery-gcp'
+        if: contains(matrix.capabilities, 'google-cloud-auth')
         uses: google-github-actions/auth@v3
         with:
           credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
 
-      - name: Install HTTPFS service dependency
-        if: matrix.setup == 'httpfs-services'
+      - name: Install service dependencies
+        if: contains(matrix.capabilities, 'squid') || contains(matrix.capabilities, 'postgres-client')
+        shell: bash
         run: |
+          set -Eeuo pipefail
+          packages=()
+          if [[ '${{ contains(matrix.capabilities, 'squid') }}' == 'true' ]]; then
+            packages+=(squid)
+          fi
+          if [[ '${{ contains(matrix.capabilities, 'postgres-client') }}' == 'true' ]]; then
+            packages+=(postgresql-client)
+          fi
           sudo apt-get update -qq
-          sudo apt-get install -y -qq squid
+          sudo apt-get install -y -qq "${packages[@]}"
+
+      - name: Verify container runtime
+        if: contains(matrix.capabilities, 'docker') || contains(matrix.capabilities, 'docker-compose')
+        run: |
+          docker version
           docker compose version
-
-      - name: Setup PostgreSQL test service
-        if: matrix.setup == 'postgres-17'
-        uses: ikalnytskyi/action-setup-postgres@v8
-        with:
-          postgres-version: 17
-          username: postgres
-          password: postgres
-          database: postgres
-          port: 5432
-
-      - name: Verify SQL Server container runtime
-        if: matrix.setup == 'sqlserver-2022'
-        run: docker compose version
 
       - name: Run test battery
         env:
