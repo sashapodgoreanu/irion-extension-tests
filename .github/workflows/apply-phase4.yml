@@ -4,13 +4,16 @@ on:
   push:
     branches:
       - phase4/composable-services
+  pull_request:
+    branches:
+      - stable/working-v3
 
 permissions:
   contents: write
 
 jobs:
   apply:
-    if: ${{ !contains(github.event.head_commit.message, 'feat(services): introduce composable QA service lifecycle') }}
+    if: ${{ !contains(github.event.head_commit.message || github.event.pull_request.title, 'feat(services): introduce composable QA service lifecycle') }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Phase 4 branch
