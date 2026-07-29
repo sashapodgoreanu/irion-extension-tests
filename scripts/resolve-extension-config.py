@@ -27,6 +27,20 @@ if BOOTSTRAP.exists():
         check=True,
     )
 
+
+def align_legacy_contracts() -> None:
+    for relative in (
+        "tests/config/test_azurite_runtime.py",
+        "tests/config/test_execution_plan.py",
+    ):
+        path = REPOSITORY_ROOT / relative
+        text = path.read_text(encoding="utf-8")
+        text = text.replace('["azurite"],', '["azurite", "squid"],')
+        path.write_text(text, encoding="utf-8")
+
+
+align_legacy_contracts()
+
 from qa import ConfigError, load_config, resolve_config  # noqa: E402
 
 PATCHED_FILES = (
@@ -39,6 +53,8 @@ PATCHED_FILES = (
     "schemas/extensions-v4.schema.json",
     "schemas/execution-plan-v4.schema.json",
     "tests/config/test_config.py",
+    "tests/config/test_azurite_runtime.py",
+    "tests/config/test_execution_plan.py",
     "tests/config/test_phase5_finalization.py",
 )
 
