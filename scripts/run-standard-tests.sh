@@ -116,29 +116,21 @@ run_suite() {
   python3 "${REQUIREMENT_CHECKER}" "${log_file}" "${EXTENSIONS_JSON}"
 }
 
-reset_ducklake_postgres_catalog() {
+reset_ducklake_postgres_database() {
   command -v psql >/dev/null 2>&1 || {
     echo "psql is required for DuckLake PostgreSQL test isolation" >&2
     return 1
   }
+  if [[ "${PGDATABASE:-}" != "ducklakedb" ]]; then
+    echo "Unexpected DuckLake PostgreSQL database: ${PGDATABASE:-<unset>}" >&2
+    return 1
+  fi
 
-  psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'
-DO $qa_reset$
-DECLARE
-  schema_record RECORD;
-BEGIN
-  FOR schema_record IN
-    SELECT nspname
-    FROM pg_namespace
-    WHERE nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast', 'public')
-      AND nspname NOT LIKE 'pg_temp_%'
-      AND nspname NOT LIKE 'pg_toast_temp_%'
-  LOOP
-    EXECUTE format('DROP SCHEMA IF EXISTS %I CASCADE', schema_record.nspname);
-  END LOOP;
-END
-$qa_reset$;
-CREATE SCHEMA IF NOT EXISTS main;
+  PGDATABASE=postgres psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'
+DROP DATABASE IF EXISTS ducklakedb WITH (FORCE);
+CREATE DATABASE ducklakedb OWNER postgres;
+\connect ducklakedb
+CREATE SCHEMA main AUTHORIZATION postgres;
 SQL
 }
 
@@ -165,7 +157,7 @@ run_ducklake_postgres_isolated() {
   fi
 
   : >"${log_file}"
-  printf 'Running %s DuckLake PostgreSQL files with process and catalog isolation\n' "${total}" \
+  printf 'Running %s DuckLake PostgreSQL files with process and database isolation\n' "${total}" \
     | tee -a "${log_file}"
 
   for test_file in "${test_files[@]}"; do
@@ -174,8 +166,8 @@ run_ducklake_postgres_isolated() {
     printf '[%s/%s] %s\n' "${index}" "${total}" "${relative_path}" \
       | tee -a "${log_file}"
 
-    reset_ducklake_postgres_catalog >>"${log_file}" 2>&1 || {
-      echo "Unable to reset DuckLake PostgreSQL catalog before ${relative_path}" \
+    reset_ducklake_postgres_database >>"${log_file}" 2>&1 || {
+      echo "Unable to recreate DuckLake PostgreSQL database before ${relative_path}" \
         | tee -a "${log_file}" >&2
       return 1
     }
