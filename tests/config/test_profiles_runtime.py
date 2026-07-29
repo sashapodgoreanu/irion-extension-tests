@@ -135,14 +135,16 @@ class ServiceRuntimeTestCase(unittest.TestCase):
         self.assertIn('qa_service_stop_all', script)
         self.assertIn("done <\"${PROFILES_TSV}\"", script)
 
-    def test_battery_runner_owns_battery_service_lifecycle(self) -> None:
+    def test_battery_runner_owns_battery_service_and_result_lifecycle(self) -> None:
         script = BATTERY_RUNNER.read_text(encoding="utf-8")
         self.assertNotIn("SETUP_KIND", script)
         self.assertIn('qa_prerequisite_check_file', script)
-        self.assertIn('trap qa_service_stop_all EXIT', script)
+        self.assertIn('trap finalize_result EXIT', script)
+        self.assertIn('qa_service_stop_all || true', script)
+        self.assertIn('python3 "${RESULT_WRITER}"', script)
         self.assertIn('qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"', script)
         self.assertLess(
-            script.index("trap qa_service_stop_all EXIT"),
+            script.index("trap finalize_result EXIT"),
             script.index('qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"'),
         )
         self.assertIn('export HOME="${RUNTIME_ROOT}/home"', script)
