@@ -37,6 +37,18 @@ def add_profile_skips(config: dict[str, Any], additions: list[dict[str, str]]) -
     config["skip_tests"] = skip_tests
 
 
+def apply_upstream_runtime_compatibility(
+    config: dict[str, Any], profile_name: str, source_path: str
+) -> None:
+    """Apply runner-only compatibility settings for reviewed upstream configs."""
+    if profile_name == "postgres" and source_path == "test/configs/postgres.json":
+        # DuckLake's PostgreSQL on_init resets one shared catalog. Running multiple
+        # SQLLogicTest files concurrently races those resets and leaves a DATA_PATH
+        # from another test in the catalog. Keep DuckDB execution parallel inside
+        # each test, but serialize the test-runner files for this profile only.
+        config["max_test_threads"] = 1
+
+
 def main() -> int:
     if len(sys.argv) != 8:
         print(
@@ -86,7 +98,8 @@ def main() -> int:
                 "summarize_failures": True,
             }
         elif kind == "upstream":
-            source = (upstream_root / test_config["path"]).resolve()
+            source_path = test_config["path"]
+            source = (upstream_root / source_path).resolve()
             try:
                 source.relative_to(upstream_root)
             except ValueError as exc:
@@ -110,6 +123,7 @@ def main() -> int:
                 value for value in (connection_sql, existing_connection_sql) if value
             )
             config["init_script"] = str(init_script)
+            apply_upstream_runtime_compatibility(config, profile_name, source_path)
         else:
             raise ProfileError(f"unsupported profile testConfig kind: {kind}")
 
