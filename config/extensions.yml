@@ -1,33 +1,30 @@
-schemaVersion: 3
-
+schemaVersion: 4
 duckdb:
   version: v1.5.4
   ciToolsVersion: v1.5.4
-
 defaultExtensions:
-  - name: httpfs
-    isUsed: true
-  - name: mssql
-    isUsed: true
-    installFrom: community
-  - name: ducklake
-    isUsed: true
-  - name: postgres_scanner
-    isUsed: true
-  - name: icu
-    isUsed: true
-  - name: azure
-    isUsed: true
-  - name: delta
-    isUsed: true
-  - name: iceberg
-    isUsed: true
-  - name: unity_catalog
-    isUsed: true
-  - name: bigquery
-    isUsed: true
-    installFrom: community
-
+- name: httpfs
+  isUsed: true
+- name: mssql
+  isUsed: true
+  installFrom: community
+- name: ducklake
+  isUsed: true
+- name: postgres_scanner
+  isUsed: true
+- name: icu
+  isUsed: true
+- name: azure
+  isUsed: true
+- name: delta
+  isUsed: true
+- name: iceberg
+  isUsed: true
+- name: unity_catalog
+  isUsed: true
+- name: bigquery
+  isUsed: true
+  installFrom: community
 testBatteries:
   httpfs:
     isEnabled: true
@@ -36,43 +33,43 @@ testBatteries:
     pin: c3f215ab360f04dc3d3d5305fa81849c0121f111
     submodules: recursive
     services:
-      - name: http-server
-        type: python-http
-        port: 8008
-      - name: proxy
-        type: squid
-        port: 3128
-      - name: object-store
-        type: httpfs-minio
+    - name: http-server
+      type: python-http
+      port: 8008
+    - name: proxy
+      type: squid
+      port: 3128
+    - name: object-store
+      type: httpfs-minio
     prerequisites: []
     profiles:
-      - name: sql
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: generated
-          description: HTTPFS compatibility SQL suite
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: sql
+      tests: test/sql/*
+      services: []
+      testConfig:
+        kind: generated
+        description: HTTPFS compatibility SQL suite
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: httpfs
-        isUsed: true
-      - name: json
-        isUsed: true
-      - name: tpch
-        isUsed: true
-      - name: tpcds
-        isUsed: true
-      - name: icu
-        isUsed: true
-      - name: sqlite_scanner
-        isUsed: true
+    - name: httpfs
+      isUsed: true
+    - name: json
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    - name: tpcds
+      isUsed: true
+    - name: icu
+      isUsed: true
+    - name: sqlite_scanner
+      isUsed: true
     ignoredTests:
-      - path: test/sql/copy/s3/parquet_s3_tpcds.test_slow
-        reason: Requires TPC-DS answer fixtures that are not present in the standalone HTTPFS checkout
-
+    - path: test/sql/copy/s3/parquet_s3_tpcds.test_slow
+      reason: Requires TPC-DS answer fixtures that are not present in the standalone
+        HTTPFS checkout
   ducklake:
     isEnabled: true
     runner: standard
@@ -82,56 +79,56 @@ testBatteries:
     services: []
     prerequisites: []
     profiles:
-      - name: autoload
-        tests: test/sql/autoloading/autoload_data_path.test
-        services: []
-        testConfig:
-          kind: generated
-          description: DuckLake filesystem autoloading profile with HTTPFS initially unloaded
-          excludedExtensions:
-            - httpfs
-            - postgres_scanner
-            - sqlite_scanner
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
-      - name: sqlite
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: upstream
-          path: test/configs/sqlite.json
-      - name: postgres
-        tests: test/sql/*
-        services:
-          - name: postgres-catalog
-            type: postgres
-            version: "15"
-            database: ducklakedb
-            username: postgres
-            port: 5432
-        testConfig:
-          kind: upstream
-          path: test/configs/postgres.json
+    - name: autoload
+      tests: test/sql/autoloading/autoload_data_path.test
+      services: []
+      testConfig:
+        kind: generated
+        description: DuckLake filesystem autoloading profile with HTTPFS initially
+          unloaded
+        excludedExtensions:
+        - httpfs
+        - postgres_scanner
+        - sqlite_scanner
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
+    - name: sqlite
+      tests: test/sql/*
+      services: []
+      testConfig:
+        kind: upstream
+        path: test/configs/sqlite.json
+    - name: postgres
+      tests: test/sql/*
+      services:
+      - name: postgres-catalog
+        type: postgres
+        version: '15'
+        database: ducklakedb
+        username: postgres
+        port: 5432
+      testConfig:
+        kind: upstream
+        path: test/configs/postgres.json
     extensions:
-      - name: ducklake
-        isUsed: true
-      - name: json
-        isUsed: true
-      - name: tpch
-        isUsed: true
-      - name: tpcds
-        isUsed: true
-      - name: icu
-        isUsed: true
-      - name: sqlite_scanner
-        isUsed: true
+    - name: ducklake
+      isUsed: true
+    - name: json
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    - name: tpcds
+      isUsed: true
+    - name: icu
+      isUsed: true
+    - name: sqlite_scanner
+      isUsed: true
     ignoredTests:
-      - path: test/sql/data_inlining/postgres_identifier_limit.test
-        reason: Test is specific to the PostgreSQL catalog profile
-        profiles:
-          - sqlite
-
+    - path: test/sql/data_inlining/postgres_identifier_limit.test
+      reason: Test is specific to the PostgreSQL catalog profile
+      profiles:
+      - sqlite
   postgres_scanner:
     isEnabled: true
     runner: postgres-scanner
@@ -139,37 +136,36 @@ testBatteries:
     pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
     submodules: recursive
     services:
-      - name: postgres
-        type: postgres
-        version: "17"
-        database: postgres
-        username: postgres
-        port: 5432
+    - name: postgres
+      type: postgres
+      version: '17'
+      database: postgres
+      username: postgres
+      port: 5432
     prerequisites: []
     profiles:
-      - name: all
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: generated
-          description: PostgreSQL scanner compatibility profile
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: all
+      tests: test/sql/*
+      services: []
+      testConfig:
+        kind: generated
+        description: PostgreSQL scanner compatibility profile
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: postgres_scanner
-        isUsed: true
-      - name: json
-        isUsed: true
-      - name: tpch
-        isUsed: true
-      - name: tpcds
-        isUsed: true
-      - name: icu
-        isUsed: true
+    - name: postgres_scanner
+      isUsed: true
+    - name: json
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    - name: tpcds
+      isUsed: true
+    - name: icu
+      isUsed: true
     ignoredTests: []
-
   delta:
     isEnabled: true
     runner: standard
@@ -179,116 +175,155 @@ testBatteries:
     services: []
     prerequisites: []
     profiles:
-      - name: all
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: generated
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: all
+      tests: test/sql/*
+      services: []
+      testConfig:
+        kind: generated
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: httpfs
-        isUsed: true
-      - name: azure
-        isUsed: true
-      - name: aws
-        isUsed: true
-      - name: delta
-        isUsed: true
-      - name: json
-        isUsed: true
-      - name: tpch
-        isUsed: true
-      - name: tpcds
-        isUsed: true
+    - name: httpfs
+      isUsed: true
+    - name: azure
+      isUsed: true
+    - name: aws
+      isUsed: true
+    - name: delta
+      isUsed: true
+    - name: json
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    - name: tpcds
+      isUsed: true
     ignoredTests: []
-
   iceberg:
     isEnabled: true
     runner: standard
     repository: duckdb/duckdb-iceberg
-    pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
+    pin: 757264559e745be697e9306e144e8889eb1dc024
     submodules: recursive
     services: []
-    prerequisites:
-      - type: external-cloud-account
+    prerequisites: []
     profiles:
-      - name: all
-        tests: test/sql/local/*
-        services: []
-        testConfig:
-          kind: generated
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: all
+      tests: test/sql/local/*
+      services: []
+      testConfig:
+        kind: generated
+        description: Iceberg local suite with dynamic repository loading
+        excludedExtensions:
+        - iceberg
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: httpfs
-        isUsed: true
-      - name: avro
-        isUsed: true
-      - name: iceberg
-        isUsed: true
-      - name: tpch
-        isUsed: true
-    ignoredTests: []
-
+    - name: httpfs
+      isUsed: true
+    - name: avro
+      isUsed: true
+    - name: iceberg
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    ignoredTests:
+    - path: test/sql/local/iceberg_scans/iceberg_partition_stats.test
+      reason: The shared dynamic extension repository autoloads Iceberg before the file's pre-require negative assertion; functional metadata coverage is enforced by verify-iceberg-metadata.py
+      profiles:
+      - all
+    - path: test/sql/local/iceberg_scans/iceberg_column_stats.test
+      reason: The shared dynamic extension repository autoloads Iceberg before the file's pre-require negative assertion; functional metadata coverage is enforced by verify-iceberg-metadata.py
+      profiles:
+      - all
   azure:
     isEnabled: true
     runner: standard
     repository: duckdb/duckdb-azure
     pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
     submodules: recursive
-    services: []
+    services:
+    - name: storage-emulator
+      type: azurite
+      port: 10000
     prerequisites: []
     profiles:
-      - name: all
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: generated
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: azurite
+      tests: test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test
+      services: []
+      testConfig:
+        kind: generated
+        description: Azure local compatibility through Azurite
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
+    - name: proxy
+      tests: test/sql/proxy/*
+      services:
+      - name: proxy
+        type: squid
+        port: 3128
+      - name: proxy-auth
+        type: squid
+        port: 3129
+        auth: true
+      testConfig:
+        kind: generated
+        description: Azure proxy compatibility through local Squid services
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: azure
-        isUsed: true
+    - name: azure
+      isUsed: true
     ignoredTests: []
-
   unity_catalog:
     isEnabled: true
     runner: standard
     repository: duckdb/unity_catalog
-    pin: d52a7ee8678a23a8e0f950e955b9ffa1df0c3395
+    pin: dbca44d4dcc67c196af5fd910f0f26ce56d4930e
     submodules: recursive
-    services: []
+    services:
+    - name: unity-catalog-oss
+      type: unity-catalog-oss
+      version: 1351641393665f5959b7b3d3c0c323a2b7e343c4
+      port: 8080
     prerequisites: []
     profiles:
-      - name: all
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: generated
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: oss
+      tests: test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test
+      services: []
+      testConfig:
+        kind: generated
+        description: Unity Catalog compatibility against the local OSS server
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: httpfs
-        isUsed: true
-      - name: delta
-        isUsed: true
-      - name: unity_catalog
-        isUsed: true
-      - name: tpch
-        isUsed: true
-      - name: tpcds
-        isUsed: true
-    ignoredTests: []
-
+    - name: httpfs
+      isUsed: true
+    - name: delta
+      isUsed: true
+    - name: unity_catalog
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    - name: tpcds
+      isUsed: true
+    ignoredTests:
+    - path: test/sql/local_oss_unity_catalog/uc_catalog_write.test
+      reason: Targets the separate uc_catalog extension rather than unity_catalog
+      profiles:
+      - oss
+    - path: test/sql/local_oss_unity_catalog/checkpoint.test
+      reason: Requires a writable UC_TEST_DATA fixture root not exposed by the OSS sample catalog lifecycle
+      profiles:
+      - oss
   bigquery:
     isEnabled: true
     runner: standard
@@ -297,25 +332,24 @@ testBatteries:
     submodules: recursive
     services: []
     prerequisites:
-      - type: google-bigquery
-      - type: external-cloud-account
+    - type: google-bigquery
+    - type: external-cloud-account
     profiles:
-      - name: all
-        tests: test/sql/*
-        services: []
-        testConfig:
-          kind: generated
-          description: Google BigQuery compatibility profile
-          excludedExtensions: []
-          staticallyLoadedExtensions:
-            - core_functions
-            - parquet
+    - name: all
+      tests: test/sql/*
+      services: []
+      testConfig:
+        kind: generated
+        description: Google BigQuery compatibility profile
+        excludedExtensions: []
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
-      - name: bigquery
-        isUsed: true
-        installFrom: community
+    - name: bigquery
+      isUsed: true
+      installFrom: community
     ignoredTests: []
-
   mssql:
     isEnabled: true
     runner: mssql-release
@@ -323,39 +357,42 @@ testBatteries:
     pin: v0.2.1
     submodules: false
     services:
-      - name: sqlserver
-        type: sqlserver
-        version: "2022"
-        database: master
-        username: sa
-        port: 1433
+    - name: sqlserver
+      type: sqlserver
+      version: '2022'
+      database: master
+      username: sa
+      port: 1433
     prerequisites: []
     profiles:
-      - name: all
-        tests: test/sql/*
-        services: []
+    - name: all
+      tests: test/sql/*
+      services: []
     extensions:
-      - name: mssql
-        isUsed: true
-        installFrom: community
-      - name: json
-        isUsed: true
-      - name: tpch
-        isUsed: true
-      - name: tpcds
-        isUsed: true
-      - name: icu
-        isUsed: true
-      - name: sqlite_scanner
-        isUsed: true
-      - name: azure
-        isUsed: true
+    - name: mssql
+      isUsed: true
+      installFrom: community
+    - name: json
+      isUsed: true
+    - name: tpch
+      isUsed: true
+    - name: tpcds
+      isUsed: true
+    - name: icu
+      isUsed: true
+    - name: sqlite_scanner
+      isUsed: true
+    - name: azure
+      isUsed: true
     ignoredTests:
-      - path: test/sql/azure/azure_device_code.test
-        reason: Requires Azure credential-chain parameters not supported by the DuckDB v1.5.4 Azure binary
-      - path: test/sql/ctas/ctas_auto_tablock.test
-        reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB v1.5.4 runtime
-      - path: test/sql/ctas/ctas_if_not_exists.test
-        reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB v1.5.4 runtime
-      - path: test/sql/catalog/ddl_if_not_exists.test
-        reason: MSSQL v0.2.1 returns a different SQL Server object-exists error message
+    - path: test/sql/azure/azure_device_code.test
+      reason: Requires Azure credential-chain parameters not supported by the DuckDB
+        v1.5.4 Azure binary
+    - path: test/sql/ctas/ctas_auto_tablock.test
+      reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB
+        v1.5.4 runtime
+    - path: test/sql/ctas/ctas_if_not_exists.test
+      reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB
+        v1.5.4 runtime
+    - path: test/sql/catalog/ddl_if_not_exists.test
+      reason: MSSQL v0.2.1 returns a different SQL Server object-exists error message

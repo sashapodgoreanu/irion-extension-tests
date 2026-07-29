@@ -1,6 +1,6 @@
 # Composable QA services
 
-Configuration schema v3 replaces the single battery `setup` value and profile
+Configuration schema v4 replaces the single battery `setup` value and profile
 `runtimeSetup` value with ordered service lists. Services are compiled into the
 execution plan and started by `scripts/service-manager.sh`.
 
@@ -22,6 +22,20 @@ services:
 
 They are started before the selected runner and stopped in reverse order even when
 setup or test execution fails.
+
+Azure uses the upstream-supported local Azurite environment instead of silently
+skipping all tests when a real Azure account is absent:
+
+```yaml
+services:
+  - name: storage-emulator
+    type: azurite
+    port: 10000
+```
+
+The Azurite service starts the local emulator, publishes the development-storage
+connection variables and runs the pinned upstream fixture upload script before the
+SQLLogicTest profile begins.
 
 ## Profile services
 
@@ -62,12 +76,13 @@ from battery names.
 - `python-http`
 - `squid`
 - `httpfs-minio`
+- `azurite`
 - `postgres`
 - `sqlserver`
 
 The service manager owns health checks, environment variables, log collection and
-cleanup. Existing HTTPFS, PostgreSQL and SQL Server behavior remains pinned to the
-same upstream repositories and versions.
+cleanup. Existing HTTPFS, Azure, PostgreSQL and SQL Server behavior remains pinned to
+the configured upstream repositories and versions.
 
 ## Runtime artifacts
 

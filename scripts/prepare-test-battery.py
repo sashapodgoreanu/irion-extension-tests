@@ -14,7 +14,15 @@ from typing import Any
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
-VALID_SERVICE_TYPES = {"python-http", "squid", "httpfs-minio", "postgres", "sqlserver"}
+VALID_SERVICE_TYPES = {
+    "python-http",
+    "squid",
+    "httpfs-minio",
+    "azurite",
+    "unity-catalog-oss",
+    "postgres",
+    "sqlserver",
+}
 VALID_PREREQUISITES = {"google-bigquery", "external-cloud-account"}
 
 

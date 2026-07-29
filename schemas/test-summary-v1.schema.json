@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irion.example/schemas/test-summary-v1.schema.json",
+  "title": "DuckDB Extension QA Aggregate Summary",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "status",
+    "generatedAt",
+    "expectedCases",
+    "passedCases",
+    "acceptedFailureCases",
+    "failedCases",
+    "invalidCases",
+    "missingCases",
+    "unexpectedCases",
+    "duplicateCases",
+    "coverageViolations",
+    "results"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "status": {"enum": ["passed", "failed"]},
+    "generatedAt": {"type": "string", "format": "date-time"},
+    "expectedCases": {"$ref": "#/$defs/stringList"},
+    "passedCases": {"$ref": "#/$defs/stringList"},
+    "acceptedFailureCases": {"$ref": "#/$defs/stringList"},
+    "failedCases": {"$ref": "#/$defs/stringList"},
+    "invalidCases": {"$ref": "#/$defs/stringList"},
+    "missingCases": {"$ref": "#/$defs/stringList"},
+    "unexpectedCases": {"$ref": "#/$defs/stringList"},
+    "duplicateCases": {"$ref": "#/$defs/stringList"},
+    "coverageViolations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["caseId", "profile", "metric", "operator", "actual", "expected"],
+        "properties": {
+          "caseId": {"type": "string", "minLength": 1},
+          "profile": {"type": "string", "minLength": 1},
+          "metric": {"enum": ["discovered", "executed", "skipped"]},
+          "operator": {"enum": [">=", "<="]},
+          "actual": {"type": ["integer", "null"], "minimum": 0},
+          "expected": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
+    "invalidResultFiles": {
+      "type": "array",
+      "items": {"type": "string"}
+    },
+    "results": {
+      "type": "array",
+      "items": {"type": "object"}
+    }
+  },
+  "$defs": {
+    "stringList": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    }
+  }
+}

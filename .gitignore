@@ -1,4 +1,7 @@
 build
+.venv/
+__pycache__/
+*.pyc
 .idea
 cmake-build-debug
 duckdb_unittest_tempdir/

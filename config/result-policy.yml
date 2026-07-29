@@ -1,0 +1,20 @@
+schemaVersion: 1
+defaults:
+  minimumDiscovered: 1
+  minimumExecuted: 1
+overrides:
+- case: azure
+  profile: azurite
+  minimumDiscovered: 9
+  minimumExecuted: 9
+  maximumSkipped: 0
+- case: azure
+  profile: proxy
+  minimumDiscovered: 4
+  minimumExecuted: 4
+  maximumSkipped: 0
+- case: unity_catalog
+  profile: oss
+  minimumDiscovered: 2
+  minimumExecuted: 2
+  maximumSkipped: 0

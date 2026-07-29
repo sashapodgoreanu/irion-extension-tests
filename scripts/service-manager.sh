@@ -60,6 +60,7 @@ for item in services:
         item.get("version", "-"),
         item.get("database", "-"),
         item.get("username", "-"),
+        str(item.get("auth", False)).lower(),
     ]
     print("|".join(str(value) for value in fields))
 PY
@@ -85,34 +86,33 @@ qa_service_start_python_http() {
 qa_service_start_squid() {
   local name=$1
   local port=$2
+  local auth=${3:-false}
   local script="${QA_SERVICE_UPSTREAM_ROOT}/scripts/run_squid.sh"
   if [[ ! -x "${script}" ]]; then
     echo "Squid service script is missing: ${script}" >&2
     return 1
   fi
   local log_dir="${QA_SERVICE_LOG_DIR}/${name}"
+  local -a args=(--port "${port}" --log_dir "${log_dir}")
+  if [[ "${auth}" == "true" ]]; then
+    args+=(--auth)
+  fi
 
-  # Ubuntu packages may start a system Squid instance. The upstream HTTPFS
-  # helper uses a process-global shared-memory name, so stop the packaged
-  # service and remove stale IPC state before starting the isolated proxy.
   sudo systemctl stop squid >/dev/null 2>&1 \
     || sudo service squid stop >/dev/null 2>&1 \
     || true
   sudo rm -f /dev/shm/squid-* >/dev/null 2>&1 || true
 
-  # run_squid.sh intentionally creates log_dir with plain `mkdir`; do not
-  # pre-create it here. Remove only the job-local directory from prior attempts.
   rm -rf "${log_dir}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
-    ./scripts/run_squid.sh \
-      --port "${port}" \
-      --log_dir "${log_dir}"
+    ./scripts/run_squid.sh "${args[@]}"
   ) >"${QA_SERVICE_LOG_DIR}/${name}-process.log" 2>&1 &
   local pid=$!
   QA_SERVICE_CLEANUPS+=("pid|${name}|${pid}")
   qa_service_wait_for_port "${port}" "Squid service ${name}"
   export HTTP_PROXY_PUBLIC="127.0.0.1:${port}"
+  export HTTP_PROXY_RUNNING=1
 }
 
 qa_service_start_httpfs_minio() {
@@ -145,13 +145,127 @@ qa_service_start_httpfs_minio() {
     ./scripts/generate_presigned_url.sh
   )
   pushd "${QA_SERVICE_UPSTREAM_ROOT}" >/dev/null
-  # shellcheck disable=SC1091
   source ./scripts/run_s3_test_server.sh
-  # shellcheck disable=SC1091
   source ./scripts/set_s3_test_server_variables.sh
   popd >/dev/null
   export TEST_PERSISTENT_SECRETS_AVAILABLE=true
   QA_SERVICE_CLEANUPS+=("httpfs-minio|${name}|${compose_file}")
+}
+
+qa_service_start_azurite() {
+  local name=$1
+  local port=$2
+  local root="${QA_SERVICE_RUNTIME_ROOT}/${name}"
+  local log="${QA_SERVICE_LOG_DIR}/${name}.log"
+  local upload_script="${QA_SERVICE_UPSTREAM_ROOT}/scripts/upload_test_files_to_azurite.sh"
+
+  command -v azurite >/dev/null 2>&1 || {
+    echo "Azurite executable is missing" >&2
+    return 1
+  }
+  command -v az >/dev/null 2>&1 || {
+    echo "Azure CLI executable is missing" >&2
+    return 1
+  }
+  if [[ ! -x "${upload_script}" ]]; then
+    echo "Azurite fixture script is missing or not executable: ${upload_script}" >&2
+    return 1
+  fi
+
+  mkdir -p "${root}"
+  azurite \
+    --skipApiVersionCheck \
+    --location "${root}" \
+    --blobHost 127.0.0.1 \
+    --blobPort "${port}" \
+    >"${log}" 2>&1 &
+  local pid=$!
+  QA_SERVICE_CLEANUPS+=("pid|${name}|${pid}")
+  qa_service_wait_for_port "${port}" "Azurite service ${name}"
+
+  local account="devstoreaccount1"
+  local key="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+  local suffix
+  suffix="${USER:-user}/$(TZ=Z date +'%Y%m%dT%H%M%SZ')--$(python3 -c 'import uuid; print(str(uuid.uuid4())[10:17])')"
+
+  export AZURE_STORAGE_ACCOUNT="${account}"
+  export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=${account};AccountKey=${key};BlobEndpoint=http://127.0.0.1:${port}/${account};QueueEndpoint=http://127.0.0.1:10001/${account};TableEndpoint=http://127.0.0.1:10002/${account};"
+  export AZ_STORAGE_ACCOUNT="${account}"
+  export AZ_DATA_DIR="testing-private"
+  export AZ_TEMP_DIR="writes/${suffix}"
+  export AZURE_PROTOCOL="az"
+  export AZURE_PROVIDER="local"
+  export DUCKDB_AZURE_PUBLIC_CONTAINER_AVAILABLE=1
+
+  (
+    cd "${QA_SERVICE_UPSTREAM_ROOT}"
+    ./scripts/upload_test_files_to_azurite.sh
+  ) >>"${log}" 2>&1
+
+  local secret_name
+  secret_name="qa_azure_$(printf '%s' "${QA_SERVICE_RUNTIME_ROOT}" | sha256sum | cut -c1-12)"
+  duckdb -c "CREATE PERSISTENT SECRET ${secret_name} (TYPE AZURE, CONNECTION_STRING '${AZURE_STORAGE_CONNECTION_STRING}')" \
+    >>"${log}" 2>&1
+  export ENABLE_DATA_INTEGRITY=1
+  export DUCKDB_AZURE_PERSISTENT_SECRET_AVAILABLE=1
+}
+
+qa_service_start_unity_catalog_oss() {
+  local name=$1
+  local port=$2
+  local version=$3
+  local root="${QA_SERVICE_RUNTIME_ROOT}/${name}"
+  local checkout="${root}/unitycatalog"
+  local log="${QA_SERVICE_LOG_DIR}/${name}.log"
+
+  if [[ "${port}" != "8080" ]]; then
+    echo "The OSS Unity Catalog server currently requires port 8080" >&2
+    return 1
+  fi
+  command -v java >/dev/null 2>&1 || {
+    echo "Java is required for the OSS Unity Catalog server" >&2
+    return 1
+  }
+  command -v git >/dev/null 2>&1 || {
+    echo "Git is required for the OSS Unity Catalog server" >&2
+    return 1
+  }
+
+  rm -rf "${root}"
+  mkdir -p "${checkout}"
+  git -C "${checkout}" init -q
+  git -C "${checkout}" remote add origin https://github.com/unitycatalog/unitycatalog.git
+  git -C "${checkout}" fetch --depth 1 origin "${version}" >>"${log}" 2>&1
+  git -C "${checkout}" checkout --detach FETCH_HEAD >>"${log}" 2>&1
+  local actual
+  actual="$(git -C "${checkout}" rev-parse HEAD)"
+  if [[ "${actual}" != "${version}" ]]; then
+    echo "Unity Catalog server checkout must be ${version}; found ${actual}" >&2
+    return 1
+  fi
+
+  # The official sample catalog stores the UniForm table metadata with an
+  # absolute /tmp/marksheet_uniform location. Materialize the bundled fixture
+  # exactly as documented by the OSS Unity Catalog project before startup.
+  rm -rf /tmp/marksheet_uniform
+  cp -R \
+    "${checkout}/etc/data/external/unity/default/tables/marksheet_uniform" \
+    /tmp/marksheet_uniform
+
+  (
+    cd "${checkout}"
+    ./build/sbt package
+  ) >>"${log}" 2>&1
+
+  (
+    cd "${checkout}"
+    exec setsid ./bin/start-uc-server
+  ) >>"${log}" 2>&1 &
+  local pid=$!
+  QA_SERVICE_CLEANUPS+=("pgid|${name}|${pid}")
+  qa_service_wait_for_port "${port}" "OSS Unity Catalog service ${name}" 180
+  export UC_TEST_SERVER_RUNNING=1
+  export UNITY_CATALOG_OSS_COMMIT="${actual}"
 }
 
 qa_service_start_postgres() {
@@ -165,8 +279,14 @@ qa_service_start_postgres() {
   battery_slug="${battery_slug//_/-}"
   local service_slug="${name//_/-}"
   local container="qa-${battery_slug}-${service_slug}"
+  local battery_runtime_root
+  battery_runtime_root="$(dirname "${QA_SERVICE_RUNTIME_ROOT}")"
   container="${container:0:63}"
 
+  # PostgreSQL integration fixtures use server-side COPY with absolute paths.
+  # Mount both the upstream checkout and the battery temp directory at the
+  # identical paths so the containerized server sees runner-generated files.
+  mkdir -p "${battery_runtime_root}/tmp"
   docker rm -f "${container}" >/dev/null 2>&1 || true
   docker run -d \
     --name "${container}" \
@@ -174,6 +294,8 @@ qa_service_start_postgres() {
     -e "POSTGRES_PASSWORD=${password}" \
     -e "POSTGRES_DB=${database}" \
     -p "127.0.0.1:${port}:5432" \
+    -v "${QA_SERVICE_UPSTREAM_ROOT}:${QA_SERVICE_UPSTREAM_ROOT}" \
+    -v "${battery_runtime_root}/tmp:${battery_runtime_root}/tmp" \
     "postgres:${version}" >/dev/null
   QA_SERVICE_CLEANUPS+=("container|${name}|${container}")
 
@@ -259,17 +381,23 @@ qa_service_start_file() {
     echo "Services manifest is missing: ${services_file}" >&2
     return 1
   fi
-  while IFS='|' read -r name service_type port version database username; do
+  while IFS='|' read -r name service_type port version database username auth; do
     [[ -n "${name}" ]] || continue
     case "${service_type}" in
       python-http)
         qa_service_start_python_http "${name}" "${port}"
         ;;
       squid)
-        qa_service_start_squid "${name}" "${port}"
+        qa_service_start_squid "${name}" "${port}" "${auth}"
         ;;
       httpfs-minio)
         qa_service_start_httpfs_minio "${name}"
+        ;;
+      azurite)
+        qa_service_start_azurite "${name}" "${port}"
+        ;;
+      unity-catalog-oss)
+        qa_service_start_unity_catalog_oss "${name}" "${port}" "${version}"
         ;;
       postgres)
         qa_service_start_postgres \
@@ -309,7 +437,6 @@ PY
         done
         ;;
       external-cloud-account)
-        # Metadata-only prerequisite: CI may accept this battery's failure.
         ;;
       *)
         echo "Unsupported prerequisite: ${prerequisite}" >&2
@@ -328,6 +455,12 @@ qa_service_stop_all() {
       pid)
         if [[ -n "${value}" ]] && kill -0 "${value}" 2>/dev/null; then
           kill "${value}" || true
+          wait "${value}" 2>/dev/null || true
+        fi
+        ;;
+      pgid)
+        if [[ -n "${value}" ]]; then
+          kill -TERM -- "-${value}" >/dev/null 2>&1 || true
           wait "${value}" 2>/dev/null || true
         fi
         ;;

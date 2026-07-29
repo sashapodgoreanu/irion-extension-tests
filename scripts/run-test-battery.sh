@@ -4,10 +4,12 @@ set -Eeuo pipefail
 BATTERY_CONFIG_FILE="${1:?resolved battery JSON is required}"
 UPSTREAM_ROOT="${2:?upstream root is required}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/artifact}"
+STARTED_AT_MS="${RESULT_STARTED_AT_MS:-$(date +%s%3N)}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREPARE_SCRIPT="${SCRIPT_DIR}/prepare-test-battery.py"
 SERVICE_MANAGER="${SCRIPT_DIR}/service-manager.sh"
+RESULT_WRITER="${SCRIPT_DIR}/write-test-result.py"
 BATTERY_NAME_HINT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "${BATTERY_CONFIG_FILE}")"
 BATTERY_RUNTIME_CONFIG_DIR="${RUNNER_TEMP:-${PWD}/build/runtime}/battery-config/${BATTERY_NAME_HINT}"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
@@ -20,18 +22,42 @@ source "${BATTERY_RUNTIME_CONFIG_DIR}/battery.env"
 source "${SERVICE_MANAGER}"
 
 LOG_DIR="${PWD}/build/logs/${BATTERY_NAME}"
+RESULT_DIR="${PWD}/build/results/${BATTERY_NAME}"
+RESULT_FILE="${RESULT_DIR}/result.json"
 IGNORED_TEST_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/ignored-tests/${BATTERY_NAME}"
 RUNTIME_ROOT="${RUNNER_TEMP:-${PWD}/build/runtime}/${BATTERY_NAME}"
 SERVICE_RUNTIME_ROOT="${RUNTIME_ROOT}/services"
-mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}" "${IGNORED_TEST_ROOT}" "${LOG_DIR}/services"
+mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}" "${RESULT_DIR}" "${IGNORED_TEST_ROOT}" "${LOG_DIR}/services"
 export HOME="${RUNTIME_ROOT}/home"
 export TMPDIR="${RUNTIME_ROOT}/tmp"
+
+finalize_result() {
+  local original_status=$?
+  local writer_status=0
+  trap - EXIT
+  qa_service_stop_all || true
+  python3 "${RESULT_WRITER}" \
+    --battery-config "${BATTERY_CONFIG_FILE}" \
+    --log-dir "${LOG_DIR}" \
+    --output "${RESULT_FILE}" \
+    --exit-code "${original_status}" \
+    --started-at-ms "${STARTED_AT_MS}" || writer_status=$?
+  if [[ "${original_status}" -eq 0 && "${writer_status}" -ne 0 ]]; then
+    original_status="${writer_status}"
+  fi
+  exit "${original_status}"
+}
+trap finalize_result EXIT
 
 # Services may invoke DuckDB while preparing their fixtures. Make the packaged
 # runtime available before prerequisite checks and before any service starts,
 # rather than relying on a later runner-specific PATH modification.
 if [[ ! -x "${DUCKDB_BIN}" ]]; then
   echo "DuckDB runtime is missing or not executable: ${DUCKDB_BIN}" >&2
+  exit 1
+fi
+if [[ ! -x "${RESULT_WRITER}" ]]; then
+  echo "Structured result writer is missing or not executable: ${RESULT_WRITER}" >&2
   exit 1
 fi
 export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
@@ -73,7 +99,6 @@ export MSSQL_RELEASE_TAG="${UPSTREAM_REF}"
 
 qa_prerequisite_check_file "${BATTERY_RUNTIME_CONFIG_DIR}/prerequisites.json"
 qa_service_manager_init "${SERVICE_RUNTIME_ROOT}" "${UPSTREAM_ROOT}" "${LOG_DIR}/services"
-trap qa_service_stop_all EXIT
 qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"
 
 status=0

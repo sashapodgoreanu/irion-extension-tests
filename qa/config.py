@@ -31,17 +31,19 @@ SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
 VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
 VALID_SERVICE_TYPES = frozenset(
-    {"python-http", "squid", "httpfs-minio", "postgres", "sqlserver"}
+    {"python-http", "squid", "httpfs-minio", "azurite", "unity-catalog-oss", "postgres", "sqlserver"}
 )
 VALID_PREREQUISITE_TYPES = frozenset(
     {"google-bigquery", "external-cloud-account"}
 )
-SUPPORTED_SCHEMA_VERSION = 3
+SUPPORTED_SCHEMA_VERSION = 4
 
 SERVICE_CAPABILITIES: dict[str, tuple[str, ...]] = {
     "python-http": (),
     "squid": ("squid",),
     "httpfs-minio": ("docker-compose",),
+    "azurite": ("azurite",),
+    "unity-catalog-oss": ("unity-catalog-oss",),
     "postgres": ("docker", "postgres-client"),
     "sqlserver": ("docker-compose",),
 }
@@ -198,9 +200,13 @@ def _load_schema(schema_path: Path) -> Mapping[str, Any]:
     try:
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ConfigError(f"unable to load configuration schema {schema_path}: {exc}") from exc
+        raise ConfigError(
+            f"unable to load configuration schema {schema_path}: {exc}"
+        ) from exc
     if not isinstance(schema, dict):
-        raise ConfigError(f"configuration schema {schema_path} must contain a JSON object")
+        raise ConfigError(
+            f"configuration schema {schema_path} must contain a JSON object"
+        )
     Draft202012Validator.check_schema(schema)
     return schema
 
@@ -240,21 +246,25 @@ def _parse_extension(raw: Mapping[str, Any], path: str) -> ExtensionConfig:
         install_from = install_from.strip()
         if not EXTENSION_NAME.fullmatch(install_from):
             raise ConfigError(f"{path}.installFrom is invalid: {install_from}")
-    return ExtensionConfig(name=name, is_used=raw["isUsed"], install_from=install_from)
+    return ExtensionConfig(
+        name=name,
+        is_used=raw["isUsed"],
+        install_from=install_from,
+    )
 
 
 def _parse_extensions(
     raw: Sequence[Mapping[str, Any]], path: str
 ) -> tuple[ExtensionConfig, ...]:
-    extensions: list[ExtensionConfig] = []
+    result: list[ExtensionConfig] = []
     seen: set[str] = set()
     for index, item in enumerate(raw):
         extension = _parse_extension(item, f"{path}[{index}]")
         if extension.name in seen:
             raise ConfigError(f"{path} contains duplicate extension {extension.name}")
         seen.add(extension.name)
-        extensions.append(extension)
-    return tuple(extensions)
+        result.append(extension)
+    return tuple(result)
 
 
 def _parse_service(raw: Mapping[str, Any], path: str) -> ServiceConfig:
@@ -266,7 +276,11 @@ def _parse_service(raw: Mapping[str, Any], path: str) -> ServiceConfig:
         raise ConfigError(f"{path}.type is unsupported: {service_type}")
     options = tuple(
         sorted(
-            ((key, value) for key, value in raw.items() if key not in {"name", "type"}),
+            (
+                (key, value)
+                for key, value in raw.items()
+                if key not in {"name", "type"}
+            ),
             key=lambda item: item[0],
         )
     )
@@ -276,31 +290,37 @@ def _parse_service(raw: Mapping[str, Any], path: str) -> ServiceConfig:
 def _parse_services(
     raw: Sequence[Mapping[str, Any]], path: str
 ) -> tuple[ServiceConfig, ...]:
-    services: list[ServiceConfig] = []
+    result: list[ServiceConfig] = []
     seen: set[str] = set()
     for index, item in enumerate(raw):
         service = _parse_service(item, f"{path}[{index}]")
         if service.name in seen:
             raise ConfigError(f"{path} contains duplicate service {service.name}")
         seen.add(service.name)
-        services.append(service)
-    return tuple(services)
+        result.append(service)
+    return tuple(result)
 
 
 def _parse_prerequisites(
     raw: Sequence[Mapping[str, Any]], path: str
 ) -> tuple[PrerequisiteConfig, ...]:
-    prerequisites: list[PrerequisiteConfig] = []
+    result: list[PrerequisiteConfig] = []
     seen: set[str] = set()
     for index, item in enumerate(raw):
         prerequisite_type = item["type"].strip()
         if prerequisite_type not in VALID_PREREQUISITE_TYPES:
-            raise ConfigError(f"{path}[{index}].type is unsupported: {prerequisite_type}")
+            raise ConfigError(
+                f"{path}[{index}].type is unsupported: {prerequisite_type}"
+            )
         if prerequisite_type in seen:
-            raise ConfigError(f"{path} contains duplicate prerequisite {prerequisite_type}")
+            raise ConfigError(
+                f"{path} contains duplicate prerequisite {prerequisite_type}"
+            )
         seen.add(prerequisite_type)
-        prerequisites.append(PrerequisiteConfig(prerequisite_type=prerequisite_type))
-    return tuple(prerequisites)
+        result.append(
+            PrerequisiteConfig(prerequisite_type=prerequisite_type)
+        )
+    return tuple(result)
 
 
 def _parse_test_config(raw: Mapping[str, Any], path: str) -> TestConfig:
@@ -308,39 +328,51 @@ def _parse_test_config(raw: Mapping[str, Any], path: str) -> TestConfig:
     if kind == "generated":
         return GeneratedTestConfig(
             excluded_extensions=tuple(raw.get("excludedExtensions", ())),
-            statically_loaded_extensions=tuple(raw.get("staticallyLoadedExtensions", ())),
+            statically_loaded_extensions=tuple(
+                raw.get("staticallyLoadedExtensions", ())
+            ),
             description=raw.get("description"),
         )
     if kind == "upstream":
-        return UpstreamTestConfig(path=_ensure_relative_path(raw["path"], f"{path}.path"))
+        return UpstreamTestConfig(
+            path=_ensure_relative_path(raw["path"], f"{path}.path")
+        )
     raise ConfigError(f"{path}.kind is unsupported: {kind}")
 
 
 def _parse_profiles(
     raw: Sequence[Mapping[str, Any]], path: str, runner: str
 ) -> tuple[ProfileConfig, ...]:
-    profiles: list[ProfileConfig] = []
+    result: list[ProfileConfig] = []
     seen: set[str] = set()
     for index, item in enumerate(raw):
         item_path = f"{path}[{index}]"
         name = item["name"].strip()
         if not PROFILE_NAME.fullmatch(name):
-            raise ConfigError(f"{item_path}.name contains unsupported characters: {name}")
+            raise ConfigError(
+                f"{item_path}.name contains unsupported characters: {name}"
+            )
         if name in seen:
             raise ConfigError(f"{path} contains duplicate profile {name}")
         seen.add(name)
-        test_config_raw = item.get("testConfig")
+        raw_test_config = item.get("testConfig")
         test_config = (
-            _parse_test_config(test_config_raw, f"{item_path}.testConfig")
-            if test_config_raw is not None
+            _parse_test_config(raw_test_config, f"{item_path}.testConfig")
+            if raw_test_config is not None
             else None
         )
         if runner == "standard" and test_config is None:
-            raise ConfigError(f"{item_path}.testConfig is required for the standard runner")
-        services = _parse_services(item.get("services", ()), f"{item_path}.services")
+            raise ConfigError(
+                f"{item_path}.testConfig is required for the standard runner"
+            )
+        services = _parse_services(
+            item.get("services", ()), f"{item_path}.services"
+        )
         if runner != "standard" and services:
-            raise ConfigError(f"{item_path}.services is only supported by the standard runner")
-        profiles.append(
+            raise ConfigError(
+                f"{item_path}.services is only supported by the standard runner"
+            )
+        result.append(
             ProfileConfig(
                 name=name,
                 tests=item["tests"].strip(),
@@ -348,10 +380,12 @@ def _parse_profiles(
                 test_config=test_config,
             )
         )
-    return tuple(profiles)
+    return tuple(result)
 
 
-def _parse_ignored_test(raw: Mapping[str, Any], path: str) -> IgnoredTestConfig:
+def _parse_ignored_test(
+    raw: Mapping[str, Any], path: str
+) -> IgnoredTestConfig:
     test_path = _ensure_relative_path(raw["path"], f"{path}.path")
     reason = raw["reason"].strip()
     if any(character in test_path or character in reason for character in ("\t", "\n")):
@@ -366,16 +400,18 @@ def _parse_ignored_test(raw: Mapping[str, Any], path: str) -> IgnoredTestConfig:
 def _parse_ignored_tests(
     raw: Sequence[Mapping[str, Any]], path: str
 ) -> tuple[IgnoredTestConfig, ...]:
-    ignored_tests: list[IgnoredTestConfig] = []
+    result: list[IgnoredTestConfig] = []
     seen: set[tuple[str, tuple[str, ...]]] = set()
     for index, item in enumerate(raw):
         ignored = _parse_ignored_test(item, f"{path}[{index}]")
         key = (ignored.path, tuple(sorted(ignored.profiles)))
         if key in seen:
-            raise ConfigError(f"{path} contains duplicate ignored test {ignored.path}")
+            raise ConfigError(
+                f"{path} contains duplicate ignored test {ignored.path}"
+            )
         seen.add(key)
-        ignored_tests.append(ignored)
-    return tuple(ignored_tests)
+        result.append(ignored)
+    return tuple(result)
 
 
 def parse_config(data: Mapping[str, Any]) -> QaConfig:
@@ -384,12 +420,16 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
         version=duckdb_raw["version"].strip(),
         ci_tools_version=duckdb_raw["ciToolsVersion"].strip(),
     )
-    defaults = _parse_extensions(data["defaultExtensions"], "defaultExtensions")
+    defaults = _parse_extensions(
+        data["defaultExtensions"], "defaultExtensions"
+    )
 
     batteries: list[BatteryConfig] = []
     for name, raw in data["testBatteries"].items():
         if not EXTENSION_NAME.fullmatch(name):
-            raise ConfigError(f"testBatteries contains invalid name {name!r}")
+            raise ConfigError(
+                f"testBatteries contains invalid name {name!r}"
+            )
         path = f"testBatteries.{name}"
         runner = raw["runner"].strip()
         if runner not in VALID_RUNNERS:
@@ -401,25 +441,32 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
         prerequisites = _parse_prerequisites(
             raw["prerequisites"], f"{path}.prerequisites"
         )
-        profiles = _parse_profiles(raw["profiles"], f"{path}.profiles", runner)
+        profiles = _parse_profiles(
+            raw["profiles"], f"{path}.profiles", runner
+        )
         battery_service_names = {service.name for service in services}
         for profile in profiles:
             overlap = sorted(
-                battery_service_names & {service.name for service in profile.services}
+                battery_service_names
+                & {service.name for service in profile.services}
             )
             if overlap:
                 raise ConfigError(
-                    f"{path}.profiles.{profile.name}.services duplicates battery service {overlap[0]}"
+                    f"{path}.profiles.{profile.name}.services duplicates "
+                    f"battery service {overlap[0]}"
                 )
         profile_names = {profile.name for profile in profiles}
         ignored_tests = _parse_ignored_tests(
             raw.get("ignoredTests", ()), f"{path}.ignoredTests"
         )
         for ignored in ignored_tests:
-            unknown_profiles = sorted(set(ignored.profiles) - profile_names)
+            unknown_profiles = sorted(
+                set(ignored.profiles) - profile_names
+            )
             if unknown_profiles:
                 raise ConfigError(
-                    f"{path}.ignoredTests references unknown profile {unknown_profiles[0]}"
+                    f"{path}.ignoredTests references unknown profile "
+                    f"{unknown_profiles[0]}"
                 )
         batteries.append(
             BatteryConfig(
@@ -428,7 +475,9 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
                 runner=runner,
                 repository=repository,
                 pin=raw["pin"].strip(),
-                submodules=_normalize_submodules(raw.get("submodules", False)),
+                submodules=_normalize_submodules(
+                    raw.get("submodules", False)
+                ),
                 services=services,
                 prerequisites=prerequisites,
                 profiles=profiles,
@@ -447,9 +496,13 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
     )
 
 
-def load_config(config_path: Path, schema_path: Path | None = None) -> QaConfig:
+def load_config(
+    config_path: Path, schema_path: Path | None = None
+) -> QaConfig:
     try:
-        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(
+            config_path.read_text(encoding="utf-8")
+        )
     except OSError as exc:
         raise ConfigError(str(exc)) from exc
     except yaml.YAMLError as exc:
@@ -459,7 +512,8 @@ def load_config(config_path: Path, schema_path: Path | None = None) -> QaConfig:
     schema_version = data.get("schemaVersion")
     if schema_version != SUPPORTED_SCHEMA_VERSION:
         raise ConfigError(
-            f"schemaVersion must be {SUPPORTED_SCHEMA_VERSION}; found {schema_version!r}"
+            f"schemaVersion must be {SUPPORTED_SCHEMA_VERSION}; "
+            f"found {schema_version!r}"
         )
     if schema_path is None:
         schema_path = (
@@ -474,7 +528,9 @@ def load_config(config_path: Path, schema_path: Path | None = None) -> QaConfig:
 def _active_extensions(
     extensions: Sequence[ExtensionConfig],
 ) -> tuple[ExtensionConfig, ...]:
-    return tuple(extension for extension in extensions if extension.is_used)
+    return tuple(
+        extension for extension in extensions if extension.is_used
+    )
 
 
 def _merge_extensions(
@@ -500,10 +556,14 @@ def _merge_extensions(
                 and existing.install_from != extension.install_from
             ):
                 raise ConfigError(
-                    f"{source_name} conflicts with the resolved installFrom for "
-                    f"{extension.name}: {existing.install_from} != {extension.install_from}"
+                    f"{source_name} conflicts with the resolved installFrom "
+                    f"for {extension.name}: {existing.install_from} != "
+                    f"{extension.install_from}"
                 )
-            if existing.install_from is None and extension.install_from is not None:
+            if (
+                existing.install_from is None
+                and extension.install_from is not None
+            ):
                 replacement = ExtensionConfig(
                     name=existing.name,
                     is_used=True,
@@ -528,14 +588,19 @@ def _capabilities(battery: BatteryConfig) -> tuple[str, ...]:
         for service in profile.services:
             add(SERVICE_CAPABILITIES[service.service_type])
     for prerequisite in battery.prerequisites:
-        add(PREREQUISITE_CAPABILITIES[prerequisite.prerequisite_type])
+        add(
+            PREREQUISITE_CAPABILITIES[
+                prerequisite.prerequisite_type
+            ]
+        )
     return tuple(ordered)
 
 
 def resolve_config(config: QaConfig) -> ExecutionPlan:
     """Compile validated configuration into a versioned execution plan."""
-
-    active_defaults = _active_extensions(config.default_extensions)
+    active_defaults = _active_extensions(
+        config.default_extensions
+    )
     cases: list[ExecutionCase] = []
     for battery in config.test_batteries:
         if not battery.is_enabled:
@@ -547,16 +612,24 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
             path,
         )
         if not resolved_extensions:
-            raise ConfigError(f"{path} resolves to an empty extension set")
-        resolved_names = {extension.name for extension in resolved_extensions}
+            raise ConfigError(
+                f"{path} resolves to an empty extension set"
+            )
+        resolved_names = {
+            extension.name for extension in resolved_extensions
+        }
         for profile in battery.profiles:
-            if isinstance(profile.test_config, GeneratedTestConfig):
+            if isinstance(
+                profile.test_config, GeneratedTestConfig
+            ):
                 unknown = sorted(
-                    set(profile.test_config.excluded_extensions) - resolved_names
+                    set(profile.test_config.excluded_extensions)
+                    - resolved_names
                 )
                 if unknown:
                     raise ConfigError(
-                        f"{path}.profiles.{profile.name} excludes unresolved extension {unknown[0]}"
+                        f"{path}.profiles.{profile.name} excludes "
+                        f"unresolved extension {unknown[0]}"
                     )
         cases.append(
             ExecutionCase(
@@ -569,7 +642,8 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
                 contract=ExecutionContract(
                     runner=battery.runner,
                     services=tuple(
-                        service.execution_service() for service in battery.services
+                        service.execution_service()
+                        for service in battery.services
                     ),
                     prerequisites=tuple(
                         item.execution_prerequisite()
@@ -577,19 +651,24 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
                     ),
                     capabilities=_capabilities(battery),
                     profiles=tuple(
-                        profile.execution_profile() for profile in battery.profiles
+                        profile.execution_profile()
+                        for profile in battery.profiles
                     ),
                 ),
                 extensions=tuple(
-                    extension.execution_extension() for extension in resolved_extensions
+                    extension.execution_extension()
+                    for extension in resolved_extensions
                 ),
                 ignored_tests=tuple(
-                    ignored.execution_ignored_test() for ignored in battery.ignored_tests
+                    ignored.execution_ignored_test()
+                    for ignored in battery.ignored_tests
                 ),
             )
         )
     if not cases:
-        raise ConfigError("at least one test battery must have isEnabled: true")
+        raise ConfigError(
+            "at least one test battery must have isEnabled: true"
+        )
     return ExecutionPlan(
         runtime=ExecutionRuntime(
             duckdb_version=config.duckdb.version,

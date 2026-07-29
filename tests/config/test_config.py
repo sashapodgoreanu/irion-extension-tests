@@ -14,8 +14,10 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "5068d6e3e62d3b20c6699e1ecb99fbe500d53234678f9fdbbfdfa3b3558acd61"
-EXPECTED_PLAN_SHA256 = "9d9ac807962de49eb76b27e287ec12ee40c90759760d4ec3b2d1babb0bd5ffba"
+AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
+UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
+EXPECTED_MATRIX_SHA256 = "d3e01be8c3d2d70827bc22af8fbd80e5173c5a8313cd2251de7a09ee58c08834"
+EXPECTED_PLAN_SHA256 = "2f2639f247398b31a938333a6fbd8262cf969c3ea4199ee5abc4cc6915585bd7"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -95,6 +97,32 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(postgres["services"][0]["version"], "17")
         self.assertEqual(postgres["capabilities"], ["docker", "postgres-client"])
 
+        azure = next(case for case in matrix if case["name"] == "azure")
+        self.assertEqual(
+            azure["services"],
+            [{"name": "storage-emulator", "type": "azurite", "port": 10000}],
+        )
+        self.assertEqual(azure["capabilities"], ["azurite", "squid"])
+        self.assertEqual(azure["prerequisites"], [])
+        self.assertEqual([profile["name"] for profile in azure["profiles"]], ["azurite", "proxy"])
+        self.assertEqual(azure["profiles"][0]["tests"], AZURE_LOCAL_TESTS)
+        self.assertEqual(azure["profiles"][1]["tests"], "test/sql/proxy/*")
+        self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
+
+        unity = next(case for case in matrix if case["name"] == "unity_catalog")
+        self.assertEqual(unity["pin"], "dbca44d4dcc67c196af5fd910f0f26ce56d4930e")
+        self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
+        self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
+        self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
+        self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
+        self.assertEqual(
+            [item["path"] for item in unity["ignoredTests"]],
+            [
+                "test/sql/local_oss_unity_catalog/uc_catalog_write.test",
+                "test/sql/local_oss_unity_catalog/checkpoint.test",
+            ],
+        )
+
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
         self.assertEqual(
@@ -109,17 +137,26 @@ class ConfigTestCase(unittest.TestCase):
         )
 
         iceberg = next(case for case in matrix if case["name"] == "iceberg")
+        self.assertEqual(iceberg["pin"], "757264559e745be697e9306e144e8889eb1dc024")
+        self.assertEqual(iceberg["prerequisites"], [])
+        self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(
-            iceberg["prerequisites"], [{"type": "external-cloud-account"}]
+            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
         )
-        self.assertEqual(iceberg["capabilities"], ["accepted-failure"])
+        self.assertEqual(
+            [item["path"] for item in iceberg["ignoredTests"]],
+            [
+                "test/sql/local/iceberg_scans/iceberg_partition_stats.test",
+                "test/sql/local/iceberg_scans/iceberg_column_stats.test",
+            ],
+        )
         self.assertEqual(
             [
                 case["name"]
                 for case in matrix
                 if "accepted-failure" in case["capabilities"]
             ],
-            ["iceberg", "bigquery"],
+            ["bigquery"],
         )
 
         mssql = next(case for case in matrix if case["name"] == "mssql")
@@ -133,11 +170,10 @@ class ConfigTestCase(unittest.TestCase):
             self.assertEqual(extension["installFrom"], "community")
 
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
-        self.assertEqual(
-            hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest(),
-            EXPECTED_MATRIX_SHA256,
-        )
-        self.assertEqual(plan.sha256(), EXPECTED_PLAN_SHA256)
+        matrix_hash = hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest()
+        self.assertEqual(matrix_hash, EXPECTED_MATRIX_SHA256, matrix_hash)
+        plan_hash = plan.sha256()
+        self.assertEqual(plan_hash, EXPECTED_PLAN_SHA256, plan_hash)
 
     def test_disabled_battery_does_not_change_default_extensions(self) -> None:
         config = self.load_modified(
@@ -219,9 +255,9 @@ class ConfigTestCase(unittest.TestCase):
 
         self.assert_config_error(mutate, "is not valid under any of the given schemas")
 
-    def test_schema_v2_is_rejected_after_service_migration(self) -> None:
+    def test_schema_v3_is_rejected_after_azurite_migration(self) -> None:
         self.assert_config_error(
-            lambda data: data.update(schemaVersion=2), "schemaVersion must be 3"
+            lambda data: data.update(schemaVersion=3), "schemaVersion must be 4"
         )
 
     def test_profile_cannot_exclude_unresolved_extension(self) -> None:
