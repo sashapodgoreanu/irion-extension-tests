@@ -244,6 +244,14 @@ qa_service_start_unity_catalog_oss() {
     return 1
   fi
 
+  # The official sample catalog stores the UniForm table metadata with an
+  # absolute /tmp/marksheet_uniform location. Materialize the bundled fixture
+  # exactly as documented by the OSS Unity Catalog project before startup.
+  rm -rf /tmp/marksheet_uniform
+  cp -R \
+    "${checkout}/etc/data/external/unity/default/tables/marksheet_uniform" \
+    /tmp/marksheet_uniform
+
   (
     cd "${checkout}"
     ./build/sbt package
