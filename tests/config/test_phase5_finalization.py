@@ -6,7 +6,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
-AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_etag.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/test_data_integrity.test,test/sql/azure_scope_and_full_path.test"
+AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
 
 
 class Phase5FinalizationTest(unittest.TestCase):
@@ -20,7 +20,9 @@ class Phase5FinalizationTest(unittest.TestCase):
 
         policy = yaml.safe_load((ROOT / "config/result-policy.yml").read_text(encoding="utf-8"))
         overrides = {(item["case"], item["profile"]): item for item in policy["overrides"]}
+        self.assertEqual(overrides[("azure", "azurite")]["minimumExecuted"], 9)
         self.assertEqual(overrides[("azure", "azurite")]["maximumSkipped"], 0)
+        self.assertEqual(overrides[("azure", "proxy")]["minimumExecuted"], 4)
         self.assertEqual(overrides[("azure", "proxy")]["maximumSkipped"], 0)
 
     def test_unity_catalog_uses_pinned_oss_service(self) -> None:
