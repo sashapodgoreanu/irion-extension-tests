@@ -37,31 +37,6 @@ def add_profile_skips(config: dict[str, Any], additions: list[dict[str, str]]) -
     config["skip_tests"] = skip_tests
 
 
-def apply_upstream_runtime_compatibility(
-    config: dict[str, Any], profile_name: str, source_path: str
-) -> None:
-    """Apply runner-only compatibility settings for reviewed upstream configs."""
-    if profile_name == "postgres" and source_path == "test/configs/postgres.json":
-        # Every DuckLake PostgreSQL SQLLogicTest file shares the same metadata
-        # database. Run files serially and repeat the upstream catalog reset after
-        # each file so tables, snapshots and DATA_PATH metadata cannot leak into
-        # the following test.
-        config["max_test_threads"] = 1
-
-        reset_sql = config.get("on_init")
-        if not isinstance(reset_sql, str) or not reset_sql.strip():
-            raise ProfileError(
-                "DuckLake PostgreSQL config must provide a non-empty on_init reset"
-            )
-
-        existing_cleanup = config.get("on_cleanup", "")
-        if existing_cleanup and not isinstance(existing_cleanup, str):
-            raise ProfileError("upstream on_cleanup must be a string")
-        config["on_cleanup"] = " ".join(
-            value for value in (existing_cleanup, reset_sql) if value
-        )
-
-
 def main() -> int:
     if len(sys.argv) != 8:
         print(
@@ -111,8 +86,7 @@ def main() -> int:
                 "summarize_failures": True,
             }
         elif kind == "upstream":
-            source_path = test_config["path"]
-            source = (upstream_root / source_path).resolve()
+            source = (upstream_root / test_config["path"]).resolve()
             try:
                 source.relative_to(upstream_root)
             except ValueError as exc:
@@ -136,7 +110,6 @@ def main() -> int:
                 value for value in (connection_sql, existing_connection_sql) if value
             )
             config["init_script"] = str(init_script)
-            apply_upstream_runtime_compatibility(config, profile_name, source_path)
         else:
             raise ProfileError(f"unsupported profile testConfig kind: {kind}")
 
