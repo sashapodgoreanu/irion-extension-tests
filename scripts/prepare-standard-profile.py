@@ -75,6 +75,15 @@ def main() -> int:
         if kind == "generated":
             excluded_extensions = set(test_config.get("excludedExtensions", []))
             explicit_iceberg_require = "iceberg" in excluded_extensions
+            static_extensions = list(test_config["staticallyLoadedExtensions"])
+            if explicit_iceberg_require:
+                # The local Iceberg suite uses `require avro`, `require httpfs`, and
+                # `require iceberg`. Avro and HTTPFS are dependencies and may be
+                # available from process start; Iceberg must remain unloaded until
+                # the explicit require so pre-require negative assertions stay valid.
+                for dependency in ("avro", "httpfs"):
+                    if dependency not in static_extensions:
+                        static_extensions.append(dependency)
             config: dict[str, Any] = {
                 "description": test_config.get(
                     "description", f"{profile_name} compatibility profile"
@@ -82,9 +91,7 @@ def main() -> int:
                 "autoloading": "none" if explicit_iceberg_require else "all",
                 "init_script": str(init_script),
                 "on_new_connection": connection_sql,
-                "statically_loaded_extensions": list(
-                    test_config["staticallyLoadedExtensions"]
-                ),
+                "statically_loaded_extensions": static_extensions,
                 "summarize_failures": True,
             }
             if explicit_iceberg_require:
