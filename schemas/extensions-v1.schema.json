@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irion.example/schemas/extension-qa/v1",
+  "title": "Irion DuckDB extension QA configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "duckdb", "defaultExtensions", "testBatteries"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "duckdb": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "ciToolsVersion"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1},
+        "ciToolsVersion": {"type": "string", "minLength": 1}
+      }
+    },
+    "defaultExtensions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/extension"}
+    },
+    "testBatteries": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$"},
+      "additionalProperties": {"$ref": "#/$defs/battery"}
+    }
+  },
+  "$defs": {
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "isUsed"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "isUsed": {"type": "boolean"},
+        "installFrom": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"}
+      }
+    },
+    "ignoredTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "profiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"enum": ["sqlite", "postgres"]}
+        }
+      }
+    },
+    "battery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["isEnabled", "runner", "repository", "pin", "tests"],
+      "properties": {
+        "isEnabled": {"type": "boolean"},
+        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+        "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+        "pin": {"type": "string", "minLength": 1},
+        "tests": {"type": "string", "minLength": 1},
+        "submodules": {
+          "oneOf": [
+            {"type": "boolean"},
+            {"enum": ["true", "false", "recursive"]}
+          ]
+        },
+        "setup": {
+          "enum": ["none", "httpfs-services", "ducklake-catalogs", "postgres-17", "sqlserver-2022"]
+        },
+        "extensions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/extension"}
+        },
+        "ignoredTests": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ignoredTest"}
+        }
+      }
+    }
+  }
+}

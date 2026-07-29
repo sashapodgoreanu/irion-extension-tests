@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irion.example/schemas/result-policy-v1.schema.json",
+  "title": "DuckDB Extension QA Result Policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "defaults", "overrides"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "defaults": {"$ref": "#/$defs/thresholds"},
+    "overrides": {
+      "type": "array",
+      "items": {
+        "allOf": [
+          {"$ref": "#/$defs/thresholds"},
+          {
+            "type": "object",
+            "required": ["case"],
+            "properties": {
+              "case": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+              "profile": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"}
+            }
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "thresholds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "minimumDiscovered": {"type": "integer", "minimum": 0},
+        "minimumExecuted": {"type": "integer", "minimum": 0},
+        "maximumSkipped": {"type": "integer", "minimum": 0},
+        "case": {"type": "string"},
+        "profile": {"type": "string"}
+      }
+    }
+  }
+}

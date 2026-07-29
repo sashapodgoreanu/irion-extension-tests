@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irion.example/schemas/extension-qa/execution-plan/v2",
+  "title": "Irion DuckDB extension QA execution plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runtime", "cases"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duckdbVersion", "ciToolsVersion"],
+      "properties": {
+        "duckdbVersion": {"type": "string", "minLength": 1},
+        "ciToolsVersion": {"type": "string", "minLength": 1}
+      }
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "extensionName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "profileName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "testConfig": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "excludedExtensions", "staticallyLoadedExtensions"],
+          "properties": {
+            "kind": {"const": "generated"},
+            "description": {"type": "string", "minLength": 1},
+            "excludedExtensions": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/extensionName"}
+            },
+            "staticallyLoadedExtensions": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/extensionName"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "path"],
+          "properties": {
+            "kind": {"const": "upstream"},
+            "path": {"type": "string", "minLength": 1}
+          }
+        }
+      ]
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "tests", "runtimeSetup"],
+      "properties": {
+        "name": {"$ref": "#/$defs/profileName"},
+        "tests": {"type": "string", "minLength": 1},
+        "runtimeSetup": {"enum": ["none", "ducklake-postgres-15"]},
+        "testConfig": {"$ref": "#/$defs/testConfig"}
+      }
+    },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"$ref": "#/$defs/extensionName"},
+        "installFrom": {"$ref": "#/$defs/extensionName"}
+      }
+    },
+    "ignoredTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "profiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/profileName"}
+        }
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "execution", "extensions", "ignoredTests"],
+      "properties": {
+        "name": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["repository", "pin", "submodules"],
+          "properties": {
+            "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+            "pin": {"type": "string", "minLength": 1},
+            "submodules": {"enum": ["true", "false", "recursive"]}
+          }
+        },
+        "execution": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["runner", "setup", "profiles"],
+          "properties": {
+            "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+            "setup": {"enum": ["none", "httpfs-services", "ducklake-catalogs", "postgres-17", "sqlserver-2022", "bigquery-gcp"]},
+            "profiles": {
+              "type": "array",
+              "minItems": 1,
+              "items": {"$ref": "#/$defs/profile"}
+            }
+          }
+        },
+        "extensions": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/extension"}
+        },
+        "ignoredTests": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/ignoredTest"}
+        }
+      }
+    }
+  }
+}
