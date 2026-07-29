@@ -1,4 +1,4 @@
-schemaVersion: 3
+schemaVersion: 4
 
 duckdb:
   version: v1.5.4
@@ -241,7 +241,10 @@ testBatteries:
     repository: duckdb/duckdb-azure
     pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
     submodules: recursive
-    services: []
+    services:
+      - name: storage-emulator
+        type: azurite
+        port: 10000
     prerequisites: []
     profiles:
       - name: all
