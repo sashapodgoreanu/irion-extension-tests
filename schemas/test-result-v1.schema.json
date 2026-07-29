@@ -67,7 +67,7 @@
         "properties": {
           "name": {"type": "string", "minLength": 1},
           "filter": {"type": ["string", "null"]},
-          "status": {"enum": ["passed", "failed", "invalid", "not_run"]},
+          "status": {"enum": ["passed", "skipped", "failed", "invalid", "not_run"]},
           "log": {"type": ["string", "null"]},
           "summaryFound": {"type": "boolean"},
           "discovered": {"type": ["integer", "null"], "minimum": 0},
