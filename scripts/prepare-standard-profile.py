@@ -73,36 +73,18 @@ def main() -> int:
         kind = test_config.get("kind")
 
         if kind == "generated":
-            excluded_extensions = set(test_config.get("excludedExtensions", []))
-            explicit_iceberg_require = "iceberg" in excluded_extensions
-            static_extensions = list(test_config["staticallyLoadedExtensions"])
-            if explicit_iceberg_require:
-                # The local Iceberg suite uses `require avro`, `require httpfs`, and
-                # `require iceberg`. Avro and HTTPFS are dependencies and may be
-                # available from process start; Iceberg must remain unloaded until
-                # the explicit require so pre-require negative assertions stay valid.
-                for dependency in ("avro", "httpfs"):
-                    if dependency not in static_extensions:
-                        static_extensions.append(dependency)
             config: dict[str, Any] = {
                 "description": test_config.get(
                     "description", f"{profile_name} compatibility profile"
                 ),
-                "autoloading": "none" if explicit_iceberg_require else "all",
+                "autoloading": "all",
                 "init_script": str(init_script),
                 "on_new_connection": connection_sql,
-                "statically_loaded_extensions": static_extensions,
+                "statically_loaded_extensions": list(
+                    test_config["staticallyLoadedExtensions"]
+                ),
                 "summarize_failures": True,
             }
-            if explicit_iceberg_require:
-                # LOCAL_EXTENSION_REPO normally forces these settings back on in
-                # DuckDB's test runner. Override them after repository discovery so
-                # pre-require statements cannot silently autoload Iceberg, while the
-                # later `require iceberg` can still load the pinned local extension.
-                config["settings"] = [
-                    {"name": "autoload_known_extensions", "value": "false"},
-                    {"name": "autoinstall_known_extensions", "value": "false"},
-                ]
         elif kind == "upstream":
             source = (upstream_root / test_config["path"]).resolve()
             try:
