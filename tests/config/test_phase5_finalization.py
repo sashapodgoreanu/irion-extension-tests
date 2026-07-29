@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
+AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_etag.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/test_data_integrity.test,test/sql/azure_scope_and_full_path.test"
 
 
 class Phase5FinalizationTest(unittest.TestCase):
@@ -13,7 +14,7 @@ class Phase5FinalizationTest(unittest.TestCase):
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
         azure = config["testBatteries"]["azure"]
         self.assertEqual([p["name"] for p in azure["profiles"]], ["azurite", "proxy"])
-        self.assertEqual(azure["profiles"][0]["tests"], "test/sql/*.test")
+        self.assertEqual(azure["profiles"][0]["tests"], AZURE_LOCAL_TESTS)
         self.assertEqual(azure["profiles"][1]["tests"], "test/sql/proxy/*")
         self.assertTrue(azure["profiles"][1]["services"][1]["auth"])
 
