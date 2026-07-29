@@ -154,6 +154,57 @@ qa_service_start_httpfs_minio() {
   QA_SERVICE_CLEANUPS+=("httpfs-minio|${name}|${compose_file}")
 }
 
+qa_service_start_azurite() {
+  local name=$1
+  local port=$2
+  local root="${QA_SERVICE_RUNTIME_ROOT}/${name}"
+  local log="${QA_SERVICE_LOG_DIR}/${name}.log"
+  local upload_script="${QA_SERVICE_UPSTREAM_ROOT}/scripts/upload_test_files_to_azurite.sh"
+
+  command -v azurite >/dev/null 2>&1 || {
+    echo "Azurite executable is missing" >&2
+    return 1
+  }
+  command -v az >/dev/null 2>&1 || {
+    echo "Azure CLI executable is missing" >&2
+    return 1
+  }
+  if [[ ! -x "${upload_script}" ]]; then
+    echo "Azurite fixture script is missing or not executable: ${upload_script}" >&2
+    return 1
+  fi
+
+  mkdir -p "${root}"
+  azurite \
+    --skipApiVersionCheck \
+    --location "${root}" \
+    --blobHost 127.0.0.1 \
+    --blobPort "${port}" \
+    >"${log}" 2>&1 &
+  local pid=$!
+  QA_SERVICE_CLEANUPS+=("pid|${name}|${pid}")
+  qa_service_wait_for_port "${port}" "Azurite service ${name}"
+
+  local account="devstoreaccount1"
+  local key="Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw=="
+  local suffix
+  suffix="${USER:-user}/$(TZ=Z date +'%Y%m%dT%H%M%SZ')--$(python3 -c 'import uuid; print(str(uuid.uuid4())[10:17])')"
+
+  export AZURE_STORAGE_ACCOUNT="${account}"
+  export AZURE_STORAGE_CONNECTION_STRING="DefaultEndpointsProtocol=http;AccountName=${account};AccountKey=${key};BlobEndpoint=http://127.0.0.1:${port}/${account};QueueEndpoint=http://127.0.0.1:10001/${account};TableEndpoint=http://127.0.0.1:10002/${account};"
+  export AZ_STORAGE_ACCOUNT="${account}"
+  export AZ_DATA_DIR="testing-private"
+  export AZ_TEMP_DIR="writes/${suffix}"
+  export AZURE_PROTOCOL="az"
+  export AZURE_PROVIDER="local"
+  export DUCKDB_AZURE_PUBLIC_CONTAINER_AVAILABLE=1
+
+  (
+    cd "${QA_SERVICE_UPSTREAM_ROOT}"
+    ./scripts/upload_test_files_to_azurite.sh
+  ) >>"${log}" 2>&1
+}
+
 qa_service_start_postgres() {
   local name=$1
   local port=$2
@@ -270,6 +321,9 @@ qa_service_start_file() {
         ;;
       httpfs-minio)
         qa_service_start_httpfs_minio "${name}"
+        ;;
+      azurite)
+        qa_service_start_azurite "${name}" "${port}"
         ;;
       postgres)
         qa_service_start_postgres \
