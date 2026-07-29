@@ -19,7 +19,6 @@ PROFILES_JSON="${BATTERY_RUNTIME_CONFIG_DIR}/profiles.json"
 PROFILES_TSV="${BATTERY_RUNTIME_CONFIG_DIR}/profiles.tsv"
 PROFILE_SKIPS_JSON="${BATTERY_RUNTIME_CONFIG_DIR}/profile-skips.json"
 PROFILE_CONFIG_HELPER="${SCRIPT_DIR}/prepare-standard-profile.py"
-DUCKLAKE_POSTGRES_PREPARER="${SCRIPT_DIR}/prepare-ducklake-postgres-tests.py"
 REQUIREMENT_CHECKER="${SCRIPT_DIR}/check-test-requirements.py"
 PROBE_VALIDATOR="${SCRIPT_DIR}/validate-extension-probe.py"
 ICEBERG_METADATA_VERIFIER="${SCRIPT_DIR}/verify-iceberg-metadata.py"
@@ -44,7 +43,6 @@ for required in \
   "${PROFILES_TSV}" \
   "${PROFILE_SKIPS_JSON}" \
   "${PROFILE_CONFIG_HELPER}" \
-  "${DUCKLAKE_POSTGRES_PREPARER}" \
   "${REQUIREMENT_CHECKER}" \
   "${PROBE_VALIDATOR}" \
   "${ICEBERG_METADATA_VERIFIER}" \
@@ -128,13 +126,6 @@ run_case_specific_verification() {
 
 while IFS=$'\t' read -r profile_name test_filter; do
   [[ -n "${profile_name}" ]] || continue
-
-  if [[ "${TEST_NAME}" == "ducklake" && "${profile_name}" == "postgres" ]]; then
-    python3 "${DUCKLAKE_POSTGRES_PREPARER}" \
-      "${UPSTREAM_ROOT}" \
-      "${LOG_DIR}/ducklake-postgres-test-preparation.json"
-  fi
-
   profile_config="${RUNTIME_ROOT}/profiles/${profile_name}.json"
   profile_services="${BATTERY_RUNTIME_CONFIG_DIR}/profile-services-${profile_name}.json"
   python3 "${PROFILE_CONFIG_HELPER}" \
