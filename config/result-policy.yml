@@ -15,6 +15,6 @@ overrides:
   maximumSkipped: 0
 - case: unity_catalog
   profile: oss
-  minimumDiscovered: 1
-  minimumExecuted: 1
+  minimumDiscovered: 2
+  minimumExecuted: 2
   maximumSkipped: 0
