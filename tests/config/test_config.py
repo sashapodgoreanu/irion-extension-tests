@@ -15,8 +15,8 @@ from qa import ConfigError, load_config, resolve_config
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_etag.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/test_data_integrity.test,test/sql/azure_scope_and_full_path.test"
-EXPECTED_MATRIX_SHA256 = "920042dded27b301e00d9572793592f173a02a5590e62d5aa40a4e930f014603"
-EXPECTED_PLAN_SHA256 = "4c5051abf02dec41561edb3e495190b04a6356fdbfb41da01746a3000246191c"
+EXPECTED_MATRIX_SHA256 = "c6cf53889838839310290262eb48583546d1809ccd15b6d51b039e296451eaf1"
+EXPECTED_PLAN_SHA256 = "cdc9995377e27af5f9b4039cffda5896caf1051bb5d4958d5d4afca39b109a07"
 
 
 class ConfigTestCase(unittest.TestCase):
