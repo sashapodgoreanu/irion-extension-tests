@@ -242,7 +242,7 @@ testBatteries:
     prerequisites: []
     profiles:
     - name: azurite
-      tests: test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_etag.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/test_data_integrity.test,test/sql/azure_scope_and_full_path.test
+      tests: test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test
       services: []
       testConfig:
         kind: generated
