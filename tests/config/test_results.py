@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,6 +12,8 @@ from jsonschema import Draft202012Validator
 from qa.results import aggregate_results, build_case_result, parse_unittest_log
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+RESULT_WRITER = REPOSITORY_ROOT / "scripts" / "write-test-result.py"
+RESULT_AGGREGATOR = REPOSITORY_ROOT / "scripts" / "aggregate-test-results.py"
 RESULT_SCHEMA = json.loads(
     (REPOSITORY_ROOT / "schemas" / "test-result-v1.schema.json").read_text(encoding="utf-8")
 )
@@ -34,6 +38,17 @@ def battery(*, accepted: bool = False) -> dict:
 
 
 class ResultTestCase(unittest.TestCase):
+    def test_result_scripts_resolve_repository_package_when_executed_by_path(self) -> None:
+        for script in (RESULT_WRITER, RESULT_AGGREGATOR):
+            completed = subprocess.run(
+                [sys.executable, str(script), "--help"],
+                cwd=REPOSITORY_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("usage:", completed.stdout.lower())
+
     def test_parse_passing_duckdb_summary(self) -> None:
         parsed = parse_unittest_log(
             "[122/122] (100%): test/sql/example.test\n"
