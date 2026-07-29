@@ -74,15 +74,12 @@ def main() -> int:
 
         if kind == "generated":
             excluded_extensions = set(test_config.get("excludedExtensions", []))
-            # The Iceberg local suite verifies that metadata functions are unavailable
-            # before its explicit `require iceberg` directive. Disable automatic
-            # extension loading when Iceberg is intentionally excluded from preload.
-            autoloading = "none" if "iceberg" in excluded_extensions else "all"
+            explicit_iceberg_require = "iceberg" in excluded_extensions
             config: dict[str, Any] = {
                 "description": test_config.get(
                     "description", f"{profile_name} compatibility profile"
                 ),
-                "autoloading": autoloading,
+                "autoloading": "none" if explicit_iceberg_require else "all",
                 "init_script": str(init_script),
                 "on_new_connection": connection_sql,
                 "statically_loaded_extensions": list(
@@ -90,6 +87,15 @@ def main() -> int:
                 ),
                 "summarize_failures": True,
             }
+            if explicit_iceberg_require:
+                # LOCAL_EXTENSION_REPO normally forces these settings back on in
+                # DuckDB's test runner. Override them after repository discovery so
+                # pre-require statements cannot silently autoload Iceberg, while the
+                # later `require iceberg` can still load the pinned local extension.
+                config["settings"] = [
+                    {"name": "autoload_known_extensions", "value": "false"},
+                    {"name": "autoinstall_known_extensions", "value": "false"},
+                ]
         elif kind == "upstream":
             source = (upstream_root / test_config["path"]).resolve()
             try:
