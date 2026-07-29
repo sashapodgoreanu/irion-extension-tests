@@ -60,6 +60,10 @@ class IcebergRuntimeTest(unittest.TestCase):
             self.assertEqual(generated["autoloading"], "none")
             self.assertNotIn("LOAD iceberg;", generated["on_new_connection"])
             self.assertEqual(
+                generated["statically_loaded_extensions"],
+                ["core_functions", "parquet", "avro", "httpfs"],
+            )
+            self.assertEqual(
                 generated["settings"],
                 [
                     {"name": "autoload_known_extensions", "value": "false"},
