@@ -16,8 +16,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
 UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
-EXPECTED_MATRIX_SHA256 = "d97a9355634c7a253e5b4f644735b579dbf3f96bba175d3af6dc4baf122178a8"
-EXPECTED_PLAN_SHA256 = "ada7a64e57b372a1f53b0c07b3524841cdd73b780beb63e79be583ae982053cb"
+EXPECTED_MATRIX_SHA256 = "2fdaa1b7702203fb18115c5d6c21aad971f1e1031b38c19e10bc1f40714f9606"
+EXPECTED_PLAN_SHA256 = "7d2bd5e7dc0a0ac4dde9df890a38b6c1887d0905ad1efa62ea9f913999e611c4"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -137,6 +137,7 @@ class ConfigTestCase(unittest.TestCase):
         )
 
         iceberg = next(case for case in matrix if case["name"] == "iceberg")
+        self.assertEqual(iceberg["pin"], "757264559e745be697e9306e144e8889eb1dc024")
         self.assertEqual(iceberg["prerequisites"], [])
         self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(
