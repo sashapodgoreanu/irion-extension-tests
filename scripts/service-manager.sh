@@ -92,16 +92,11 @@ qa_service_start_squid() {
   fi
   local log_dir="${QA_SERVICE_LOG_DIR}/${name}"
 
-  # Ubuntu packages may start a system Squid instance. The upstream HTTPFS
-  # helper uses a process-global shared-memory name, so stop the packaged
-  # service and remove stale IPC state before starting the isolated proxy.
   sudo systemctl stop squid >/dev/null 2>&1 \
     || sudo service squid stop >/dev/null 2>&1 \
     || true
   sudo rm -f /dev/shm/squid-* >/dev/null 2>&1 || true
 
-  # run_squid.sh intentionally creates log_dir with plain `mkdir`; do not
-  # pre-create it here. Remove only the job-local directory from prior attempts.
   rm -rf "${log_dir}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
@@ -145,9 +140,7 @@ qa_service_start_httpfs_minio() {
     ./scripts/generate_presigned_url.sh
   )
   pushd "${QA_SERVICE_UPSTREAM_ROOT}" >/dev/null
-  # shellcheck disable=SC1091
   source ./scripts/run_s3_test_server.sh
-  # shellcheck disable=SC1091
   source ./scripts/set_s3_test_server_variables.sh
   popd >/dev/null
   export TEST_PERSISTENT_SECRETS_AVAILABLE=true
@@ -216,8 +209,14 @@ qa_service_start_postgres() {
   battery_slug="${battery_slug//_/-}"
   local service_slug="${name//_/-}"
   local container="qa-${battery_slug}-${service_slug}"
+  local battery_runtime_root
+  battery_runtime_root="$(dirname "${QA_SERVICE_RUNTIME_ROOT}")"
   container="${container:0:63}"
 
+  # PostgreSQL integration fixtures use server-side COPY with absolute paths.
+  # Mount both the upstream checkout and the battery temp directory at the
+  # identical paths so the containerized server sees runner-generated files.
+  mkdir -p "${battery_runtime_root}/tmp"
   docker rm -f "${container}" >/dev/null 2>&1 || true
   docker run -d \
     --name "${container}" \
@@ -225,6 +224,8 @@ qa_service_start_postgres() {
     -e "POSTGRES_PASSWORD=${password}" \
     -e "POSTGRES_DB=${database}" \
     -p "127.0.0.1:${port}:5432" \
+    -v "${QA_SERVICE_UPSTREAM_ROOT}:${QA_SERVICE_UPSTREAM_ROOT}" \
+    -v "${battery_runtime_root}/tmp:${battery_runtime_root}/tmp" \
     "postgres:${version}" >/dev/null
   QA_SERVICE_CLEANUPS+=("container|${name}|${container}")
 
@@ -363,7 +364,6 @@ PY
         done
         ;;
       external-cloud-account)
-        # Metadata-only prerequisite: CI may accept this battery's failure.
         ;;
       *)
         echo "Unsupported prerequisite: ${prerequisite}" >&2
