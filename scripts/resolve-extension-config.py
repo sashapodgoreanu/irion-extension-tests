@@ -36,6 +36,7 @@ def align_legacy_contracts() -> None:
         path = REPOSITORY_ROOT / relative
         text = path.read_text(encoding="utf-8")
         text = text.replace('["azurite"],', '["azurite", "squid"],')
+        text = text.replace('["azurite"])', '["azurite", "squid"])')
         path.write_text(text, encoding="utf-8")
 
 
