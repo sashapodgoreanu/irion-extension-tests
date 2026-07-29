@@ -220,8 +220,14 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
 
+      - name: Set up Node for Azurite
+        if: contains(matrix.capabilities, 'azurite')
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install service dependencies
-        if: contains(matrix.capabilities, 'squid') || contains(matrix.capabilities, 'postgres-client')
+        if: contains(matrix.capabilities, 'squid') || contains(matrix.capabilities, 'postgres-client') || contains(matrix.capabilities, 'azurite')
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -232,8 +238,16 @@ jobs:
           if [[ '${{ contains(matrix.capabilities, 'postgres-client') }}' == 'true' ]]; then
             packages+=(postgresql-client)
           fi
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq "${packages[@]}"
+          if (( ${#packages[@]} > 0 )); then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq "${packages[@]}"
+          fi
+          if [[ '${{ contains(matrix.capabilities, 'azurite') }}' == 'true' ]]; then
+            npm install --global azurite
+            command -v az >/dev/null
+            azurite --version
+            az --version
+          fi
 
       - name: Verify container runtime
         if: contains(matrix.capabilities, 'docker') || contains(matrix.capabilities, 'docker-compose')
@@ -342,6 +356,8 @@ jobs:
             --results-root build/results \
             --result-schema schemas/test-result-v1.schema.json \
             --summary-schema schemas/test-summary-v1.schema.json \
+            --policy config/result-policy.yml \
+            --policy-schema schemas/result-policy-v1.schema.json \
             --output-json build/summary/summary.json \
             --output-markdown build/summary/summary.md
 
