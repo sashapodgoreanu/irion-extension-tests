@@ -16,8 +16,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
 UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
-EXPECTED_MATRIX_SHA256 = "2fdaa1b7702203fb18115c5d6c21aad971f1e1031b38c19e10bc1f40714f9606"
-EXPECTED_PLAN_SHA256 = "7d2bd5e7dc0a0ac4dde9df890a38b6c1887d0905ad1efa62ea9f913999e611c4"
+EXPECTED_MATRIX_SHA256 = "d3e01be8c3d2d70827bc22af8fbd80e5173c5a8313cd2251de7a09ee58c08834"
+EXPECTED_PLAN_SHA256 = "2f2639f247398b31a938333a6fbd8262cf969c3ea4199ee5abc4cc6915585bd7"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -142,6 +142,13 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(
             iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
+        )
+        self.assertEqual(
+            [item["path"] for item in iceberg["ignoredTests"]],
+            [
+                "test/sql/local/iceberg_scans/iceberg_partition_stats.test",
+                "test/sql/local/iceberg_scans/iceberg_column_stats.test",
+            ],
         )
         self.assertEqual(
             [
