@@ -42,11 +42,24 @@ def apply_upstream_runtime_compatibility(
 ) -> None:
     """Apply runner-only compatibility settings for reviewed upstream configs."""
     if profile_name == "postgres" and source_path == "test/configs/postgres.json":
-        # DuckLake's PostgreSQL on_init resets one shared catalog. Running multiple
-        # SQLLogicTest files concurrently races those resets and leaves a DATA_PATH
-        # from another test in the catalog. Keep DuckDB execution parallel inside
-        # each test, but serialize the test-runner files for this profile only.
+        # Every DuckLake PostgreSQL SQLLogicTest file shares the same metadata
+        # database. Run files serially and repeat the upstream catalog reset after
+        # each file so tables, snapshots and DATA_PATH metadata cannot leak into
+        # the following test.
         config["max_test_threads"] = 1
+
+        reset_sql = config.get("on_init")
+        if not isinstance(reset_sql, str) or not reset_sql.strip():
+            raise ProfileError(
+                "DuckLake PostgreSQL config must provide a non-empty on_init reset"
+            )
+
+        existing_cleanup = config.get("on_cleanup", "")
+        if existing_cleanup and not isinstance(existing_cleanup, str):
+            raise ProfileError("upstream on_cleanup must be a string")
+        config["on_cleanup"] = " ".join(
+            value for value in (existing_cleanup, reset_sql) if value
+        )
 
 
 def main() -> int:
