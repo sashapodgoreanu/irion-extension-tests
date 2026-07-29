@@ -95,6 +95,14 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(postgres["services"][0]["version"], "17")
         self.assertEqual(postgres["capabilities"], ["docker", "postgres-client"])
 
+        azure = next(case for case in matrix if case["name"] == "azure")
+        self.assertEqual(
+            azure["services"],
+            [{"name": "storage-emulator", "type": "azurite", "port": 10000}],
+        )
+        self.assertEqual(azure["capabilities"], ["azurite"])
+        self.assertEqual(azure["prerequisites"], [])
+
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
         self.assertEqual(
@@ -133,11 +141,10 @@ class ConfigTestCase(unittest.TestCase):
             self.assertEqual(extension["installFrom"], "community")
 
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
-        self.assertEqual(
-            hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest(),
-            EXPECTED_MATRIX_SHA256,
-        )
-        self.assertEqual(plan.sha256(), EXPECTED_PLAN_SHA256)
+        matrix_hash = hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest()
+        self.assertEqual(matrix_hash, EXPECTED_MATRIX_SHA256, matrix_hash)
+        plan_hash = plan.sha256()
+        self.assertEqual(plan_hash, EXPECTED_PLAN_SHA256, plan_hash)
 
     def test_disabled_battery_does_not_change_default_extensions(self) -> None:
         config = self.load_modified(
@@ -219,9 +226,9 @@ class ConfigTestCase(unittest.TestCase):
 
         self.assert_config_error(mutate, "is not valid under any of the given schemas")
 
-    def test_schema_v2_is_rejected_after_service_migration(self) -> None:
+    def test_schema_v3_is_rejected_after_azurite_migration(self) -> None:
         self.assert_config_error(
-            lambda data: data.update(schemaVersion=2), "schemaVersion must be 3"
+            lambda data: data.update(schemaVersion=3), "schemaVersion must be 4"
         )
 
     def test_profile_cannot_exclude_unresolved_extension(self) -> None:
