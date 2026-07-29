@@ -56,8 +56,8 @@ The build happens once. Every enabled battery runs as an independent matrix job 
 
 ```yaml
 duckdb:
-  version: v1.5.4
-  ciToolsVersion: v1.5.4
+  version: v1.5.5
+  ciToolsVersion: v1.5.5
 ```
 
 These values drive the build, cache key, artifact name, extension directory, and every battery runtime. They must not be duplicated in the workflow.
@@ -81,6 +81,9 @@ defaultExtensions:
   - name: postgres_scanner
     isUsed: true
 
+  - name: icu
+    isUsed: true
+
   - name: azure
     isUsed: true
 
@@ -92,6 +95,10 @@ defaultExtensions:
 
   - name: unity_catalog
     isUsed: true
+
+  - name: bigquery
+    isUsed: true
+    installFrom: community
 ```
 
 The ordering is intentional:
@@ -106,10 +113,12 @@ The current baseline is:
 - `mssql` from the DuckDB Community repository;
 - `ducklake`;
 - `postgres_scanner`;
+- `icu`;
 - `azure`;
 - `delta`;
 - `iceberg`;
-- `unity_catalog`.
+- `unity_catalog`;
+- `bigquery` from the DuckDB Community repository.
 
 Set `isUsed: false` to remove an extension only from the shared baseline:
 
@@ -282,16 +291,21 @@ extensions:
 
 This means removing `delta` from the shared defaults does not make the Unity Catalog battery invalid: that battery still declares and loads Delta itself.
 
-## DuckDB v1.5.4 pins
+## DuckDB v1.5.5 pins
 
-The new batteries use the exact extension commits declared by DuckDB tag `v1.5.4`.
+The core batteries use the exact extension commits declared by DuckDB tag `v1.5.5`.
 
-| Extension | Upstream repository | DuckDB v1.5.4 pin |
+| Extension | Upstream repository | DuckDB v1.5.5 pin |
 |---|---|---|
+| HTTPFS | `duckdb/duckdb-httpfs` | `827222fb45a043a7a852d1f7aae46901492a3cda` |
+| DuckLake | `duckdb/ducklake` | `d8a1881e22516ea3d186d73e83c65fe5bd1a1dc4` |
+| PostgreSQL Scanner | `duckdb/duckdb-postgres` | `41223e51559cd581f1c06e170b71c71df25bbaac` |
 | Delta | `duckdb/duckdb-delta` | `45c40878601b54b4188b09e08732fe0d576ad222` |
-| Iceberg | `duckdb/duckdb-iceberg` | `e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7` |
-| Azure | `duckdb/duckdb-azure` | `563589b2f24290a4dcdd4247eaedf2b544f9dbcd` |
-| Unity Catalog | `duckdb/unity_catalog` | `d52a7ee8678a23a8e0f950e955b9ffa1df0c3395` |
+| Iceberg | `duckdb/duckdb-iceberg` | `45163a28e0ed6a2071a82a1bf1dd432d0216cf9c` |
+| Azure | `duckdb/duckdb-azure` | `003214c96d0caa39d5c3e27a9e1976a0692c7d37` |
+| Unity Catalog | `duckdb/unity_catalog` | `fd851475780ca064d9706a5025ea6e5d1d9d7e23` |
+
+Community extensions are resolved from the DuckDB Community Extensions catalog. BigQuery remains pinned to `0c55a9b81646002edc0c73f36b703c8c39cea2ab`; MSSQL advances to release `v0.2.2`, built for DuckDB `v1.5.5`.
 
 These values are immutable test-source pins. Updating DuckDB requires reviewing the corresponding extension configuration files from the new DuckDB tag and changing the YAML intentionally.
 
@@ -299,14 +313,15 @@ These values are immutable test-source pins. Updating DuckDB requires reviewing 
 
 | Battery | Upstream pin | Main tests | Setup |
 |---|---|---|---|
-| HTTPFS | `c3f215ab360f04dc3d3d5305fa81849c0121f111` | `test/sql/*` plus upstream autoload tests | HTTP server, Squid, MinIO/S3 fixtures |
-| DuckLake | `d318a545571d7d46eb751fa2aa5f6f4389285d3c` | `test/sql/*` | SQLite and PostgreSQL catalog profiles |
-| postgres_scanner | `8f813f9b9c9e52a9074a050a0be60f49160a6baa` | `test/sql/*` | PostgreSQL 17 and upstream fixtures |
+| HTTPFS | `827222fb45a043a7a852d1f7aae46901492a3cda` | `test/sql/*` plus upstream autoload tests | HTTP server, Squid, MinIO/S3 fixtures |
+| DuckLake | `d8a1881e22516ea3d186d73e83c65fe5bd1a1dc4` | `test/sql/*` | SQLite and PostgreSQL catalog profiles |
+| postgres_scanner | `41223e51559cd581f1c06e170b71c71df25bbaac` | `test/sql/*` | PostgreSQL 17 and upstream fixtures |
 | Delta | `45c40878601b54b4188b09e08732fe0d576ad222` | `test/sql/*` | Standard runner; upstream environment-gated cloud/generated-data tests remain conditional |
-| Iceberg | `e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7` | `test/sql/local/*` | Standard runner; external catalog and S3 profiles are not enabled yet |
-| Azure | `563589b2f24290a4dcdd4247eaedf2b544f9dbcd` | `test/sql/*` | Standard runner; credential-gated tests use upstream `require-env` conditions |
-| Unity Catalog | `d52a7ee8678a23a8e0f950e955b9ffa1df0c3395` | `test/sql/*` | Standard runner; Databricks and local-server tests remain environment-gated |
-| MSSQL | release `v0.2.1` | `test/sql/*` | SQL Server 2022 and upstream release fixtures |
+| Iceberg | `45163a28e0ed6a2071a82a1bf1dd432d0216cf9c` | `test/sql/local/*` | Standard runner; external catalog and S3 profiles are not enabled yet |
+| Azure | `003214c96d0caa39d5c3e27a9e1976a0692c7d37` | local Azurite and proxy suites | Azurite and Squid profiles |
+| Unity Catalog | `fd851475780ca064d9706a5025ea6e5d1d9d7e23` | local OSS catalog suite | Local Unity Catalog OSS service |
+| BigQuery | `0c55a9b81646002edc0c73f36b703c8c39cea2ab` | `test/sql/*` | External Google Cloud credentials; accepted failure when unavailable |
+| MSSQL | release `v0.2.2` | `test/sql/*` | SQL Server 2022 and upstream release fixtures |
 
 The table documents the current YAML values; `config/extensions.yml` remains authoritative.
 
@@ -328,13 +343,13 @@ The former generic `test/*` pass was removed because it repeated the same `test/
 
 ### postgres_scanner
 
-The postgres scanner battery follows the commit declared by DuckDB `v1.5.4`, starts PostgreSQL 17, and runs the pinned repository’s `create-postgres-tables.sh` fixture script.
+The postgres scanner battery follows the commit declared by DuckDB `v1.5.5`, starts PostgreSQL 17, and runs the pinned repository’s `create-postgres-tables.sh` fixture script.
 
 It verifies that the installed `postgres_scanner` binary reports the same source commit as the checked-out tests before executing `test/sql/*`.
 
 ### Delta
 
-The Delta battery follows the commit declared by DuckDB `v1.5.4` and executes `test/sql/*`.
+The Delta battery follows the commit declared by DuckDB `v1.5.5` and executes `test/sql/*`.
 
 The upstream repository distinguishes:
 
@@ -346,21 +361,25 @@ All extension dependencies are declared in the battery. Tests that require exter
 
 ### Iceberg
 
-The Iceberg battery follows the DuckDB `v1.5.4` commit and initially executes `test/sql/local/*`.
+The Iceberg battery follows the DuckDB `v1.5.5` commit and initially executes `test/sql/local/*`.
 
 The battery loads `httpfs`, `avro`, `tpch`, and `iceberg`. The external Fixture, Nessie, Lakekeeper, Polaris, MinIO/S3, Spark-data-generation, and cloud profiles are intentionally not started by the generic runner. They can be added later as named setup contracts without changing the workflow matrix.
 
 ### Azure
 
-The Azure battery follows the DuckDB `v1.5.4` commit and executes `test/sql/*`.
+The Azure battery follows the DuckDB `v1.5.5` commit and executes its local Azurite and proxy profiles.
 
 Tests requiring Azure storage accounts, connection strings, CLI authentication, service principals, access tokens, or managed identity remain controlled by their upstream `require-env` directives. The same job still verifies that Azure installs and loads together with every active default extension.
 
 ### Unity Catalog
 
-The Unity Catalog battery follows the DuckDB `v1.5.4` commit and executes `test/sql/*`.
+The Unity Catalog battery follows the DuckDB `v1.5.5` commit and executes the local OSS catalog profile.
 
-`delta` is declared explicitly and loaded before `unity_catalog`. The repository’s Databricks and local OSS Unity Catalog tests remain controlled by their upstream environment checks until dedicated setup contracts are added.
+`delta` is declared explicitly and loaded before `unity_catalog`. Databricks-dependent tests remain controlled by their upstream environment checks.
+
+### BigQuery
+
+BigQuery follows the immutable commit currently published by the DuckDB Community Extensions catalog. The battery requires Google Cloud credentials and remains an accepted failure when the external account is unavailable.
 
 ### MSSQL
 

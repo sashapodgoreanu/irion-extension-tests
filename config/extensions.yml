@@ -1,7 +1,7 @@
 schemaVersion: 4
 duckdb:
-  version: v1.5.4
-  ciToolsVersion: v1.5.4
+  version: v1.5.5
+  ciToolsVersion: v1.5.5
 defaultExtensions:
 - name: httpfs
   isUsed: true
@@ -30,7 +30,7 @@ testBatteries:
     isEnabled: true
     runner: standard
     repository: duckdb/duckdb-httpfs
-    pin: c3f215ab360f04dc3d3d5305fa81849c0121f111
+    pin: 827222fb45a043a7a852d1f7aae46901492a3cda
     submodules: recursive
     services:
     - name: http-server
@@ -74,7 +74,7 @@ testBatteries:
     isEnabled: true
     runner: standard
     repository: duckdb/ducklake
-    pin: d318a545571d7d46eb751fa2aa5f6f4389285d3c
+    pin: d8a1881e22516ea3d186d73e83c65fe5bd1a1dc4
     submodules: recursive
     services: []
     prerequisites: []
@@ -133,7 +133,7 @@ testBatteries:
     isEnabled: true
     runner: postgres-scanner
     repository: duckdb/duckdb-postgres
-    pin: 8f813f9b9c9e52a9074a050a0be60f49160a6baa
+    pin: 41223e51559cd581f1c06e170b71c71df25bbaac
     submodules: recursive
     services:
     - name: postgres
@@ -204,7 +204,7 @@ testBatteries:
     isEnabled: true
     runner: standard
     repository: duckdb/duckdb-iceberg
-    pin: 757264559e745be697e9306e144e8889eb1dc024
+    pin: 45163a28e0ed6a2071a82a1bf1dd432d0216cf9c
     submodules: recursive
     services: []
     prerequisites: []
@@ -242,7 +242,7 @@ testBatteries:
     isEnabled: true
     runner: standard
     repository: duckdb/duckdb-azure
-    pin: 563589b2f24290a4dcdd4247eaedf2b544f9dbcd
+    pin: 003214c96d0caa39d5c3e27a9e1976a0692c7d37
     submodules: recursive
     services:
     - name: storage-emulator
@@ -285,7 +285,7 @@ testBatteries:
     isEnabled: true
     runner: standard
     repository: duckdb/unity_catalog
-    pin: dbca44d4dcc67c196af5fd910f0f26ce56d4930e
+    pin: fd851475780ca064d9706a5025ea6e5d1d9d7e23
     submodules: recursive
     services:
     - name: unity-catalog-oss
@@ -354,7 +354,7 @@ testBatteries:
     isEnabled: true
     runner: mssql-release
     repository: hugr-lab/mssql-extension
-    pin: v0.2.1
+    pin: v0.2.2
     submodules: false
     services:
     - name: sqlserver
@@ -387,12 +387,12 @@ testBatteries:
     ignoredTests:
     - path: test/sql/azure/azure_device_code.test
       reason: Requires Azure credential-chain parameters not supported by the DuckDB
-        v1.5.4 Azure binary
+        v1.5.5 Azure binary
     - path: test/sql/ctas/ctas_auto_tablock.test
-      reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB
-        v1.5.4 runtime
+      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB
+        v1.5.5 runtime
     - path: test/sql/ctas/ctas_if_not_exists.test
-      reason: Known MSSQL v0.2.1 CTAS compatibility failure under the pinned DuckDB
-        v1.5.4 runtime
+      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB
+        v1.5.5 runtime
     - path: test/sql/catalog/ddl_if_not_exists.test
-      reason: MSSQL v0.2.1 returns a different SQL Server object-exists error message
+      reason: MSSQL v0.2.2 returns a different SQL Server object-exists error message

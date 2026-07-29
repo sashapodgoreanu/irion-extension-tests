@@ -16,8 +16,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
 UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
-EXPECTED_MATRIX_SHA256 = "d3e01be8c3d2d70827bc22af8fbd80e5173c5a8313cd2251de7a09ee58c08834"
-EXPECTED_PLAN_SHA256 = "2f2639f247398b31a938333a6fbd8262cf969c3ea4199ee5abc4cc6915585bd7"
+EXPECTED_MATRIX_SHA256 = "8d15925e237a3b1922437f7ef5f740c5b2a1ae8b29c53af749f95a9f3bc5fedb"
+EXPECTED_PLAN_SHA256 = "72b4eded28c2d8506b2d03889901d9e906b6fb7044c34c39ae2393a42552cc8b"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -55,7 +55,7 @@ class ConfigTestCase(unittest.TestCase):
                 "mssql",
             ],
         )
-        self.assertTrue(all(item["duckdbVersion"] == "v1.5.4" for item in matrix))
+        self.assertTrue(all(item["duckdbVersion"] == "v1.5.5" for item in matrix))
         self.assertTrue(all("setup" not in item for item in matrix))
 
         httpfs = matrix[0]
@@ -110,7 +110,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
 
         unity = next(case for case in matrix if case["name"] == "unity_catalog")
-        self.assertEqual(unity["pin"], "dbca44d4dcc67c196af5fd910f0f26ce56d4930e")
+        self.assertEqual(unity["pin"], "fd851475780ca064d9706a5025ea6e5d1d9d7e23")
         self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
         self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
@@ -137,7 +137,7 @@ class ConfigTestCase(unittest.TestCase):
         )
 
         iceberg = next(case for case in matrix if case["name"] == "iceberg")
-        self.assertEqual(iceberg["pin"], "757264559e745be697e9306e144e8889eb1dc024")
+        self.assertEqual(iceberg["pin"], "45163a28e0ed6a2071a82a1bf1dd432d0216cf9c")
         self.assertEqual(iceberg["prerequisites"], [])
         self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(

@@ -7,7 +7,7 @@ from qa import load_config, resolve_config
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "config" / "extensions.yml"
-ICEBERG_COMMIT = "757264559e745be697e9306e144e8889eb1dc024"
+ICEBERG_COMMIT = "45163a28e0ed6a2071a82a1bf1dd432d0216cf9c"
 IGNORED_METADATA_TESTS = [
     "test/sql/local/iceberg_scans/iceberg_partition_stats.test",
     "test/sql/local/iceberg_scans/iceberg_column_stats.test",
