@@ -15,6 +15,7 @@ from qa import ConfigError, load_config, resolve_config
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
+UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
 EXPECTED_MATRIX_SHA256 = "56b87d11c48877c1cc9b4f91f8e891202945f7ccf38902470371a5b72ed6b266"
 EXPECTED_PLAN_SHA256 = "0e574428ce916aabe934fb3ec6d1d357f0f88854e226aefd569550d48c030d6c"
 
@@ -113,6 +114,14 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
         self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
+        self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
+        self.assertEqual(
+            [item["path"] for item in unity["ignoredTests"]],
+            [
+                "test/sql/local_oss_unity_catalog/uc_catalog_write.test",
+                "test/sql/local_oss_unity_catalog/checkpoint.test",
+            ],
+        )
 
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
@@ -128,17 +137,18 @@ class ConfigTestCase(unittest.TestCase):
         )
 
         iceberg = next(case for case in matrix if case["name"] == "iceberg")
+        self.assertEqual(iceberg["prerequisites"], [])
+        self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(
-            iceberg["prerequisites"], [{"type": "external-cloud-account"}]
+            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
         )
-        self.assertEqual(iceberg["capabilities"], ["accepted-failure"])
         self.assertEqual(
             [
                 case["name"]
                 for case in matrix
                 if "accepted-failure" in case["capabilities"]
             ],
-            ["iceberg", "bigquery"],
+            ["bigquery"],
         )
 
         mssql = next(case for case in matrix if case["name"] == "mssql")
