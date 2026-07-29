@@ -31,7 +31,7 @@ SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
 VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
 VALID_SERVICE_TYPES = frozenset(
-    {"python-http", "squid", "httpfs-minio", "azurite", "postgres", "sqlserver"}
+    {"python-http", "squid", "httpfs-minio", "azurite", "unity-catalog-oss", "postgres", "sqlserver"}
 )
 VALID_PREREQUISITE_TYPES = frozenset(
     {"google-bigquery", "external-cloud-account"}
@@ -43,6 +43,7 @@ SERVICE_CAPABILITIES: dict[str, tuple[str, ...]] = {
     "squid": ("squid",),
     "httpfs-minio": ("docker-compose",),
     "azurite": ("azurite",),
+    "unity-catalog-oss": ("unity-catalog-oss",),
     "postgres": ("docker", "postgres-client"),
     "sqlserver": ("docker-compose",),
 }

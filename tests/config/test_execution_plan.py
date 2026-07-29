@@ -44,7 +44,7 @@ class ExecutionPlanTestCase(unittest.TestCase):
             azure["services"],
             [{"name": "storage-emulator", "type": "azurite", "port": 10000}],
         )
-        self.assertEqual(azure["capabilities"], ["azurite"])
+        self.assertEqual(azure["capabilities"], ["azurite", "squid"])
         self.assertEqual(azure["prerequisites"], [])
 
     def test_plan_json_round_trip_preserves_payload(self) -> None:

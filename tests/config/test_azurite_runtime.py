@@ -37,7 +37,7 @@ class AzuriteRuntimeTestCase(unittest.TestCase):
             )
             self.assertEqual(
                 json.loads((output / "capabilities.json").read_text(encoding="utf-8")),
-                ["azurite"],
+                ["azurite", "squid"],
             )
 
         manager = SERVICE_MANAGER.read_text(encoding="utf-8")

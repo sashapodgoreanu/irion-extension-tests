@@ -60,6 +60,7 @@ for item in services:
         item.get("version", "-"),
         item.get("database", "-"),
         item.get("username", "-"),
+        str(item.get("auth", False)).lower(),
     ]
     print("|".join(str(value) for value in fields))
 PY
@@ -85,12 +86,17 @@ qa_service_start_python_http() {
 qa_service_start_squid() {
   local name=$1
   local port=$2
+  local auth=${3:-false}
   local script="${QA_SERVICE_UPSTREAM_ROOT}/scripts/run_squid.sh"
   if [[ ! -x "${script}" ]]; then
     echo "Squid service script is missing: ${script}" >&2
     return 1
   fi
   local log_dir="${QA_SERVICE_LOG_DIR}/${name}"
+  local -a args=(--port "${port}" --log_dir "${log_dir}")
+  if [[ "${auth}" == "true" ]]; then
+    args+=(--auth)
+  fi
 
   sudo systemctl stop squid >/dev/null 2>&1 \
     || sudo service squid stop >/dev/null 2>&1 \
@@ -100,14 +106,13 @@ qa_service_start_squid() {
   rm -rf "${log_dir}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
-    ./scripts/run_squid.sh \
-      --port "${port}" \
-      --log_dir "${log_dir}"
+    ./scripts/run_squid.sh "${args[@]}"
   ) >"${QA_SERVICE_LOG_DIR}/${name}-process.log" 2>&1 &
   local pid=$!
   QA_SERVICE_CLEANUPS+=("pid|${name}|${pid}")
   qa_service_wait_for_port "${port}" "Squid service ${name}"
   export HTTP_PROXY_PUBLIC="127.0.0.1:${port}"
+  export HTTP_PROXY_RUNNING=1
 }
 
 qa_service_start_httpfs_minio() {
@@ -196,6 +201,63 @@ qa_service_start_azurite() {
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
     ./scripts/upload_test_files_to_azurite.sh
   ) >>"${log}" 2>&1
+
+  local secret_name
+  secret_name="qa_azure_$(printf '%s' "${QA_SERVICE_RUNTIME_ROOT}" | sha256sum | cut -c1-12)"
+  duckdb -c "CREATE PERSISTENT SECRET ${secret_name} (TYPE AZURE, CONNECTION_STRING '${AZURE_STORAGE_CONNECTION_STRING}')" \
+    >>"${log}" 2>&1
+  export ENABLE_DATA_INTEGRITY=1
+  export DUCKDB_AZURE_PERSISTENT_SECRET_AVAILABLE=1
+}
+
+qa_service_start_unity_catalog_oss() {
+  local name=$1
+  local port=$2
+  local version=$3
+  local root="${QA_SERVICE_RUNTIME_ROOT}/${name}"
+  local checkout="${root}/unitycatalog"
+  local log="${QA_SERVICE_LOG_DIR}/${name}.log"
+
+  if [[ "${port}" != "8080" ]]; then
+    echo "The OSS Unity Catalog server currently requires port 8080" >&2
+    return 1
+  fi
+  command -v java >/dev/null 2>&1 || {
+    echo "Java is required for the OSS Unity Catalog server" >&2
+    return 1
+  }
+  command -v git >/dev/null 2>&1 || {
+    echo "Git is required for the OSS Unity Catalog server" >&2
+    return 1
+  }
+
+  rm -rf "${root}"
+  mkdir -p "${checkout}"
+  git -C "${checkout}" init -q
+  git -C "${checkout}" remote add origin https://github.com/unitycatalog/unitycatalog.git
+  git -C "${checkout}" fetch --depth 1 origin "${version}" >>"${log}" 2>&1
+  git -C "${checkout}" checkout --detach FETCH_HEAD >>"${log}" 2>&1
+  local actual
+  actual="$(git -C "${checkout}" rev-parse HEAD)"
+  if [[ "${actual}" != "${version}" ]]; then
+    echo "Unity Catalog server checkout must be ${version}; found ${actual}" >&2
+    return 1
+  fi
+
+  (
+    cd "${checkout}"
+    ./build/sbt package
+  ) >>"${log}" 2>&1
+
+  (
+    cd "${checkout}"
+    exec setsid ./bin/start-uc-server
+  ) >>"${log}" 2>&1 &
+  local pid=$!
+  QA_SERVICE_CLEANUPS+=("pgid|${name}|${pid}")
+  qa_service_wait_for_port "${port}" "OSS Unity Catalog service ${name}" 180
+  export UC_TEST_SERVER_RUNNING=1
+  export UNITY_CATALOG_OSS_COMMIT="${actual}"
 }
 
 qa_service_start_postgres() {
@@ -311,20 +373,23 @@ qa_service_start_file() {
     echo "Services manifest is missing: ${services_file}" >&2
     return 1
   fi
-  while IFS='|' read -r name service_type port version database username; do
+  while IFS='|' read -r name service_type port version database username auth; do
     [[ -n "${name}" ]] || continue
     case "${service_type}" in
       python-http)
         qa_service_start_python_http "${name}" "${port}"
         ;;
       squid)
-        qa_service_start_squid "${name}" "${port}"
+        qa_service_start_squid "${name}" "${port}" "${auth}"
         ;;
       httpfs-minio)
         qa_service_start_httpfs_minio "${name}"
         ;;
       azurite)
         qa_service_start_azurite "${name}" "${port}"
+        ;;
+      unity-catalog-oss)
+        qa_service_start_unity_catalog_oss "${name}" "${port}" "${version}"
         ;;
       postgres)
         qa_service_start_postgres \
@@ -382,6 +447,12 @@ qa_service_stop_all() {
       pid)
         if [[ -n "${value}" ]] && kill -0 "${value}" 2>/dev/null; then
           kill "${value}" || true
+          wait "${value}" 2>/dev/null || true
+        fi
+        ;;
+      pgid)
+        if [[ -n "${value}" ]]; then
+          kill -TERM -- "-${value}" >/dev/null 2>&1 || true
           wait "${value}" 2>/dev/null || true
         fi
         ;;

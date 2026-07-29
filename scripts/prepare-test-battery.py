@@ -19,6 +19,7 @@ VALID_SERVICE_TYPES = {
     "squid",
     "httpfs-minio",
     "azurite",
+    "unity-catalog-oss",
     "postgres",
     "sqlserver",
 }

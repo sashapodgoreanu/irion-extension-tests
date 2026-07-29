@@ -14,8 +14,8 @@ from qa import ConfigError, load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-EXPECTED_MATRIX_SHA256 = "2e7a012898a4126a6534a42830fb82b5216ec466bf50acbe320939f815f4e8a7"
-EXPECTED_PLAN_SHA256 = "8815ccbe244936644163aa14a1e7f56b3ef8e071d73e061b95e7e29489e807c4"
+EXPECTED_MATRIX_SHA256 = "920042dded27b301e00d9572793592f173a02a5590e62d5aa40a4e930f014603"
+EXPECTED_PLAN_SHA256 = "4c5051abf02dec41561edb3e495190b04a6356fdbfb41da01746a3000246191c"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -100,8 +100,18 @@ class ConfigTestCase(unittest.TestCase):
             azure["services"],
             [{"name": "storage-emulator", "type": "azurite", "port": 10000}],
         )
-        self.assertEqual(azure["capabilities"], ["azurite"])
+        self.assertEqual(azure["capabilities"], ["azurite", "squid"])
         self.assertEqual(azure["prerequisites"], [])
+        self.assertEqual([profile["name"] for profile in azure["profiles"]], ["azurite", "proxy"])
+        self.assertEqual(azure["profiles"][0]["tests"], "test/sql/*.test")
+        self.assertEqual(azure["profiles"][1]["tests"], "test/sql/proxy/*")
+        self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
+
+        unity = next(case for case in matrix if case["name"] == "unity_catalog")
+        self.assertEqual(unity["pin"], "dbca44d4dcc67c196af5fd910f0f26ce56d4930e")
+        self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
+        self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
+        self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
 
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
