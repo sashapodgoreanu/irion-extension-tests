@@ -13,18 +13,18 @@ from qa import load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-PLAN_SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "execution-plan-v3.schema.json"
+PLAN_SCHEMA_PATH = REPOSITORY_ROOT / "schemas" / "execution-plan-v4.schema.json"
 RESOLVER_PATH = REPOSITORY_ROOT / "scripts" / "resolve-extension-config.py"
 
 
 class ExecutionPlanTestCase(unittest.TestCase):
-    def test_plan_payload_is_valid_against_v3_schema(self) -> None:
+    def test_plan_payload_is_valid_against_v4_schema(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
         schema = json.loads(PLAN_SCHEMA_PATH.read_text(encoding="utf-8"))
         Draft202012Validator.check_schema(schema)
         errors = list(Draft202012Validator(schema).iter_errors(plan.payload()))
         self.assertEqual(errors, [])
-        self.assertEqual(plan.payload()["schemaVersion"], 3)
+        self.assertEqual(plan.payload()["schemaVersion"], 4)
 
     def test_matrix_is_derived_from_service_plan(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
@@ -36,6 +36,16 @@ class ExecutionPlanTestCase(unittest.TestCase):
             self.assertEqual(matrix_case["prerequisites"], execution["prerequisites"])
             self.assertEqual(matrix_case["capabilities"], execution["capabilities"])
             self.assertNotIn("setup", matrix_case)
+
+    def test_azure_case_declares_local_azurite_service(self) -> None:
+        plan = resolve_config(load_config(CONFIG_PATH))
+        azure = next(item for item in plan.matrix()["include"] if item["name"] == "azure")
+        self.assertEqual(
+            azure["services"],
+            [{"name": "storage-emulator", "type": "azurite", "port": 10000}],
+        )
+        self.assertEqual(azure["capabilities"], ["azurite"])
+        self.assertEqual(azure["prerequisites"], [])
 
     def test_plan_json_round_trip_preserves_payload(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
@@ -61,7 +71,7 @@ class ExecutionPlanTestCase(unittest.TestCase):
                 cwd=REPOSITORY_ROOT,
             )
             payload = json.loads(output.read_text(encoding="utf-8"))
-            self.assertEqual(payload["schemaVersion"], 3)
+            self.assertEqual(payload["schemaVersion"], 4)
             httpfs_execution = payload["cases"][0]["execution"]
             self.assertEqual(
                 [item["type"] for item in httpfs_execution["services"]],
