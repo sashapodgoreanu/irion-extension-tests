@@ -16,6 +16,7 @@
     "missingCases",
     "unexpectedCases",
     "duplicateCases",
+    "coverageViolations",
     "results"
   ],
   "properties": {
@@ -30,6 +31,22 @@
     "missingCases": {"$ref": "#/$defs/stringList"},
     "unexpectedCases": {"$ref": "#/$defs/stringList"},
     "duplicateCases": {"$ref": "#/$defs/stringList"},
+    "coverageViolations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["caseId", "profile", "metric", "operator", "actual", "expected"],
+        "properties": {
+          "caseId": {"type": "string", "minLength": 1},
+          "profile": {"type": "string", "minLength": 1},
+          "metric": {"enum": ["discovered", "executed", "skipped"]},
+          "operator": {"enum": [">=", "<="]},
+          "actual": {"type": ["integer", "null"], "minimum": 0},
+          "expected": {"type": "integer", "minimum": 0}
+        }
+      }
+    },
     "invalidResultFiles": {
       "type": "array",
       "items": {"type": "string"}
