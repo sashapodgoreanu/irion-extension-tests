@@ -82,6 +82,10 @@ def persist_patched_files(plan_output: Path | None) -> None:
         destination = destination_root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    shutil.copy2(
+        REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml",
+        plan_output.parent / "final-extension-qa.yml",
+    )
 
 
 def main() -> int:
