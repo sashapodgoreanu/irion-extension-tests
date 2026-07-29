@@ -73,11 +73,16 @@ def main() -> int:
         kind = test_config.get("kind")
 
         if kind == "generated":
+            excluded_extensions = set(test_config.get("excludedExtensions", []))
+            # The Iceberg local suite verifies that metadata functions are unavailable
+            # before its explicit `require iceberg` directive. Disable automatic
+            # extension loading when Iceberg is intentionally excluded from preload.
+            autoloading = "none" if "iceberg" in excluded_extensions else "all"
             config: dict[str, Any] = {
                 "description": test_config.get(
                     "description", f"{profile_name} compatibility profile"
                 ),
-                "autoloading": "all",
+                "autoloading": autoloading,
                 "init_script": str(init_script),
                 "on_new_connection": connection_sql,
                 "statically_loaded_extensions": list(
