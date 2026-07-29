@@ -16,8 +16,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
 UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
-EXPECTED_MATRIX_SHA256 = "56b87d11c48877c1cc9b4f91f8e891202945f7ccf38902470371a5b72ed6b266"
-EXPECTED_PLAN_SHA256 = "0e574428ce916aabe934fb3ec6d1d357f0f88854e226aefd569550d48c030d6c"
+EXPECTED_MATRIX_SHA256 = "d97a9355634c7a253e5b4f644735b579dbf3f96bba175d3af6dc4baf122178a8"
+EXPECTED_PLAN_SHA256 = "ada7a64e57b372a1f53b0c07b3524841cdd73b780beb63e79be583ae982053cb"
 
 
 class ConfigTestCase(unittest.TestCase):
