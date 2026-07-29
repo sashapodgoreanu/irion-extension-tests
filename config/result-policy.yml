@@ -1,0 +1,7 @@
+schemaVersion: 1
+
+defaults:
+  minimumDiscovered: 1
+  minimumExecuted: 1
+
+overrides: []
