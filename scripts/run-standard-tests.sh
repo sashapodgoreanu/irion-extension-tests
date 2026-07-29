@@ -116,6 +116,44 @@ run_suite() {
   python3 "${REQUIREMENT_CHECKER}" "${log_file}" "${EXTENSIONS_JSON}"
 }
 
+run_isolated_ducklake_postgres_suite() {
+  local label=$1
+  local config=$2
+  local log_file="${LOG_DIR}/unittest-${label}.log"
+  local test_file
+  local relative_path
+  local status
+
+  : >"${log_file}"
+  mapfile -d '' test_files < <(
+    find "${UPSTREAM_ROOT}/test/sql" -type f \
+      \( -name '*.test' -o -name '*.test_slow' \) \
+      -print0 | sort -z
+  )
+
+  if [[ "${#test_files[@]}" -eq 0 ]]; then
+    echo "No DuckLake PostgreSQL SQLLogicTest files were found" >&2
+    return 1
+  fi
+
+  echo "Running ${#test_files[@]} DuckLake PostgreSQL files with catalog isolation" | tee -a "${log_file}"
+  for test_file in "${test_files[@]}"; do
+    relative_path="${test_file#"${UPSTREAM_ROOT}/"}"
+    status=0
+    "${UNITTEST_BIN}" \
+      --test-config "${config}" \
+      --test-dir "${UPSTREAM_ROOT}" \
+      "${relative_path}" \
+      2>&1 | tee -a "${log_file}" || status=$?
+    if [[ "${status}" -ne 0 ]]; then
+      echo "DuckLake PostgreSQL isolated test failed: ${relative_path}" | tee -a "${log_file}" >&2
+      return "${status}"
+    fi
+  done
+
+  python3 "${REQUIREMENT_CHECKER}" "${log_file}" "${EXTENSIONS_JSON}"
+}
+
 run_case_specific_verification() {
   local profile_name=$1
   if [[ "${TEST_NAME}" == "iceberg" && "${profile_name}" == "all" ]]; then
@@ -146,7 +184,11 @@ while IFS=$'\t' read -r profile_name test_filter; do
   qa_service_start_file "${profile_services}"
 
   status=0
-  run_suite "${profile_name}" "${profile_config}" "${test_filter}" || status=$?
+  if [[ "${TEST_NAME}" == "ducklake" && "${profile_name}" == "postgres" ]]; then
+    run_isolated_ducklake_postgres_suite "${profile_name}" "${profile_config}" || status=$?
+  else
+    run_suite "${profile_name}" "${profile_config}" "${test_filter}" || status=$?
+  fi
   if [[ "${status}" -eq 0 ]]; then
     run_case_specific_verification "${profile_name}" || status=$?
   fi
