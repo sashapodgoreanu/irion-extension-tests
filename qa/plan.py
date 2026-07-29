@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-EXECUTION_PLAN_SCHEMA_VERSION = 3
+EXECUTION_PLAN_SCHEMA_VERSION = 4
 
 
 @dataclass(frozen=True, slots=True)
