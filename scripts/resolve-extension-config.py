@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -15,7 +16,16 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 BOOTSTRAP = REPOSITORY_ROOT / "scripts" / "phase5-finalize-repo.py"
 if BOOTSTRAP.exists():
-    subprocess.run([sys.executable, str(BOOTSTRAP)], cwd=REPOSITORY_ROOT, check=True)
+    bootstrap_env = os.environ.copy()
+    bootstrap_env["PYTHONPATH"] = os.pathsep.join(
+        value for value in (str(REPOSITORY_ROOT), bootstrap_env.get("PYTHONPATH", "")) if value
+    )
+    subprocess.run(
+        [sys.executable, str(BOOTSTRAP)],
+        cwd=REPOSITORY_ROOT,
+        env=bootstrap_env,
+        check=True,
+    )
 
 from qa import ConfigError, load_config, resolve_config  # noqa: E402
 
