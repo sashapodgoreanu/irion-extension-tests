@@ -1,4 +1,4 @@
-"""Structured QA result generation and aggregation."""
+"""Structured QA result generation, coverage checks and aggregation."""
 
 from __future__ import annotations
 
@@ -16,6 +16,9 @@ _PROGRESS_RE = re.compile(r"\[(?:\d+)/(\d+)\]")
 _PASS_RE = re.compile(
     r"All tests passed \((?:(\d+) skipped tests?, )?(\d+) assertions? in (\d+) test cases?\)"
 )
+_ALL_SKIPPED_RE = re.compile(
+    r"All tests were skipped \(total skipped (\d+)\)", re.IGNORECASE
+)
 _CASES_RE = re.compile(
     r"test cases:\s*(\d+)\s*\|\s*(\d+) passed\s*\|\s*(\d+) failed(?:\s*\|\s*(\d+) skipped)?",
     re.IGNORECASE,
@@ -31,7 +34,7 @@ def utc_now() -> str:
 
 
 def parse_unittest_log(text: str) -> dict[str, Any]:
-    """Parse DuckDB SQLLogicTest/Catch summaries without depending on a runner version."""
+    """Parse DuckDB SQLLogicTest/Catch summaries across runner versions."""
     discovered_values = [int(value) for value in _PROGRESS_RE.findall(text)]
     discovered = max(discovered_values) if discovered_values else None
 
@@ -48,6 +51,19 @@ def parse_unittest_log(text: str) -> dict[str, Any]:
             "failed": 0,
             "skipped": skipped,
             "assertions": assertions,
+        }
+
+    skipped_match = _ALL_SKIPPED_RE.search(text)
+    if skipped_match:
+        skipped = int(skipped_match.group(1))
+        return {
+            "summaryFound": True,
+            "discovered": discovered if discovered is not None else skipped,
+            "executed": 0,
+            "passed": 0,
+            "failed": 0,
+            "skipped": skipped,
+            "assertions": 0,
         }
 
     cases_match = _CASES_RE.search(text)
@@ -97,13 +113,18 @@ def _bool(value: str | None) -> bool | None:
     return value.strip().lower() in {"1", "true", "yes"}
 
 
-def _extension_states(log_dir: Path, expected: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+def _extension_states(
+    log_dir: Path, expected: Iterable[dict[str, Any]]
+) -> list[dict[str, Any]]:
     csv_path = log_dir / "extensions.csv"
     expected_names = [str(item["name"]) for item in expected]
     by_name: dict[str, dict[str, str]] = {}
     if csv_path.is_file():
         with csv_path.open(encoding="utf-8", newline="") as handle:
-            by_name = {row.get("extension_name", ""): row for row in csv.DictReader(handle)}
+            by_name = {
+                row.get("extension_name", ""): row
+                for row in csv.DictReader(handle)
+            }
 
     result: list[dict[str, Any]] = []
     for name in expected_names:
@@ -121,7 +142,9 @@ def _extension_states(log_dir: Path, expected: Iterable[dict[str, Any]]) -> list
     return result
 
 
-def _profile_log(log_dir: Path, profile_name: str, profile_count: int) -> Path | None:
+def _profile_log(
+    log_dir: Path, profile_name: str, profile_count: int
+) -> Path | None:
     candidates = [log_dir / f"unittest-{profile_name}.log"]
     if profile_count == 1:
         candidates.append(log_dir / "unittest.log")
@@ -162,12 +185,18 @@ def build_case_result(
             profile_status = "not_run"
             log_name = None
         else:
-            parsed = parse_unittest_log(log_path.read_text(encoding="utf-8", errors="replace"))
+            parsed = parse_unittest_log(
+                log_path.read_text(encoding="utf-8", errors="replace")
+            )
             failed = parsed["failed"]
+            executed = parsed["executed"]
+            skipped = parsed["skipped"]
             if not parsed["summaryFound"]:
                 profile_status = "invalid"
             elif failed and failed > 0:
                 profile_status = "failed"
+            elif executed == 0 and skipped and skipped > 0:
+                profile_status = "skipped"
             else:
                 profile_status = "passed"
             log_name = log_path.name
@@ -182,10 +211,18 @@ def build_case_result(
             }
         )
 
-    has_profile_failure = any(item["status"] in {"failed", "invalid"} for item in profiles)
+    has_profile_failure = any(
+        item["status"] in {"failed", "invalid"} for item in profiles
+    )
     has_not_run = any(item["status"] == "not_run" for item in profiles)
     raw_failed = exit_code != 0 or has_profile_failure or has_not_run or bool(reason)
-    status = "accepted_failure" if raw_failed and accepted else "failed" if raw_failed else "passed"
+    status = (
+        "accepted_failure"
+        if raw_failed and accepted
+        else "failed"
+        if raw_failed
+        else "passed"
+    )
 
     test_info = _read_key_values(log_dir / "test-info.txt")
     declared_services = list(battery.get("services", []))
@@ -202,7 +239,9 @@ def build_case_result(
         "acceptedFailure": accepted,
         "exitCode": int(exit_code),
         "reason": reason,
-        "startedAt": datetime.fromtimestamp(started_at_ms / 1000, timezone.utc)
+        "startedAt": datetime.fromtimestamp(
+            started_at_ms / 1000, timezone.utc
+        )
         .isoformat()
         .replace("+00:00", "Z"),
         "finishedAt": utc_now(),
@@ -214,7 +253,9 @@ def build_case_result(
             "commit": test_info.get("upstream_commit"),
         },
         "profiles": profiles,
-        "extensions": _extension_states(log_dir, battery.get("extensions", [])),
+        "extensions": _extension_states(
+            log_dir, battery.get("extensions", [])
+        ),
         "services": declared_services,
     }
 
@@ -224,10 +265,72 @@ def result_exit_code(result: dict[str, Any]) -> int:
 
 
 def find_result_files(root: Path) -> list[Path]:
-    return sorted(path for path in root.rglob("result.json") if path.is_file())
+    return sorted(
+        path for path in root.rglob("result.json") if path.is_file()
+    )
 
 
-def aggregate_results(plan: dict[str, Any], results: list[dict[str, Any]]) -> dict[str, Any]:
+def coverage_thresholds(
+    policy: dict[str, Any] | None, case_id: str, profile_name: str
+) -> dict[str, int]:
+    if policy is None:
+        return {}
+    thresholds = {
+        key: int(value)
+        for key, value in policy.get("defaults", {}).items()
+    }
+    for override in policy.get("overrides", []):
+        if override.get("case") != case_id:
+            continue
+        selected_profile = override.get("profile")
+        if selected_profile is not None and selected_profile != profile_name:
+            continue
+        for key in ("minimumDiscovered", "minimumExecuted", "maximumSkipped"):
+            if key in override:
+                thresholds[key] = int(override[key])
+    return thresholds
+
+
+def coverage_violations(
+    result: dict[str, Any], policy: dict[str, Any] | None
+) -> list[dict[str, Any]]:
+    violations: list[dict[str, Any]] = []
+    case_id = str(result.get("caseId", ""))
+    for profile in result.get("profiles", []):
+        profile_name = str(profile.get("name", ""))
+        thresholds = coverage_thresholds(policy, case_id, profile_name)
+        checks = (
+            ("minimumDiscovered", "discovered", ">="),
+            ("minimumExecuted", "executed", ">="),
+            ("maximumSkipped", "skipped", "<="),
+        )
+        for threshold_name, metric, operator in checks:
+            if threshold_name not in thresholds:
+                continue
+            actual = profile.get(metric)
+            expected = thresholds[threshold_name]
+            failed = actual is None
+            if actual is not None:
+                failed = actual < expected if operator == ">=" else actual > expected
+            if failed:
+                violations.append(
+                    {
+                        "caseId": case_id,
+                        "profile": profile_name,
+                        "metric": metric,
+                        "operator": operator,
+                        "actual": actual,
+                        "expected": expected,
+                    }
+                )
+    return violations
+
+
+def aggregate_results(
+    plan: dict[str, Any],
+    results: list[dict[str, Any]],
+    policy: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     cases = {str(case["name"]): case for case in plan.get("cases", [])}
     by_case: dict[str, dict[str, Any]] = {}
     duplicate_cases: list[str] = []
@@ -243,20 +346,28 @@ def aggregate_results(plan: dict[str, Any], results: list[dict[str, Any]]) -> di
     failed: list[str] = []
     accepted_failures: list[str] = []
     passed: list[str] = []
+    coverage: list[dict[str, Any]] = []
 
     for case_id, result in sorted(by_case.items()):
         if case_id not in cases:
             continue
-        expected_accepted = "accepted-failure" in cases[case_id]["execution"].get("capabilities", [])
+        expected_accepted = "accepted-failure" in cases[case_id][
+            "execution"
+        ].get("capabilities", [])
         status = result.get("status")
         if bool(result.get("acceptedFailure")) != expected_accepted:
             invalid.append(case_id)
             continue
         if status == "passed":
-            if any(profile.get("status") != "passed" for profile in result.get("profiles", [])):
+            if any(
+                profile.get("status")
+                not in {"passed", "skipped"}
+                for profile in result.get("profiles", [])
+            ):
                 invalid.append(case_id)
             else:
                 passed.append(case_id)
+                coverage.extend(coverage_violations(result, policy))
         elif status == "accepted_failure" and expected_accepted:
             accepted_failures.append(case_id)
         elif status == "failed":
@@ -265,7 +376,7 @@ def aggregate_results(plan: dict[str, Any], results: list[dict[str, Any]]) -> di
             invalid.append(case_id)
 
     verdict = "passed"
-    if missing or unexpected or duplicate_cases or invalid or failed:
+    if missing or unexpected or duplicate_cases or invalid or failed or coverage:
         verdict = "failed"
 
     return {
@@ -280,7 +391,10 @@ def aggregate_results(plan: dict[str, Any], results: list[dict[str, Any]]) -> di
         "missingCases": missing,
         "unexpectedCases": unexpected,
         "duplicateCases": sorted(set(duplicate_cases)),
-        "results": [by_case[name] for name in sorted(by_case) if name in cases],
+        "coverageViolations": coverage,
+        "results": [
+            by_case[name] for name in sorted(by_case) if name in cases
+        ],
     }
 
 
@@ -293,7 +407,9 @@ def summary_markdown(summary: dict[str, Any]) -> str:
         "| Case | Status | Profiles |",
         "|---|---|---|",
     ]
-    by_case = {result["caseId"]: result for result in summary.get("results", [])}
+    by_case = {
+        result["caseId"]: result for result in summary.get("results", [])
+    }
     for case_id in summary.get("expectedCases", []):
         result = by_case.get(case_id)
         if result is None:
@@ -303,7 +419,9 @@ def summary_markdown(summary: dict[str, Any]) -> str:
             f"{item['name']}={item['status']}"
             for item in result.get("profiles", [])
         ) or "—"
-        lines.append(f"| `{case_id}` | {result['status']} | {profiles} |")
+        lines.append(
+            f"| `{case_id}` | {result['status']} | {profiles} |"
+        )
 
     for title, key in (
         ("Accepted failures", "acceptedFailureCases"),
@@ -314,7 +432,32 @@ def summary_markdown(summary: dict[str, Any]) -> str:
     ):
         values = summary.get(key, [])
         if values:
-            lines.extend(["", f"## {title}", "", ", ".join(f"`{value}`" for value in values)])
+            lines.extend(
+                [
+                    "",
+                    f"## {title}",
+                    "",
+                    ", ".join(f"`{value}`" for value in values),
+                ]
+            )
+
+    violations = summary.get("coverageViolations", [])
+    if violations:
+        lines.extend(
+            [
+                "",
+                "## Coverage violations",
+                "",
+                "| Case | Profile | Metric | Actual | Required |",
+                "|---|---|---|---:|---:|",
+            ]
+        )
+        for violation in violations:
+            lines.append(
+                f"| `{violation['caseId']}` | `{violation['profile']}` | "
+                f"{violation['metric']} | {violation['actual']} | "
+                f"{violation['operator']} {violation['expected']} |"
+            )
     return "\n".join(lines) + "\n"
 
 
