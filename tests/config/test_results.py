@@ -20,6 +20,11 @@ RESULT_SCHEMA = json.loads(
 SUMMARY_SCHEMA = json.loads(
     (REPOSITORY_ROOT / "schemas" / "test-summary-v1.schema.json").read_text(encoding="utf-8")
 )
+DEFAULT_POLICY = {
+    "schemaVersion": 1,
+    "defaults": {"minimumDiscovered": 1, "minimumExecuted": 1},
+    "overrides": [],
+}
 
 
 def battery(*, accepted: bool = False) -> dict:
@@ -60,6 +65,17 @@ class ResultTestCase(unittest.TestCase):
         self.assertEqual(parsed["failed"], 0)
         self.assertEqual(parsed["skipped"], 2)
 
+    def test_parse_all_skipped_summary(self) -> None:
+        parsed = parse_unittest_log(
+            "[27/27] (100%): test/sql/azure.test\n"
+            "All tests were skipped (total skipped 27)\n"
+        )
+        self.assertEqual(parsed["discovered"], 27)
+        self.assertEqual(parsed["executed"], 0)
+        self.assertEqual(parsed["passed"], 0)
+        self.assertEqual(parsed["failed"], 0)
+        self.assertEqual(parsed["skipped"], 27)
+
     def test_parse_failing_catch_summary(self) -> None:
         parsed = parse_unittest_log(
             "[133/133] (100%): test/sql/example.test\n"
@@ -82,6 +98,34 @@ class ResultTestCase(unittest.TestCase):
             self.assertEqual(result["status"], "failed")
             self.assertEqual(result["profiles"][0]["failed"], 1)
             self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
+
+    def test_all_skipped_result_is_structured_then_rejected_by_policy(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "[27/27] (100%): test/sql/azure.test\n"
+                "All tests were skipped (total skipped 27)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["profiles"][0]["status"], "skipped")
+            plan = {"cases": [{"name": "httpfs", "execution": {"capabilities": []}}]}
+            summary = aggregate_results(plan, [result], DEFAULT_POLICY)
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(
+                summary["coverageViolations"],
+                [
+                    {
+                        "caseId": "httpfs",
+                        "profile": "sql",
+                        "metric": "executed",
+                        "operator": ">=",
+                        "actual": 0,
+                        "expected": 1,
+                    }
+                ],
+            )
 
     def test_accepted_failure_is_explicit(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -131,7 +175,15 @@ class ResultTestCase(unittest.TestCase):
                     "caseId": "httpfs",
                     "status": "passed",
                     "acceptedFailure": False,
-                    "profiles": [{"status": "passed"}],
+                    "profiles": [
+                        {
+                            "name": "sql",
+                            "status": "passed",
+                            "discovered": 1,
+                            "executed": 1,
+                            "skipped": 0,
+                        }
+                    ],
                 },
                 {
                     "caseId": "bigquery",
@@ -140,9 +192,11 @@ class ResultTestCase(unittest.TestCase):
                     "profiles": [{"status": "not_run"}],
                 },
             ],
+            DEFAULT_POLICY,
         )
         self.assertEqual(summary["status"], "passed")
         self.assertEqual(summary["acceptedFailureCases"], ["bigquery"])
+        self.assertEqual(summary["coverageViolations"], [])
 
 
 if __name__ == "__main__":
