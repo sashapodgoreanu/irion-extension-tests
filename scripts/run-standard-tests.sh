@@ -21,6 +21,7 @@ PROFILE_SKIPS_JSON="${BATTERY_RUNTIME_CONFIG_DIR}/profile-skips.json"
 PROFILE_CONFIG_HELPER="${SCRIPT_DIR}/prepare-standard-profile.py"
 REQUIREMENT_CHECKER="${SCRIPT_DIR}/check-test-requirements.py"
 PROBE_VALIDATOR="${SCRIPT_DIR}/validate-extension-probe.py"
+ICEBERG_METADATA_VERIFIER="${SCRIPT_DIR}/verify-iceberg-metadata.py"
 SERVICE_MANAGER="${SCRIPT_DIR}/service-manager.sh"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${RUNTIME_ROOT}/profiles" "${LOG_DIR}"
@@ -44,6 +45,7 @@ for required in \
   "${PROFILE_CONFIG_HELPER}" \
   "${REQUIREMENT_CHECKER}" \
   "${PROBE_VALIDATOR}" \
+  "${ICEBERG_METADATA_VERIFIER}" \
   "${SERVICE_MANAGER}"; do
   if [[ ! -e "${required}" ]]; then
     echo "Required test runtime input is missing: ${required}" >&2
@@ -114,6 +116,14 @@ run_suite() {
   python3 "${REQUIREMENT_CHECKER}" "${log_file}" "${EXTENSIONS_JSON}"
 }
 
+run_case_specific_verification() {
+  local profile_name=$1
+  if [[ "${TEST_NAME}" == "iceberg" && "${profile_name}" == "all" ]]; then
+    python3 "${ICEBERG_METADATA_VERIFIER}" "${DUCKDB_BIN}" "${UPSTREAM_ROOT}" \
+      2>&1 | tee "${LOG_DIR}/iceberg-metadata-smoke.log"
+  fi
+}
+
 while IFS=$'\t' read -r profile_name test_filter; do
   [[ -n "${profile_name}" ]] || continue
   profile_config="${RUNTIME_ROOT}/profiles/${profile_name}.json"
@@ -137,6 +147,9 @@ while IFS=$'\t' read -r profile_name test_filter; do
 
   status=0
   run_suite "${profile_name}" "${profile_config}" "${test_filter}" || status=$?
+  if [[ "${status}" -eq 0 ]]; then
+    run_case_specific_verification "${profile_name}" || status=$?
+  fi
   qa_service_stop_all
   if [[ "${status}" -ne 0 ]]; then
     exit "${status}"
