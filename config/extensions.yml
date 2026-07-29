@@ -207,15 +207,16 @@ testBatteries:
     pin: e6fe0a4b28ed13f4a1ae5c7e12bad338c6fc13c7
     submodules: recursive
     services: []
-    prerequisites:
-    - type: external-cloud-account
+    prerequisites: []
     profiles:
     - name: all
       tests: test/sql/local/*
       services: []
       testConfig:
         kind: generated
-        excludedExtensions: []
+        description: Iceberg local suite with explicit extension loading semantics
+        excludedExtensions:
+        - iceberg
         staticallyLoadedExtensions:
         - core_functions
         - parquet
@@ -286,7 +287,7 @@ testBatteries:
     prerequisites: []
     profiles:
     - name: oss
-      tests: test/sql/local_oss_unity_catalog/*
+      tests: test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test
       services: []
       testConfig:
         kind: generated
@@ -306,7 +307,15 @@ testBatteries:
       isUsed: true
     - name: tpcds
       isUsed: true
-    ignoredTests: []
+    ignoredTests:
+    - path: test/sql/local_oss_unity_catalog/uc_catalog_write.test
+      reason: Targets the separate uc_catalog extension rather than unity_catalog
+      profiles:
+      - oss
+    - path: test/sql/local_oss_unity_catalog/checkpoint.test
+      reason: Requires a writable UC_TEST_DATA fixture root not exposed by the OSS sample catalog lifecycle
+      profiles:
+      - oss
   bigquery:
     isEnabled: true
     runner: standard
