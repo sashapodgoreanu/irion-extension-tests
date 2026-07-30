@@ -37,6 +37,33 @@ def add_profile_skips(config: dict[str, Any], additions: list[dict[str, str]]) -
     config["skip_tests"] = skip_tests
 
 
+def combine_upstream_on_init(
+    config: dict[str, Any], init_script: Path, destination: Path
+) -> Path:
+    """Preserve upstream on_init while prepending the resolved extension loads.
+
+    DuckDB's test runner parses init_script by replacing the on_init option with
+    the file contents. Keeping both JSON keys therefore silently discards the
+    upstream catalog setup when init_script appears later in the object.
+    """
+
+    existing_on_init = config.pop("on_init", "")
+    if existing_on_init and not isinstance(existing_on_init, str):
+        raise ProfileError("upstream on_init must be a string")
+    if not existing_on_init:
+        return init_script
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    combined_init = destination.with_suffix(".init.sql")
+    base_sql = init_script.read_text(encoding="utf-8").rstrip()
+    combined_init.write_text(
+        f"{base_sql}\n\n-- Preserved from the upstream test config.\n"
+        f"{existing_on_init.strip()}\n",
+        encoding="utf-8",
+    )
+    return combined_init.resolve()
+
+
 def main() -> int:
     if len(sys.argv) != 8:
         print(
@@ -109,7 +136,9 @@ def main() -> int:
             config["on_new_connection"] = " ".join(
                 value for value in (connection_sql, existing_connection_sql) if value
             )
-            config["init_script"] = str(init_script)
+            config["init_script"] = str(
+                combine_upstream_on_init(config, init_script, destination)
+            )
         else:
             raise ProfileError(f"unsupported profile testConfig kind: {kind}")
 
