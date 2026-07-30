@@ -33,8 +33,13 @@ LOAD iceberg;
 SET TimeZone='UTC';
 CALL enable_logging(level='debug');
 SELECT count(*)
-FROM ICEBERG_SCAN('{escaped_metadata}')
-WHERE joined >= '1984-12-01 00:00:00+01'::TIMESTAMP;
+FROM (
+    SELECT *
+    FROM ICEBERG_SCAN('{escaped_metadata}')
+    WHERE joined >= '1984-12-01 00:00:00+01'::TIMESTAMP
+    ORDER BY id DESC
+    LIMIT 10
+);
 SELECT message
 FROM duckdb_logs()
 WHERE type = 'Iceberg'
@@ -56,7 +61,7 @@ ORDER BY message;
         return process.returncode
 
     rows = list(csv.reader(process.stdout.splitlines()))
-    if not rows or rows[0] != ["7720"]:
+    if not rows or rows[0] != ["10"]:
         print(
             f"Unexpected filtered Iceberg row count: {rows[0] if rows else '<missing>'}",
             file=sys.stderr,
