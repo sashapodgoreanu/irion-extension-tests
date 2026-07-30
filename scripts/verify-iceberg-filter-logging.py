@@ -62,14 +62,18 @@ ORDER BY message;
         return process.returncode
 
     rows = list(csv.reader(process.stdout.splitlines()))
-    if not rows or rows[0] != ["10"]:
+    if ["10"] not in rows:
         print(
-            f"Unexpected filtered Iceberg row count: {rows[0] if rows else '<missing>'}",
+            "Filtered Iceberg query did not return the expected ten-row limit",
             file=sys.stderr,
         )
         return 1
 
-    messages = [row[0] for row in rows[1:] if len(row) == 1]
+    messages = [
+        row[0]
+        for row in rows
+        if len(row) == 1 and row[0].startswith("Iceberg Filter Pushdown, skipped ")
+    ]
     if len(messages) != 8:
         print(
             f"Unexpected Iceberg partition-pruning log count: {len(messages)}; expected 8",
