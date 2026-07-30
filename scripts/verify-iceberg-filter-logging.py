@@ -49,6 +49,7 @@ ORDER BY message;
 """
     process = subprocess.run(
         [str(duckdb), "-csv", "-noheader", "-c", sql],
+        cwd=upstream,
         check=False,
         text=True,
         capture_output=True,
