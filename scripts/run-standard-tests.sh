@@ -140,12 +140,26 @@ reset_ducklake_postgres_database() {
     return 1
   fi
 
-  PGDATABASE=postgres psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'
+  # The official PostgreSQL image briefly starts a temporary server while it
+  # creates POSTGRES_DB, then stops it and launches the final server. pg_isready
+  # can report success during that transition, so retry the complete reset until
+  # one transaction reaches the final server successfully.
+  local attempt
+  for attempt in $(seq 1 60); do
+    if PGDATABASE=postgres psql --no-psqlrc --set=ON_ERROR_STOP=1 --quiet <<'SQL'
 DROP DATABASE IF EXISTS ducklakedb WITH (FORCE);
 CREATE DATABASE ducklakedb OWNER postgres;
 \connect ducklakedb
 CREATE SCHEMA main AUTHORIZATION postgres;
 SQL
+    then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "PostgreSQL did not become stable enough to recreate ducklakedb" >&2
+  return 1
 }
 
 run_ducklake_postgres_isolated() {
