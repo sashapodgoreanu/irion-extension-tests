@@ -9,6 +9,7 @@ STATE_DIR="${RUNTIME_ROOT}/iceberg-local"
 ENV_FILE="${RUNTIME_ROOT}/iceberg-local.env"
 CONTRACT_FILE="${LOG_DIR}/iceberg-local-contract.txt"
 COMPOSE_FILE="${UPSTREAM_ROOT}/scripts/docker-compose.yml"
+VENV_ROOT="${UPSTREAM_ROOT}/.venv-spark4"
 REGULAR_PROXY_PID_FILE="${STATE_DIR}/mitmproxy-regular.pid"
 REFRESH_PROXY_PID_FILE="${STATE_DIR}/mitmproxy-refresh.pid"
 
@@ -55,7 +56,7 @@ fi
 
 stop_fixture
 
-for command_name in docker make python3 curl java grep awk sed; do
+for command_name in docker make python3 curl java grep awk sed sudo; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Iceberg local test preparation requires ${command_name}" >&2
     exit 1
@@ -67,6 +68,7 @@ for required in \
   "${UPSTREAM_ROOT}/make/catalogs/fixture.mk" \
   "${UPSTREAM_ROOT}/scripts/docker-compose.yml" \
   "${UPSTREAM_ROOT}/scripts/requirements.txt" \
+  "${UPSTREAM_ROOT}/scripts/envs/fixture.env" \
   "${UPSTREAM_ROOT}/scripts/vended_credentials_refresh_proxy.py" \
   "${UPSTREAM_ROOT}/test/configs/fixture.json"; do
   if [[ ! -f "${required}" ]]; then
@@ -75,7 +77,10 @@ for required in \
   fi
 done
 
-for target in fixture-data-local fixture-data fixture-stop; do
+# Keep the reusable-workflow targets as drift contracts. Their combined order is
+# not safe on a bind-mounted GitHub runner because fixture-data-local starts
+# MinIO, which creates root-owned xl.meta files before fixture-data removes them.
+for target in fixture-data-local fixture-data fixture fixture-stop; do
   grep -Eq "^${target}:" "${UPSTREAM_ROOT}/make/catalogs/fixture.mk" || {
     echo "Iceberg upstream fixture Makefile no longer exposes ${target}" >&2
     exit 1
@@ -101,10 +106,32 @@ if [[ -z "${JAVA_MAJOR}" || "${JAVA_MAJOR}" -lt 21 ]]; then
   exit 1
 fi
 
-make -C "${UPSTREAM_ROOT}" fixture-data-local \
-  2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-local.log"
-make -C "${UPSTREAM_ROOT}" fixture-data \
-  2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-rest.log"
+rm -rf "${VENV_ROOT}"
+python3 -m venv "${VENV_ROOT}"
+# shellcheck disable=SC1091
+source "${VENV_ROOT}/bin/activate"
+python3 -m pip install --disable-pip-version-check \
+  -r "${UPSTREAM_ROOT}/scripts/requirements.txt" \
+  2>&1 | tee "${LOG_DIR}/iceberg-python-requirements.log"
+
+# Equivalent to the generation step of upstream fixture-data-local, but without
+# starting the REST/MinIO fixture or loading its S3 environment into local data.
+(
+  cd "${UPSTREAM_ROOT}"
+  python3 -m scripts.data_generators.generate_data local
+) 2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-local.log"
+
+# Clean before containers start. Removing after MinIO starts is what caused the
+# root-owned xl.meta permission failure in the first complete CI run.
+sudo rm -rf \
+  "${UPSTREAM_ROOT}/data/generated/iceberg/spark-rest" \
+  "${UPSTREAM_ROOT}/data/generated/intermediates"
+mkdir -p \
+  "${UPSTREAM_ROOT}/data/generated/iceberg/spark-rest" \
+  "${UPSTREAM_ROOT}/data/generated/intermediates"
+
+make -C "${UPSTREAM_ROOT}" fixture \
+  2>&1 | tee "${LOG_DIR}/iceberg-fixture-start.log"
 
 wait_for_port() {
   local port=$1
@@ -131,7 +158,18 @@ PY
 wait_for_port 8181 "Iceberg REST fixture"
 wait_for_port 9000 "Iceberg fixture MinIO"
 
-MITMDUMP="${UPSTREAM_ROOT}/.venv-spark4/bin/mitmdump"
+# Equivalent to the generation step of upstream fixture-data. The Fixture is
+# already running and no cleanup is performed against MinIO-owned bind files.
+(
+  cd "${UPSTREAM_ROOT}"
+  set -a
+  # shellcheck disable=SC1091
+  source ./scripts/envs/fixture.env
+  set +a
+  python3 -m scripts.data_generators.generate_data spark-rest
+) 2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-rest.log"
+
+MITMDUMP="${VENV_ROOT}/bin/mitmdump"
 if [[ ! -x "${MITMDUMP}" ]]; then
   echo "Iceberg fixture virtual environment did not install mitmdump: ${MITMDUMP}" >&2
   exit 1
