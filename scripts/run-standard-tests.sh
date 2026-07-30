@@ -22,6 +22,7 @@ PROFILE_CONFIG_HELPER="${SCRIPT_DIR}/prepare-standard-profile.py"
 REQUIREMENT_CHECKER="${SCRIPT_DIR}/check-test-requirements.py"
 PROBE_VALIDATOR="${SCRIPT_DIR}/validate-extension-probe.py"
 ICEBERG_METADATA_VERIFIER="${SCRIPT_DIR}/verify-iceberg-metadata.py"
+DELTA_LOCAL_PREPARER="${SCRIPT_DIR}/prepare-delta-local-tests.sh"
 SERVICE_MANAGER="${SCRIPT_DIR}/service-manager.sh"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${RUNTIME_ROOT}/profiles" "${LOG_DIR}"
@@ -46,6 +47,7 @@ for required in \
   "${REQUIREMENT_CHECKER}" \
   "${PROBE_VALIDATOR}" \
   "${ICEBERG_METADATA_VERIFIER}" \
+  "${DELTA_LOCAL_PREPARER}" \
   "${SERVICE_MANAGER}"; do
   if [[ ! -e "${required}" ]]; then
     echo "Required test runtime input is missing: ${required}" >&2
@@ -100,6 +102,18 @@ prepare_local_extension_repo() {
   echo "local_extension_repo=${LOCAL_EXTENSION_REPO}" >>"${LOG_DIR}/test-info.txt"
 }
 prepare_local_extension_repo
+
+if [[ "${TEST_NAME}" == "delta" ]]; then
+  DELTA_ENV_FILE="${RUNTIME_ROOT}/delta-local.env"
+  bash "${DELTA_LOCAL_PREPARER}" "${UPSTREAM_ROOT}" "${RUNTIME_ROOT}" "${LOG_DIR}"
+  if [[ ! -f "${DELTA_ENV_FILE}" ]]; then
+    echo "Delta local environment was not generated: ${DELTA_ENV_FILE}" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "${DELTA_ENV_FILE}"
+  cat "${LOG_DIR}/delta-local-contract.txt" >>"${LOG_DIR}/test-info.txt"
+fi
 
 run_suite() {
   local label=$1
@@ -216,6 +230,9 @@ while IFS=$'\t' read -r profile_name test_filter; do
     "${RUNTIME_ROOT}/profile-services/${profile_name}" \
     "${UPSTREAM_ROOT}" \
     "${LOG_DIR}/services/${profile_name}"
+  if [[ "${TEST_NAME}" == "delta" && -n "${DELTA_MINIO_CONTAINER:-}" ]]; then
+    QA_SERVICE_CLEANUPS+=("container|delta-minio|${DELTA_MINIO_CONTAINER}")
+  fi
   qa_service_start_file "${profile_services}"
 
   status=0
