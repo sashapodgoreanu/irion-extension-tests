@@ -67,6 +67,20 @@ for required in \
   fi
 done
 
+# DuckDB's upstream Iceberg CI links the extension into the unittest binary, so
+# its log type is registered before SQLLogicTests call enable_logging('Iceberg').
+# Our shared runtime installs dynamic extensions instead. Explicitly load Iceberg
+# in this battery's generated profile scripts to reproduce the upstream startup
+# contract; the two pre-load negative tests remain explicitly replaced by the
+# metadata smoke verifier.
+if [[ "${TEST_NAME}" == "iceberg" ]]; then
+  for profile_init in "${BATTERY_RUNTIME_CONFIG_DIR}"/init-profile-*.sql; do
+    if ! grep -Eqi '^[[:space:]]*LOAD[[:space:]]+iceberg[[:space:]]*;' "${profile_init}"; then
+      printf '\nLOAD iceberg;\n' >>"${profile_init}"
+    fi
+  done
+fi
+
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
 
 sql_from_file() {
