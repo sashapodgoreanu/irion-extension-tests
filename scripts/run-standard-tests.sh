@@ -22,6 +22,7 @@ PROFILE_CONFIG_HELPER="${SCRIPT_DIR}/prepare-standard-profile.py"
 REQUIREMENT_CHECKER="${SCRIPT_DIR}/check-test-requirements.py"
 PROBE_VALIDATOR="${SCRIPT_DIR}/validate-extension-probe.py"
 ICEBERG_METADATA_VERIFIER="${SCRIPT_DIR}/verify-iceberg-metadata.py"
+ICEBERG_LOCAL_PREPARER="${SCRIPT_DIR}/prepare-iceberg-local-tests.sh"
 DELTA_LOCAL_PREPARER="${SCRIPT_DIR}/prepare-delta-local-tests.sh"
 SERVICE_MANAGER="${SCRIPT_DIR}/service-manager.sh"
 
@@ -32,7 +33,17 @@ export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
 
 # shellcheck disable=SC1091
 source "${SERVICE_MANAGER}"
-trap qa_service_stop_all EXIT
+cleanup_test_runtime() {
+  local status=$?
+  trap - EXIT
+  qa_service_stop_all || true
+  if [[ "${TEST_NAME}" == "iceberg" && -f "${ICEBERG_LOCAL_PREPARER}" ]]; then
+    bash "${ICEBERG_LOCAL_PREPARER}" stop \
+      "${UPSTREAM_ROOT}" "${RUNTIME_ROOT}" "${LOG_DIR}" || true
+  fi
+  exit "${status}"
+}
+trap cleanup_test_runtime EXIT
 
 for required in \
   "${DUCKDB_BIN}" \
@@ -47,6 +58,7 @@ for required in \
   "${REQUIREMENT_CHECKER}" \
   "${PROBE_VALIDATOR}" \
   "${ICEBERG_METADATA_VERIFIER}" \
+  "${ICEBERG_LOCAL_PREPARER}" \
   "${DELTA_LOCAL_PREPARER}" \
   "${SERVICE_MANAGER}"; do
   if [[ ! -e "${required}" ]]; then
@@ -115,6 +127,19 @@ if [[ "${TEST_NAME}" == "delta" ]]; then
   cat "${LOG_DIR}/delta-local-contract.txt" >>"${LOG_DIR}/test-info.txt"
 fi
 
+if [[ "${TEST_NAME}" == "iceberg" ]]; then
+  ICEBERG_ENV_FILE="${RUNTIME_ROOT}/iceberg-local.env"
+  bash "${ICEBERG_LOCAL_PREPARER}" start \
+    "${UPSTREAM_ROOT}" "${RUNTIME_ROOT}" "${LOG_DIR}"
+  if [[ ! -f "${ICEBERG_ENV_FILE}" ]]; then
+    echo "Iceberg local environment was not generated: ${ICEBERG_ENV_FILE}" >&2
+    exit 1
+  fi
+  # shellcheck disable=SC1090
+  source "${ICEBERG_ENV_FILE}"
+  cat "${LOG_DIR}/iceberg-local-contract.txt" >>"${LOG_DIR}/test-info.txt"
+fi
+
 run_suite() {
   local label=$1
   local config=$2
@@ -128,6 +153,69 @@ run_suite() {
     2>&1 | tee "${log_file}"
 
   python3 "${REQUIREMENT_CHECKER}" "${log_file}" "${EXTENSIONS_JSON}"
+}
+
+iceberg_local_filter() {
+  local test_file
+  local relative_path
+  local -a test_files=()
+  local -a filters=()
+
+  mapfile -d '' test_files < <(
+    {
+      find "${UPSTREAM_ROOT}/test/sql/local" -type f \
+        \( -name '*.test' -o -name '*.test_slow' -o -name '*.test_coverage' \) \
+        ! -path '*/catalog_test_config_setup/*' \
+        ! -path '*/catalog_custom_setup/*' \
+        -print0
+      find "${UPSTREAM_ROOT}/test/sql/local/catalog_custom_setup/fixture" -type f \
+        \( -name '*.test' -o -name '*.test_slow' -o -name '*.test_coverage' \) \
+        -print0
+    } | sort -z
+  )
+  if [[ "${#test_files[@]}" -eq 0 ]]; then
+    echo "No Iceberg local SQLLogicTest files were found" >&2
+    return 1
+  fi
+  for test_file in "${test_files[@]}"; do
+    relative_path="${test_file#"${UPSTREAM_ROOT}/"}"
+    filters+=("${relative_path}")
+  done
+  local joined
+  IFS=, read -r -d '' joined < <(printf '%s\0' "${filters[*]}") || true
+  printf '%s\n' "${joined}"
+}
+
+prepare_iceberg_fixture_config() {
+  local base_profile_name=$1
+  local destination=$2
+  local temporary_profiles="${RUNTIME_ROOT}/profiles/iceberg-fixture-profiles.json"
+
+  python3 - \
+    "${PROFILES_JSON}" "${base_profile_name}" "${temporary_profiles}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+profiles_path = Path(sys.argv[1])
+profile_name = sys.argv[2]
+destination = Path(sys.argv[3])
+profiles = json.loads(profiles_path.read_text(encoding="utf-8"))
+profile = next(item for item in profiles if item["name"] == profile_name)
+fixture = dict(profile)
+fixture["name"] = "fixture-catalog"
+fixture["testConfig"] = {"kind": "upstream", "path": "test/configs/fixture.json"}
+destination.write_text(json.dumps([fixture], indent=2) + "\n", encoding="utf-8")
+PY
+
+  python3 "${PROFILE_CONFIG_HELPER}" \
+    "${temporary_profiles}" \
+    fixture-catalog \
+    "${UPSTREAM_ROOT}" \
+    "${destination}" \
+    "${EXTENSIONS_JSON}" \
+    "${PROFILE_SKIPS_JSON}" \
+    "${BATTERY_RUNTIME_CONFIG_DIR}"
 }
 
 reset_ducklake_postgres_database() {
@@ -252,6 +340,18 @@ while IFS=$'\t' read -r profile_name test_filter; do
   status=0
   if [[ "${TEST_NAME}" == "ducklake" && "${profile_name}" == "postgres" ]]; then
     run_ducklake_postgres_isolated "${profile_name}" "${profile_config}" || status=$?
+  elif [[ "${TEST_NAME}" == "iceberg" && "${profile_name}" == "all" ]]; then
+    local_filter="$(iceberg_local_filter)"
+    run_suite "${profile_name}-local" "${profile_config}" "${local_filter}" || status=$?
+    if [[ "${status}" -eq 0 ]]; then
+      fixture_config="${RUNTIME_ROOT}/profiles/${profile_name}-fixture-catalog.json"
+      prepare_iceberg_fixture_config "${profile_name}" "${fixture_config}" || status=$?
+      if [[ "${status}" -eq 0 ]]; then
+        cp "${fixture_config}" "${LOG_DIR}/profile-${profile_name}-fixture-catalog.json"
+        run_suite "${profile_name}-fixture-catalog" "${fixture_config}" \
+          "test/sql/local/catalog_test_config_setup/*" || status=$?
+      fi
+    fi
   else
     run_suite "${profile_name}" "${profile_config}" "${test_filter}" || status=$?
   fi
