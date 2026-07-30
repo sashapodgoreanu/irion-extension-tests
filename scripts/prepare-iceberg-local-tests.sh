@@ -121,14 +121,16 @@ python3 -m pip install --disable-pip-version-check \
   python3 -m scripts.data_generators.generate_data local
 ) 2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-local.log"
 
-# Clean before containers start. Removing after MinIO starts is what caused the
-# root-owned xl.meta permission failure in the first complete CI run.
+# Clean only REST-owned outputs before containers start. The local generator has
+# just written spark-local intermediates needed by generated-data SQL tests.
+# Removing all intermediates here made those tests fail despite successful data
+# generation. Removing after MinIO starts caused root-owned xl.meta failures.
 sudo rm -rf \
   "${UPSTREAM_ROOT}/data/generated/iceberg/spark-rest" \
-  "${UPSTREAM_ROOT}/data/generated/intermediates"
+  "${UPSTREAM_ROOT}/data/generated/intermediates/spark-rest"
 mkdir -p \
   "${UPSTREAM_ROOT}/data/generated/iceberg/spark-rest" \
-  "${UPSTREAM_ROOT}/data/generated/intermediates"
+  "${UPSTREAM_ROOT}/data/generated/intermediates/spark-rest"
 
 make -C "${UPSTREAM_ROOT}" fixture \
   2>&1 | tee "${LOG_DIR}/iceberg-fixture-start.log"
