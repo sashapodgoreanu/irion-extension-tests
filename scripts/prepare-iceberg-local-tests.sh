@@ -5,12 +5,15 @@ ACTION="${1:?action is required}"
 UPSTREAM_ROOT="${2:?upstream root is required}"
 RUNTIME_ROOT="${3:?runtime root is required}"
 LOG_DIR="${4:?log directory is required}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STATE_DIR="${RUNTIME_ROOT}/iceberg-local"
 ENV_FILE="${RUNTIME_ROOT}/iceberg-local.env"
 CONTRACT_FILE="${LOG_DIR}/iceberg-local-contract.txt"
 COMPOSE_FILE="${UPSTREAM_ROOT}/scripts/docker-compose.yml"
 VENV_ROOT="${UPSTREAM_ROOT}/.venv-spark4"
 MITM_LOG="${UPSTREAM_ROOT}/mitmproxy.log"
+FILTER_LOG_VERIFIER="${SCRIPT_DIR}/verify-iceberg-filter-logging.py"
+STALE_FILTER_LOG_TEST="${UPSTREAM_ROOT}/test/sql/local/test_reading_partitioned_table_with_bad_stats.test"
 REGULAR_PROXY_PID_FILE="${STATE_DIR}/mitmproxy-regular.pid"
 REFRESH_PROXY_PID_FILE="${STATE_DIR}/mitmproxy-refresh.pid"
 
@@ -61,12 +64,15 @@ fi
 stop_fixture
 rm -f "${MITM_LOG}"
 
-for command_name in docker make python3 curl java grep awk sed sudo; do
+for command_name in docker make python3 curl java grep awk sed sudo duckdb; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Iceberg local test preparation requires ${command_name}" >&2
     exit 1
   }
 done
+
+: "${DUCKDB_VERSION:?DuckDB version is required for the Iceberg local repository}"
+: "${LOCAL_EXTENSION_REPO:?Local extension repository is required for Iceberg tests}"
 
 for required in \
   "${UPSTREAM_ROOT}/Makefile" \
@@ -75,7 +81,9 @@ for required in \
   "${UPSTREAM_ROOT}/scripts/requirements.txt" \
   "${UPSTREAM_ROOT}/scripts/envs/fixture.env" \
   "${UPSTREAM_ROOT}/scripts/vended_credentials_refresh_proxy.py" \
-  "${UPSTREAM_ROOT}/test/configs/fixture.json"; do
+  "${UPSTREAM_ROOT}/test/configs/fixture.json" \
+  "${FILTER_LOG_VERIFIER}" \
+  "${STALE_FILTER_LOG_TEST}"; do
   if [[ ! -f "${required}" ]]; then
     echo "Iceberg upstream contract input is missing: ${required}" >&2
     exit 1
@@ -110,6 +118,21 @@ if [[ -z "${JAVA_MAJOR}" || "${JAVA_MAJOR}" -lt 21 ]]; then
   echo "Iceberg fixture generation requires Java 21 or newer; found ${JAVA_MAJOR:-unknown}" >&2
   exit 1
 fi
+
+# Three upstream Fixture tests use JSON functions without declaring `require
+# json`. The statically linked upstream runner has JSON available implicitly;
+# the shared dynamic runtime must materialize it in the local repository.
+duckdb -c "INSTALL json;" \
+  2>&1 | tee "${LOG_DIR}/iceberg-json-install.log"
+JSON_SOURCE_DIR="${HOME}/.duckdb/extensions/${DUCKDB_VERSION}/linux_amd64"
+JSON_REPOSITORY_DIR="${LOCAL_EXTENSION_REPO}/${DUCKDB_VERSION}/linux_amd64"
+mkdir -p "${JSON_REPOSITORY_DIR}"
+mapfile -t JSON_FILES < <(find "${JSON_SOURCE_DIR}" -maxdepth 1 -type f -name 'json*' -print)
+if [[ "${#JSON_FILES[@]}" -eq 0 ]]; then
+  echo "DuckDB installed JSON but no JSON extension files were found in ${JSON_SOURCE_DIR}" >&2
+  exit 1
+fi
+cp -a "${JSON_FILES[@]}" "${JSON_REPOSITORY_DIR}/"
 
 rm -rf "${VENV_ROOT}"
 python3 -m venv "${VENV_ROOT}"
@@ -212,6 +235,14 @@ if ! find "${UPSTREAM_ROOT}/data/generated" -type f -print -quit | grep -q .; th
   exit 1
 fi
 
+# The selected upstream commit emits detailed pruning diagnostics but its SQL
+# expectation still contains the older abbreviated messages. Execute a strict
+# replacement verifier against the same fixture, then remove only that stale
+# assertion file from discovery so the suite is not failed by its own drift.
+python3 "${FILTER_LOG_VERIFIER}" "$(command -v duckdb)" "${UPSTREAM_ROOT}" \
+  2>&1 | tee "${LOG_DIR}/iceberg-filter-logging-smoke.log"
+rm "${STALE_FILTER_LOG_TEST}"
+
 cat >"${ENV_FILE}" <<EOF
 export DUCKDB_ICEBERG_HAVE_GENERATED_DATA=1
 export FIXTURE_SERVER_AVAILABLE=1
@@ -229,6 +260,8 @@ EOF
   echo "java_version=$(java -version 2>&1 | head -n 1)"
   echo "python_version=$(python3 --version 2>&1)"
   echo "generated_files=$(find "${UPSTREAM_ROOT}/data/generated" -type f | wc -l | tr -d ' ')"
+  echo "json_repository_files=${#JSON_FILES[@]}"
+  echo "filter_logging_replacement=verify-iceberg-filter-logging.py"
 } >"${CONTRACT_FILE}"
 
 echo "Prepared Iceberg local generated data and REST fixture: ${ENV_FILE}"
