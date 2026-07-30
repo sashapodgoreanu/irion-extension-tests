@@ -158,8 +158,8 @@ run_suite() {
 iceberg_local_filter() {
   local test_file
   local relative_path
+  local joined=""
   local -a test_files=()
-  local -a filters=()
 
   mapfile -d '' test_files < <(
     {
@@ -179,10 +179,11 @@ iceberg_local_filter() {
   fi
   for test_file in "${test_files[@]}"; do
     relative_path="${test_file#"${UPSTREAM_ROOT}/"}"
-    filters+=("${relative_path}")
+    if [[ -n "${joined}" ]]; then
+      joined+=,
+    fi
+    joined+="${relative_path}"
   done
-  local joined
-  IFS=, read -r -d '' joined < <(printf '%s\0' "${filters[*]}") || true
   printf '%s\n' "${joined}"
 }
 
