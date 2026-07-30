@@ -10,6 +10,7 @@ ENV_FILE="${RUNTIME_ROOT}/iceberg-local.env"
 CONTRACT_FILE="${LOG_DIR}/iceberg-local-contract.txt"
 COMPOSE_FILE="${UPSTREAM_ROOT}/scripts/docker-compose.yml"
 VENV_ROOT="${UPSTREAM_ROOT}/.venv-spark4"
+MITM_LOG="${UPSTREAM_ROOT}/mitmproxy.log"
 REGULAR_PROXY_PID_FILE="${STATE_DIR}/mitmproxy-regular.pid"
 REFRESH_PROXY_PID_FILE="${STATE_DIR}/mitmproxy-refresh.pid"
 
@@ -36,6 +37,9 @@ stop_pid_file() {
 stop_fixture() {
   stop_pid_file "${REFRESH_PROXY_PID_FILE}"
   stop_pid_file "${REGULAR_PROXY_PID_FILE}"
+  if [[ -f "${MITM_LOG}" ]]; then
+    cp "${MITM_LOG}" "${LOG_DIR}/iceberg-mitmproxy.log" || true
+  fi
   if [[ -f "${COMPOSE_FILE}" ]]; then
     (
       cd "${UPSTREAM_ROOT}/scripts"
@@ -55,6 +59,7 @@ if [[ "${ACTION}" != "start" ]]; then
 fi
 
 stop_fixture
+rm -f "${MITM_LOG}"
 
 for command_name in docker make python3 curl java grep awk sed sudo; do
   command -v "${command_name}" >/dev/null 2>&1 || {
@@ -177,8 +182,9 @@ if [[ ! -x "${MITMDUMP}" ]]; then
   exit 1
 fi
 
+# Upstream fixture tests read mitmproxy.log relative to the Iceberg checkout.
 nohup "${MITMDUMP}" --mode regular@8878 --flow-detail 2 \
-  >"${LOG_DIR}/iceberg-mitmproxy.log" 2>&1 &
+  >"${MITM_LOG}" 2>&1 &
 echo $! >"${REGULAR_PROXY_PID_FILE}"
 wait_for_port 8878 "Iceberg HTTP proxy"
 
