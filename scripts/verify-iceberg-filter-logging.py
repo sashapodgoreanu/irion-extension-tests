@@ -4,9 +4,14 @@
 from __future__ import annotations
 
 import csv
+import re
 import subprocess
 import sys
 from pathlib import Path
+
+ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+COUNT_PREFIX = "__ICEBERG_COUNT__="
+LOG_PREFIX = "__ICEBERG_LOG__="
 
 
 def main() -> int:
@@ -32,7 +37,7 @@ def main() -> int:
 LOAD iceberg;
 SET TimeZone='UTC';
 CALL enable_logging(level='debug');
-SELECT count(*)
+SELECT '{COUNT_PREFIX}' || count(*)::VARCHAR
 FROM (
     SELECT *
     FROM ICEBERG_SCAN('{escaped_metadata}')
@@ -40,7 +45,7 @@ FROM (
     ORDER BY id DESC
     LIMIT 10
 );
-SELECT message
+SELECT '{LOG_PREFIX}' || message
 FROM duckdb_logs()
 WHERE type = 'Iceberg'
   AND message LIKE 'Iceberg Filter Pushdown, skipped %'
@@ -61,19 +66,28 @@ ORDER BY message;
     if process.returncode != 0:
         return process.returncode
 
-    rows = list(csv.reader(process.stdout.splitlines()))
-    if ["10"] not in rows:
+    plain_stdout = ANSI_ESCAPE.sub("", process.stdout)
+    rows = list(csv.reader(plain_stdout.splitlines()))
+    cells = [row[0].strip() for row in rows if len(row) == 1]
+
+    counts = [
+        cell.removeprefix(COUNT_PREFIX)
+        for cell in cells
+        if cell.startswith(COUNT_PREFIX)
+    ]
+    if counts != ["10"]:
         print(
-            "Filtered Iceberg query did not return the expected ten-row limit",
+            f"Unexpected filtered Iceberg count markers: {counts}; expected ['10']",
             file=sys.stderr,
         )
         return 1
 
     messages = [
-        row[0]
-        for row in rows
-        if len(row) == 1 and row[0].startswith("Iceberg Filter Pushdown, skipped ")
+        cell.removeprefix(LOG_PREFIX)
+        for cell in cells
+        if cell.startswith(LOG_PREFIX)
     ]
+    messages = sorted(set(messages))
     if len(messages) != 8:
         print(
             f"Unexpected Iceberg partition-pruning log count: {len(messages)}; expected 8",
