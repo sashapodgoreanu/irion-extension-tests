@@ -142,16 +142,44 @@ def _extension_states(
     return result
 
 
-def _profile_log(
+def _profile_logs(
     log_dir: Path, profile_name: str, profile_count: int
-) -> Path | None:
-    candidates = [log_dir / f"unittest-{profile_name}.log"]
+) -> list[Path]:
+    exact = log_dir / f"unittest-{profile_name}.log"
+    if exact.is_file():
+        return [exact]
+
+    composite = sorted(
+        path
+        for path in log_dir.glob(f"unittest-{profile_name}-*.log")
+        if path.is_file()
+    )
+    if composite:
+        return composite
+
     if profile_count == 1:
-        candidates.append(log_dir / "unittest.log")
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
+        legacy = log_dir / "unittest.log"
+        if legacy.is_file():
+            return [legacy]
+    return []
+
+
+def _combine_unittest_summaries(
+    parsed_logs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    metrics = ("discovered", "executed", "passed", "failed", "skipped", "assertions")
+    result: dict[str, Any] = {
+        "summaryFound": bool(parsed_logs)
+        and all(item["summaryFound"] for item in parsed_logs)
+    }
+    for metric in metrics:
+        values = [item[metric] for item in parsed_logs]
+        result[metric] = (
+            sum(int(value) for value in values)
+            if values and all(value is not None for value in values)
+            else None
+        )
+    return result
 
 
 def build_case_result(
@@ -171,8 +199,8 @@ def build_case_result(
 
     for profile in profiles_config:
         name = str(profile["name"])
-        log_path = _profile_log(log_dir, name, len(profiles_config))
-        if log_path is None:
+        log_paths = _profile_logs(log_dir, name, len(profiles_config))
+        if not log_paths:
             parsed = {
                 "summaryFound": False,
                 "discovered": None,
@@ -185,9 +213,13 @@ def build_case_result(
             profile_status = "not_run"
             log_name = None
         else:
-            parsed = parse_unittest_log(
-                log_path.read_text(encoding="utf-8", errors="replace")
-            )
+            parsed_logs = [
+                parse_unittest_log(
+                    path.read_text(encoding="utf-8", errors="replace")
+                )
+                for path in log_paths
+            ]
+            parsed = _combine_unittest_summaries(parsed_logs)
             failed = parsed["failed"]
             executed = parsed["executed"]
             skipped = parsed["skipped"]
@@ -199,7 +231,7 @@ def build_case_result(
                 profile_status = "skipped"
             else:
                 profile_status = "passed"
-            log_name = log_path.name
+            log_name = ",".join(path.name for path in log_paths)
 
         profiles.append(
             {
