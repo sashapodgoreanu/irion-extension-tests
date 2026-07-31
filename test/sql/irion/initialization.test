@@ -1,0 +1,15 @@
+# Verify that the repository-owned initialization script ran before the tests.
+
+query T
+SELECT marker_value
+FROM irion_validation.runtime_marker
+WHERE marker_name = 'initialization'
+----
+ready
+
+query T
+SELECT marker_value
+FROM irion_validation.runtime_marker
+WHERE marker_name = 'configuration'
+----
+irion-baseline
