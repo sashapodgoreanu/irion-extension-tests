@@ -53,6 +53,7 @@ class ConfigTestCase(unittest.TestCase):
                 "unity_catalog",
                 "bigquery",
                 "mssql",
+                "irion",
             ],
         )
         self.assertTrue(all(item["duckdbVersion"] == "v1.5.5" for item in matrix))
