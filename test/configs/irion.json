@@ -1,0 +1,10 @@
+{
+  "description": "Irion Analytics Engine compatibility baseline.",
+  "autoloading": "none",
+  "statically_loaded_extensions": [
+    "core_functions",
+    "parquet"
+  ],
+  "init_script": "test/scripts/irion/initialize.sql",
+  "skip_tests": []
+}
