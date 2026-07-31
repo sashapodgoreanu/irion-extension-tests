@@ -90,9 +90,9 @@ for required in \
   fi
 done
 
-# Keep the reusable-workflow targets as drift contracts. Their combined order is
-# not safe on a bind-mounted GitHub runner because fixture-data-local starts
-# MinIO, which creates root-owned xl.meta files before fixture-data removes them.
+# Keep the reusable-workflow targets as drift contracts. The adapter starts the
+# fixture once and runs both generators without invoking a second fixture target:
+# restarting between them would clean bind-mounted MinIO files owned by root.
 for target in fixture-data-local fixture-data fixture fixture-stop; do
   grep -Eq "^${target}:" "${UPSTREAM_ROOT}/make/catalogs/fixture.mk" || {
     echo "Iceberg upstream fixture Makefile no longer exposes ${target}" >&2
@@ -142,26 +142,15 @@ python3 -m pip install --disable-pip-version-check \
   -r "${UPSTREAM_ROOT}/scripts/requirements.txt" \
   2>&1 | tee "${LOG_DIR}/iceberg-python-requirements.log"
 
-# Equivalent to the generation step of upstream fixture-data-local, but without
-# starting the REST/MinIO fixture or loading its S3 environment into local data.
-(
-  cd "${UPSTREAM_ROOT}"
-  python3 -m scripts.data_generators.generate_data local
-) 2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-local.log"
-
-# Clean only REST-owned outputs before containers start. The local generator has
-# just written spark-local intermediates needed by generated-data SQL tests.
-# Removing all intermediates here made those tests fail despite successful data
-# generation. Removing after MinIO starts caused root-owned xl.meta failures.
+# Clean only REST-owned outputs before containers start. Once MinIO is running,
+# its bind-mounted xl.meta files can be root-owned and must not be removed by the
+# host runner. Spark-local intermediates are preserved throughout both generators.
 sudo rm -rf \
   "${UPSTREAM_ROOT}/data/generated/iceberg/spark-rest" \
   "${UPSTREAM_ROOT}/data/generated/intermediates/spark-rest"
 mkdir -p \
   "${UPSTREAM_ROOT}/data/generated/iceberg/spark-rest" \
   "${UPSTREAM_ROOT}/data/generated/intermediates/spark-rest"
-
-make -C "${UPSTREAM_ROOT}" fixture \
-  2>&1 | tee "${LOG_DIR}/iceberg-fixture-start.log"
 
 wait_for_port() {
   local port=$1
@@ -185,11 +174,24 @@ PY
   return 1
 }
 
+# Both upstream fixture-data-local and fixture-data depend on the running REST
+# catalog and load fixture.env. Start REST/MinIO first, then run both generators
+# against the same fixture without restarting or cleaning it in between.
+make -C "${UPSTREAM_ROOT}" fixture \
+  2>&1 | tee "${LOG_DIR}/iceberg-fixture-start.log"
+
 wait_for_port 8181 "Iceberg REST fixture"
 wait_for_port 9000 "Iceberg fixture MinIO"
 
-# Equivalent to the generation step of upstream fixture-data. The Fixture is
-# already running and no cleanup is performed against MinIO-owned bind files.
+(
+  cd "${UPSTREAM_ROOT}"
+  set -a
+  # shellcheck disable=SC1091
+  source ./scripts/envs/fixture.env
+  set +a
+  python3 -m scripts.data_generators.generate_data local
+) 2>&1 | tee "${LOG_DIR}/iceberg-fixture-data-local.log"
+
 (
   cd "${UPSTREAM_ROOT}"
   set -a
