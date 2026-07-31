@@ -12,6 +12,7 @@ from pathlib import Path
 ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 COUNT_PREFIX = "__ICEBERG_COUNT__="
 LOG_PREFIX = "__ICEBERG_LOG__="
+LOG_MESSAGE_PREFIX = "Iceberg Filter Pushdown, skipped "
 
 
 def main() -> int:
@@ -36,7 +37,7 @@ def main() -> int:
     sql = f"""
 LOAD iceberg;
 SET TimeZone='UTC';
-CALL enable_logging(level='debug');
+CALL enable_logging(level='debug', storage='memory');
 SELECT '{COUNT_PREFIX}' || count(*)::VARCHAR
 FROM (
     SELECT *
@@ -48,7 +49,7 @@ FROM (
 SELECT '{LOG_PREFIX}' || message
 FROM duckdb_logs()
 WHERE type = 'Iceberg'
-  AND message LIKE 'Iceberg Filter Pushdown, skipped %'
+  AND message LIKE '{LOG_MESSAGE_PREFIX}%'
 GROUP BY message
 ORDER BY message;
 """
@@ -87,6 +88,18 @@ ORDER BY message;
         for cell in cells
         if cell.startswith(LOG_PREFIX)
     ]
+
+    # The v1.5.5 CLI normally exposes memory-backed messages through
+    # duckdb_logs(). Keep a fallback for shell-backed logging so a CLI default
+    # change cannot hide valid Iceberg diagnostics from this verifier.
+    if not messages:
+        plain_stderr = ANSI_ESCAPE.sub("", process.stderr)
+        messages = [
+            line.strip()
+            for line in plain_stderr.splitlines()
+            if line.strip().startswith(LOG_MESSAGE_PREFIX)
+        ]
+
     messages = sorted(set(messages))
     if len(messages) != 8:
         print(
