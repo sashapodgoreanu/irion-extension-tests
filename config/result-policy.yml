@@ -18,3 +18,8 @@ overrides:
   minimumDiscovered: 2
   minimumExecuted: 2
   maximumSkipped: 0
+- case: irion
+  profile: baseline
+  minimumDiscovered: 2
+  minimumExecuted: 2
+  maximumSkipped: 0
