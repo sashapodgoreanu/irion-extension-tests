@@ -396,3 +396,24 @@ testBatteries:
         v1.5.5 runtime
     - path: test/sql/catalog/ddl_if_not_exists.test
       reason: MSSQL v0.2.2 returns a different SQL Server object-exists error message
+  irion:
+    isEnabled: true
+    runner: standard
+    repository: sashapodgoreanu/irion-extension-tests
+    pin: 003-irion-test-battery
+    submodules: false
+    services: []
+    prerequisites: []
+    profiles:
+    - name: baseline
+      tests: test/sql/irion/*
+      services: []
+      testConfig:
+        kind: upstream
+        path: test/configs/irion.json
+    extensions:
+    - name: json
+      isUsed: true
+    - name: sqlite_scanner
+      isUsed: true
+    ignoredTests: []
