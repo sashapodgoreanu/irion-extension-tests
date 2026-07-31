@@ -5,6 +5,5 @@
     "core_functions",
     "parquet"
   ],
-  "init_script": "test/scripts/irion/initialize.sql",
-  "skip_tests": []
+  "init_script": "test/scripts/irion/initialize.sql"
 }
