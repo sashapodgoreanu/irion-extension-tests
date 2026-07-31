@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Add the catalog_discovery fixture missing from MSSQL release v0.2.1.
+"""Validate the master catalog fixture shipped with MSSQL v0.2.2.
 
-The v0.2.1 SQLLogicTest attaches MSSQL_TEST_DSN, whose default database is
-master, and expects master.dbo.test. The release seed script only creates the
-same table in TestDB. Upstream fixed this when it enabled the SQLLogicTest suite
-in issue #192. This helper applies that test-fixture-only correction to the
-temporary pinned checkout and refuses to patch unexpected content.
+MSSQL v0.2.2 already seeds master.dbo.test for catalog_discovery.test. The QA
+preparation step therefore validates the upstream fixture without rewriting it
+and fails closed if a future release changes the required contract.
 """
 
 from __future__ import annotations
@@ -15,47 +13,14 @@ import json
 import sys
 from pathlib import Path
 
-CONTRACT = "mssql-v0.2.1-master-catalog-fixture-v1"
+CONTRACT = "mssql-v0.2.2-master-catalog-fixture-v1"
 
-OLD_BLOCK = """IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'TestDB')
-BEGIN
-    CREATE DATABASE TestDB;
-    PRINT 'TestDB created';
-END
-GO
-
-USE TestDB;
-GO
-"""
-
-NEW_BLOCK = """IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'TestDB')
-BEGIN
-    CREATE DATABASE TestDB;
-    PRINT 'TestDB created';
-END
-GO
-
--- Test-side compatibility fixture from upstream issue #192.
--- catalog_discovery.test attaches Database=master and expects dbo.test there.
-IF OBJECT_ID('master.dbo.test', 'U') IS NOT NULL DROP TABLE master.dbo.test;
-GO
-
-CREATE TABLE master.dbo.test (
-    id INT PRIMARY KEY,
-    name NVARCHAR(50)
-);
-GO
-
-INSERT INTO master.dbo.test (id, name) VALUES
-    (1, 'A'), (2, 'B'), (3, 'C');
-GO
-
-PRINT 'master.dbo.test created';
-GO
-
-USE TestDB;
-GO
-"""
+REQUIRED_FRAGMENTS = (
+    "IF OBJECT_ID('master.dbo.test', 'U') IS NOT NULL DROP TABLE master.dbo.test;",
+    "CREATE TABLE master.dbo.test (",
+    "INSERT INTO master.dbo.test (id, name) VALUES (1, 'A'), (2, 'B'), (3, 'C');",
+    "PRINT 'master.dbo.test created';",
+)
 
 
 def digest(text: str) -> str:
@@ -74,17 +39,12 @@ def main() -> int:
     if not seed_path.is_file():
         raise SystemExit(f"Pinned MSSQL seed script is missing: {seed_path}")
 
-    before = seed_path.read_text(encoding="utf-8")
-    count = before.count(OLD_BLOCK)
-    if count != 1:
+    content = seed_path.read_text(encoding="utf-8")
+    missing = [fragment for fragment in REQUIRED_FRAGMENTS if fragment not in content]
+    if missing:
         raise SystemExit(
-            f"Fixture patch contract mismatch: expected one v0.2.1 seed block, found {count}"
+            "MSSQL v0.2.2 fixture contract mismatch; missing: " + ", ".join(missing)
         )
-    if "master.dbo.test created" in before:
-        raise SystemExit("Fixture patch contract mismatch: master.dbo.test is already present")
-
-    after = before.replace(OLD_BLOCK, NEW_BLOCK, 1)
-    seed_path.write_text(after, encoding="utf-8")
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(
@@ -92,8 +52,9 @@ def main() -> int:
             {
                 "contract": CONTRACT,
                 "path": seed_path.as_posix(),
-                "before_sha256": digest(before),
-                "after_sha256": digest(after),
+                "sha256": digest(content),
+                "files_changed": 0,
+                "validated_fragments": len(REQUIRED_FRAGMENTS),
             },
             indent=2,
             sort_keys=True,
@@ -102,7 +63,9 @@ def main() -> int:
         encoding="utf-8",
     )
 
-    print(f"Applied {CONTRACT} to {seed_path}")
+    print(
+        f"Validated {CONTRACT}: {len(REQUIRED_FRAGMENTS)} fixture contract checks"
+    )
     return 0
 
 

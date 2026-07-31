@@ -99,6 +99,37 @@ class ResultTestCase(unittest.TestCase):
             self.assertEqual(result["profiles"][0]["failed"], 1)
             self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
 
+    def test_composite_profile_logs_are_aggregated(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql-local.log").write_text(
+                "[88/88] (100%): test/sql/local/example.test\n"
+                "All tests passed (8 skipped tests, 1703 assertions in 80 test cases)\n",
+                encoding="utf-8",
+            )
+            (log_dir / "unittest-sql-fixture-catalog.log").write_text(
+                "[334/334] (100%): test/sql/catalog/example.test\n"
+                "All tests passed (18 skipped tests, 88075 assertions in 316 test cases)\n",
+                encoding="utf-8",
+            )
+
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            profile = result["profiles"][0]
+
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(profile["status"], "passed")
+            self.assertEqual(profile["discovered"], 422)
+            self.assertEqual(profile["executed"], 396)
+            self.assertEqual(profile["passed"], 396)
+            self.assertEqual(profile["failed"], 0)
+            self.assertEqual(profile["skipped"], 26)
+            self.assertEqual(profile["assertions"], 89778)
+            self.assertEqual(
+                profile["log"],
+                "unittest-sql-fixture-catalog.log,unittest-sql-local.log",
+            )
+            self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
+
     def test_all_skipped_result_is_structured_then_rejected_by_policy(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log_dir = Path(directory)

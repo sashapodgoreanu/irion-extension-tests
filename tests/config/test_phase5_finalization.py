@@ -29,7 +29,7 @@ class Phase5FinalizationTest(unittest.TestCase):
     def test_unity_catalog_uses_pinned_oss_service(self) -> None:
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
         unity = config["testBatteries"]["unity_catalog"]
-        self.assertEqual(unity["pin"], "dbca44d4dcc67c196af5fd910f0f26ce56d4930e")
+        self.assertEqual(unity["pin"], "fd851475780ca064d9706a5025ea6e5d1d9d7e23")
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
         self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
         self.assertRegex(unity["services"][0]["version"], r"^[0-9a-f]{40}$")
