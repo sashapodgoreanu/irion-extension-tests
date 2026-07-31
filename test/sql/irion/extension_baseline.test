@@ -1,0 +1,31 @@
+# Verify that the Analytics Engine compatibility baseline is loaded together.
+
+query I
+SELECT count(*)
+FROM duckdb_extensions()
+WHERE loaded
+  AND extension_name IN (
+    'httpfs',
+    'mssql',
+    'ducklake',
+    'postgres_scanner',
+    'icu',
+    'azure',
+    'delta',
+    'iceberg',
+    'unity_catalog',
+    'bigquery',
+    'json',
+    'sqlite_scanner'
+  )
+----
+12
+
+query I
+SELECT count(*)
+FROM duckdb_extensions()
+WHERE extension_name IN ('delta', 'iceberg', 'unity_catalog')
+  AND installed
+  AND loaded
+----
+3
