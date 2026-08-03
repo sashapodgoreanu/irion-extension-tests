@@ -20,6 +20,13 @@ RESULT_SCHEMA = json.loads(
 SUMMARY_SCHEMA = json.loads(
     (REPOSITORY_ROOT / "schemas" / "test-summary-v1.schema.json").read_text(encoding="utf-8")
 )
+RUNTIME = {
+    "duckdbVersion": "v1.5.5",
+    "ciToolsVersion": "v1.5.5",
+    "operatingSystem": "linux",
+    "architecture": "x86_64",
+    "githubRunner": "ubuntu-24.04",
+}
 DEFAULT_POLICY = {
     "schemaVersion": 1,
     "defaults": {"minimumDiscovered": 1, "minimumExecuted": 1},
@@ -27,19 +34,30 @@ DEFAULT_POLICY = {
 }
 
 
-def battery(*, accepted: bool = False) -> dict:
+def battery(*, accepted: bool = False, source_type: str = "remote") -> dict:
     capabilities = ["accepted-failure"] if accepted else []
-    return {
+    value = {
         "name": "httpfs",
         "runner": "standard",
-        "repository": "duckdb/duckdb-httpfs",
-        "pin": "a" * 40,
-        "duckdbVersion": "v1.5.4",
+        "sourceType": source_type,
+        "duckdbVersion": "v1.5.5",
+        "runtime": RUNTIME,
         "capabilities": capabilities,
         "services": [],
         "extensions": [{"name": "httpfs"}],
         "profiles": [{"name": "sql", "tests": "test/sql/*", "services": []}],
     }
+    if source_type == "remote":
+        value.update(
+            repository="duckdb/duckdb-httpfs",
+            pin="a" * 40,
+            submodules="recursive",
+        )
+    return value
+
+
+def plan(*cases: dict) -> dict:
+    return {"runtime": RUNTIME, "cases": list(cases)}
 
 
 class ResultTestCase(unittest.TestCase):
@@ -97,6 +115,25 @@ class ResultTestCase(unittest.TestCase):
             result = build_case_result(battery(), log_dir, exit_code=0)
             self.assertEqual(result["status"], "failed")
             self.assertEqual(result["profiles"][0]["failed"], 1)
+            self.assertEqual(result["runtime"], RUNTIME)
+            self.assertEqual(result["upstream"]["type"], "remote")
+            self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
+
+    def test_self_source_result_has_no_remote_coordinates(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "All tests passed (1 assertions in 1 test case)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(
+                battery(source_type="self"), log_dir, exit_code=0
+            )
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(
+                result["upstream"],
+                {"type": "self", "repository": None, "pin": None, "commit": None},
+            )
             self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
 
     def test_composite_profile_logs_are_aggregated(self) -> None:
@@ -141,9 +178,13 @@ class ResultTestCase(unittest.TestCase):
             result = build_case_result(battery(), log_dir, exit_code=0)
             self.assertEqual(result["status"], "passed")
             self.assertEqual(result["profiles"][0]["status"], "skipped")
-            plan = {"cases": [{"name": "httpfs", "execution": {"capabilities": []}}]}
-            summary = aggregate_results(plan, [result], DEFAULT_POLICY)
+            summary = aggregate_results(
+                plan({"name": "httpfs", "execution": {"capabilities": []}}),
+                [result],
+                DEFAULT_POLICY,
+            )
             self.assertEqual(summary["status"], "failed")
+            self.assertEqual(summary["runtime"], RUNTIME)
             self.assertEqual(
                 summary["coverageViolations"],
                 [
@@ -170,14 +211,12 @@ class ResultTestCase(unittest.TestCase):
             self.assertTrue(result["acceptedFailure"])
 
     def test_aggregate_rejects_missing_and_nonaccepted_failures(self) -> None:
-        plan = {
-            "cases": [
-                {"name": "httpfs", "execution": {"capabilities": []}},
-                {"name": "bigquery", "execution": {"capabilities": ["accepted-failure"]}},
-            ]
-        }
+        source_plan = plan(
+            {"name": "httpfs", "execution": {"capabilities": []}},
+            {"name": "bigquery", "execution": {"capabilities": ["accepted-failure"]}},
+        )
         summary = aggregate_results(
-            plan,
+            source_plan,
             [
                 {
                     "caseId": "httpfs",
@@ -193,14 +232,12 @@ class ResultTestCase(unittest.TestCase):
         self.assertFalse(list(Draft202012Validator(SUMMARY_SCHEMA).iter_errors(summary)))
 
     def test_aggregate_accepts_only_declared_accepted_failure(self) -> None:
-        plan = {
-            "cases": [
-                {"name": "httpfs", "execution": {"capabilities": []}},
-                {"name": "bigquery", "execution": {"capabilities": ["accepted-failure"]}},
-            ]
-        }
+        source_plan = plan(
+            {"name": "httpfs", "execution": {"capabilities": []}},
+            {"name": "bigquery", "execution": {"capabilities": ["accepted-failure"]}},
+        )
         summary = aggregate_results(
-            plan,
+            source_plan,
             [
                 {
                     "caseId": "httpfs",
@@ -228,6 +265,7 @@ class ResultTestCase(unittest.TestCase):
         self.assertEqual(summary["status"], "passed")
         self.assertEqual(summary["acceptedFailureCases"], ["bigquery"])
         self.assertEqual(summary["coverageViolations"], [])
+        self.assertEqual(summary["runtime"], RUNTIME)
 
 
 if __name__ == "__main__":
