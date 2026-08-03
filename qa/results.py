@@ -34,52 +34,35 @@ def utc_now() -> str:
 
 
 def parse_unittest_log(text: str) -> dict[str, Any]:
-    """Parse DuckDB SQLLogicTest/Catch summaries across runner versions."""
+    """Parse and aggregate DuckDB SQLLogicTest/Catch summaries."""
     discovered_values = [int(value) for value in _PROGRESS_RE.findall(text)]
     discovered = max(discovered_values) if discovered_values else None
 
-    passed_match = _PASS_RE.search(text)
-    if passed_match:
-        skipped = int(passed_match.group(1) or 0)
-        assertions = int(passed_match.group(2))
-        executed = int(passed_match.group(3))
+    passed_matches = _PASS_RE.findall(text)
+    all_skipped_matches = _ALL_SKIPPED_RE.findall(text)
+    cases_matches = _CASES_RE.findall(text)
+    assertions_matches = _ASSERTIONS_RE.findall(text)
+
+    if passed_matches or all_skipped_matches or cases_matches:
+        passed_executed = sum(int(match[2]) for match in passed_matches)
+        passed_skipped = sum(int(match[0] or 0) for match in passed_matches)
+        catch_executed = sum(int(match[0]) for match in cases_matches)
+        catch_passed = sum(int(match[1]) for match in cases_matches)
+        catch_failed = sum(int(match[2]) for match in cases_matches)
+        catch_skipped = sum(int(match[3] or 0) for match in cases_matches)
+        entirely_skipped = sum(int(value) for value in all_skipped_matches)
+
+        executed = passed_executed + catch_executed
+        skipped = passed_skipped + catch_skipped + entirely_skipped
+        assertions = sum(int(match[1]) for match in passed_matches)
+        assertions += sum(int(match[0]) for match in assertions_matches)
+
         return {
             "summaryFound": True,
             "discovered": discovered if discovered is not None else executed + skipped,
             "executed": executed,
-            "passed": executed,
-            "failed": 0,
-            "skipped": skipped,
-            "assertions": assertions,
-        }
-
-    skipped_match = _ALL_SKIPPED_RE.search(text)
-    if skipped_match:
-        skipped = int(skipped_match.group(1))
-        return {
-            "summaryFound": True,
-            "discovered": discovered if discovered is not None else skipped,
-            "executed": 0,
-            "passed": 0,
-            "failed": 0,
-            "skipped": skipped,
-            "assertions": 0,
-        }
-
-    cases_match = _CASES_RE.search(text)
-    if cases_match:
-        executed = int(cases_match.group(1))
-        passed = int(cases_match.group(2))
-        failed = int(cases_match.group(3))
-        skipped = int(cases_match.group(4) or 0)
-        assertions_match = _ASSERTIONS_RE.search(text)
-        assertions = int(assertions_match.group(1)) if assertions_match else None
-        return {
-            "summaryFound": True,
-            "discovered": discovered if discovered is not None else executed,
-            "executed": executed,
-            "passed": passed,
-            "failed": failed,
+            "passed": passed_executed + catch_passed,
+            "failed": catch_failed,
             "skipped": skipped,
             "assertions": assertions,
         }
@@ -182,6 +165,31 @@ def _combine_unittest_summaries(
     return result
 
 
+def _profile_irion_exclusions(
+    battery: dict[str, Any], profile_name: str
+) -> list[dict[str, str]]:
+    exclusions: list[dict[str, str]] = []
+    for ignored in battery.get("ignoredTests", []):
+        profiles = ignored.get("profiles", [])
+        if profiles and profile_name not in profiles:
+            continue
+        exclusions.append(
+            {
+                "path": str(ignored["path"]),
+                "reason": str(ignored["reason"]),
+            }
+        )
+    return exclusions
+
+
+def _not_executed(parsed: dict[str, Any]) -> int | None:
+    discovered = parsed.get("discovered")
+    executed = parsed.get("executed")
+    if discovered is None or executed is None:
+        return None
+    return max(0, int(discovered) - int(executed))
+
+
 def build_case_result(
     battery: dict[str, Any],
     log_dir: Path,
@@ -240,6 +248,8 @@ def build_case_result(
                 "status": profile_status,
                 "log": log_name,
                 **parsed,
+                "notExecuted": _not_executed(parsed),
+                "irionExclusions": _profile_irion_exclusions(battery, name),
             }
         )
 
@@ -272,6 +282,15 @@ def build_case_result(
             "githubRunner": None,
         }
 
+    prerequisites = [
+        str(item["type"])
+        for item in battery.get("prerequisites", [])
+        if isinstance(item, dict) and item.get("type")
+    ]
+    external_not_run = bool(
+        status == "accepted_failure" and has_not_run and prerequisites
+    )
+
     return {
         "schemaVersion": RESULT_SCHEMA_VERSION,
         "caseId": str(battery["name"]),
@@ -295,6 +314,11 @@ def build_case_result(
             "repository": battery.get("repository"),
             "pin": battery.get("pin"),
             "commit": test_info.get("upstream_commit"),
+        },
+        "externalPrerequisite": {
+            "notRun": external_not_run,
+            "reason": reason if external_not_run else None,
+            "prerequisites": prerequisites if external_not_run else [],
         },
         "profiles": profiles,
         "extensions": _extension_states(
@@ -370,6 +394,109 @@ def coverage_violations(
     return violations
 
 
+def _skip_authorizations(
+    policy: dict[str, Any] | None, case_id: str, profile_name: str
+) -> list[dict[str, Any]]:
+    if policy is None:
+        return []
+    return [
+        item
+        for item in policy.get("skipAuthorizations", [])
+        if item.get("case") == case_id and item.get("profile") == profile_name
+    ]
+
+
+def classify_non_execution(
+    result: dict[str, Any], policy: dict[str, Any] | None
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    classifications: list[dict[str, Any]] = []
+    violations: list[dict[str, Any]] = []
+    case_id = str(result.get("caseId", ""))
+    external = result.get("externalPrerequisite") or {}
+
+    for profile in result.get("profiles", []):
+        profile_name = str(profile.get("name", ""))
+        observed = profile.get("notExecuted")
+        authorizations = _skip_authorizations(policy, case_id, profile_name)
+        expected = 0
+        reason: str | None = None
+        if len(authorizations) == 1:
+            expected = int(authorizations[0]["expected"])
+            reason = str(authorizations[0]["reason"])
+        elif len(authorizations) > 1:
+            violations.append(
+                {
+                    "caseId": case_id,
+                    "profile": profile_name,
+                    "type": "duplicate_authorization",
+                    "observed": observed,
+                    "expected": None,
+                }
+            )
+
+        is_external = bool(
+            external.get("notRun") and profile.get("status") == "not_run"
+        )
+        unexpected: int | None
+        authorization_shortfall: int | None
+        if is_external:
+            unexpected = None
+            authorization_shortfall = None
+        elif observed is None:
+            unexpected = None
+            authorization_shortfall = None
+            violations.append(
+                {
+                    "caseId": case_id,
+                    "profile": profile_name,
+                    "type": "missing_metrics",
+                    "observed": None,
+                    "expected": expected,
+                }
+            )
+        else:
+            unexpected = max(0, int(observed) - expected)
+            authorization_shortfall = max(0, expected - int(observed))
+            if unexpected:
+                violations.append(
+                    {
+                        "caseId": case_id,
+                        "profile": profile_name,
+                        "type": "unexpected_skip",
+                        "observed": int(observed),
+                        "expected": expected,
+                    }
+                )
+            if authorization_shortfall:
+                violations.append(
+                    {
+                        "caseId": case_id,
+                        "profile": profile_name,
+                        "type": "stale_authorization",
+                        "observed": int(observed),
+                        "expected": expected,
+                    }
+                )
+
+        classifications.append(
+            {
+                "caseId": case_id,
+                "profile": profile_name,
+                "observedNotExecuted": observed,
+                "runnerReportedSkipped": profile.get("skipped"),
+                "upstreamDeclared": expected,
+                "upstreamReason": reason,
+                "irionExclusions": list(profile.get("irionExclusions", [])),
+                "externalPrerequisite": is_external,
+                "externalReason": external.get("reason") if is_external else None,
+                "unexpected": unexpected,
+                "authorizationShortfall": authorization_shortfall,
+            }
+        )
+
+    return classifications, violations
+
+
 def aggregate_results(
     plan: dict[str, Any],
     results: list[dict[str, Any]],
@@ -391,6 +518,9 @@ def aggregate_results(
     accepted_failures: list[str] = []
     passed: list[str] = []
     coverage: list[dict[str, Any]] = []
+    non_execution: list[dict[str, Any]] = []
+    skip_violations: list[dict[str, Any]] = []
+    external_prerequisite_cases: list[str] = []
 
     for case_id, result in sorted(by_case.items()):
         if case_id not in cases:
@@ -402,6 +532,13 @@ def aggregate_results(
         if bool(result.get("acceptedFailure")) != expected_accepted:
             invalid.append(case_id)
             continue
+
+        classifications, case_skip_violations = classify_non_execution(result, policy)
+        non_execution.extend(classifications)
+        skip_violations.extend(case_skip_violations)
+        if (result.get("externalPrerequisite") or {}).get("notRun"):
+            external_prerequisite_cases.append(case_id)
+
         if status == "passed":
             if any(
                 profile.get("status")
@@ -420,7 +557,15 @@ def aggregate_results(
             invalid.append(case_id)
 
     verdict = "passed"
-    if missing or unexpected or duplicate_cases or invalid or failed or coverage:
+    if (
+        missing
+        or unexpected
+        or duplicate_cases
+        or invalid
+        or failed
+        or coverage
+        or skip_violations
+    ):
         verdict = "failed"
 
     return {
@@ -431,12 +576,15 @@ def aggregate_results(
         "expectedCases": sorted(cases),
         "passedCases": passed,
         "acceptedFailureCases": accepted_failures,
+        "externalPrerequisiteCases": sorted(set(external_prerequisite_cases)),
         "failedCases": failed,
         "invalidCases": sorted(set(invalid)),
         "missingCases": missing,
         "unexpectedCases": unexpected,
         "duplicateCases": sorted(set(duplicate_cases)),
         "coverageViolations": coverage,
+        "nonExecution": non_execution,
+        "skipViolations": skip_violations,
         "results": [
             by_case[name] for name in sorted(by_case) if name in cases
         ],
@@ -478,6 +626,7 @@ def summary_markdown(summary: dict[str, Any]) -> str:
 
     for title, key in (
         ("Accepted failures", "acceptedFailureCases"),
+        ("External prerequisites not available", "externalPrerequisiteCases"),
         ("Failed", "failedCases"),
         ("Invalid", "invalidCases"),
         ("Missing", "missingCases"),
@@ -492,6 +641,26 @@ def summary_markdown(summary: dict[str, Any]) -> str:
                     "",
                     ", ".join(f"`{value}`" for value in values),
                 ]
+            )
+
+    non_execution = summary.get("nonExecution", [])
+    if non_execution:
+        lines.extend(
+            [
+                "",
+                "## Non-execution classification",
+                "",
+                "| Case | Profile | Observed | Upstream declared | Irion exclusions | External prerequisite | Unexpected |",
+                "|---|---|---:|---:|---:|---|---:|",
+            ]
+        )
+        for item in non_execution:
+            external_text = "yes" if item["externalPrerequisite"] else "no"
+            lines.append(
+                f"| `{item['caseId']}` | `{item['profile']}` | "
+                f"{item['observedNotExecuted']} | {item['upstreamDeclared']} | "
+                f"{len(item['irionExclusions'])} | {external_text} | "
+                f"{item['unexpected']} |"
             )
 
     violations = summary.get("coverageViolations", [])
@@ -510,6 +679,24 @@ def summary_markdown(summary: dict[str, Any]) -> str:
                 f"| `{violation['caseId']}` | `{violation['profile']}` | "
                 f"{violation['metric']} | {violation['actual']} | "
                 f"{violation['operator']} {violation['expected']} |"
+            )
+
+    skip_violations = summary.get("skipViolations", [])
+    if skip_violations:
+        lines.extend(
+            [
+                "",
+                "## Skip policy violations",
+                "",
+                "| Case | Profile | Type | Observed | Authorized |",
+                "|---|---|---|---:|---:|",
+            ]
+        )
+        for violation in skip_violations:
+            lines.append(
+                f"| `{violation['caseId']}` | `{violation['profile']}` | "
+                f"{violation['type']} | {violation['observed']} | "
+                f"{violation['expected']} |"
             )
     return "\n".join(lines) + "\n"
 
