@@ -1,0 +1,22 @@
+# Verify that a repository-owned test can use the JSON extension from the shared baseline.
+
+statement ok
+CREATE TABLE irion_validation.json_probe (
+  payload JSON
+)
+
+statement ok
+INSERT INTO irion_validation.json_probe VALUES
+  ('{"tenant":"irion","modules":["mssql","postgres","ducklake"]}')
+
+query T
+SELECT json_extract_string(payload, '$.tenant')
+FROM irion_validation.json_probe
+----
+irion
+
+query I
+SELECT json_array_length(payload, '$.modules')
+FROM irion_validation.json_probe
+----
+3
