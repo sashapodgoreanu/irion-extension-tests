@@ -20,6 +20,6 @@ overrides:
   maximumSkipped: 0
 - case: irion
   profile: baseline
-  minimumDiscovered: 2
-  minimumExecuted: 2
+  minimumDiscovered: 4
+  minimumExecuted: 4
   maximumSkipped: 0
