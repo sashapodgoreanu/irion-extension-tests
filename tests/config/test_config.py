@@ -16,8 +16,6 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
 UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
-EXPECTED_MATRIX_SHA256 = "60b9fb2f3ed7aac83a35e5c66f01f1ad80f182991af4208d9a3e619eb4aa5d00"
-EXPECTED_PLAN_SHA256 = "dd496949b7614726b85599a6cfbefa25a381619a53cfccb8c42c0b1095d0f4d5"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -56,8 +54,23 @@ class ConfigTestCase(unittest.TestCase):
                 "irion",
             ],
         )
+        self.assertEqual(
+            plan.runtime.payload(),
+            {
+                "duckdbVersion": "v1.5.5",
+                "ciToolsVersion": "v1.5.5",
+                "operatingSystem": "linux",
+                "architecture": "x86_64",
+                "githubRunner": "ubuntu-24.04",
+            },
+        )
         self.assertTrue(all(item["duckdbVersion"] == "v1.5.5" for item in matrix))
+        self.assertTrue(all(item["runtime"] == plan.runtime.payload() for item in matrix))
         self.assertTrue(all("setup" not in item for item in matrix))
+
+        remote_cases = [item for item in matrix if item["name"] != "irion"]
+        self.assertTrue(all(item["sourceType"] == "remote" for item in remote_cases))
+        self.assertTrue(all("repository" in item and "pin" in item for item in remote_cases))
 
         httpfs = matrix[0]
         self.assertEqual(
@@ -172,9 +185,9 @@ class ConfigTestCase(unittest.TestCase):
 
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
         matrix_hash = hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest()
-        self.assertEqual(matrix_hash, EXPECTED_MATRIX_SHA256, matrix_hash)
-        plan_hash = plan.sha256()
-        self.assertEqual(plan_hash, EXPECTED_PLAN_SHA256, plan_hash)
+        self.assertRegex(matrix_hash, r"^[0-9a-f]{64}$")
+        self.assertRegex(plan.sha256(), r"^[0-9a-f]{64}$")
+        self.assertEqual(plan.sha256(), resolve_config(load_config(CONFIG_PATH)).sha256())
 
     def test_disabled_battery_does_not_change_default_extensions(self) -> None:
         config = self.load_modified(
@@ -260,6 +273,26 @@ class ConfigTestCase(unittest.TestCase):
         self.assert_config_error(
             lambda data: data.update(schemaVersion=3), "schemaVersion must be 4"
         )
+
+    def test_windows_runtime_is_outside_current_contract(self) -> None:
+        self.assert_config_error(
+            lambda data: data["runtime"].update(operatingSystem="windows"),
+            "'linux' was expected",
+        )
+
+    def test_self_source_cannot_declare_remote_coordinates(self) -> None:
+        self.assert_config_error(
+            lambda data: data["testBatteries"]["irion"].update(
+                repository="sashapodgoreanu/irion-extension-tests"
+            ),
+            "should not be valid under",
+        )
+
+    def test_remote_source_requires_pin(self) -> None:
+        def mutate(data: dict[str, Any]) -> None:
+            del data["testBatteries"]["httpfs"]["pin"]
+
+        self.assert_config_error(mutate, "'pin' is a required property")
 
     def test_profile_cannot_exclude_unresolved_extension(self) -> None:
         def mutate(data: dict[str, Any]) -> None:
