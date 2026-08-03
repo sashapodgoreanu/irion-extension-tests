@@ -262,6 +262,16 @@ def build_case_result(
         for service in profile.get("services", []):
             declared_services.append({"profile": profile["name"], **service})
 
+    runtime = battery.get("runtime")
+    if not isinstance(runtime, dict):
+        runtime = {
+            "duckdbVersion": battery.get("duckdbVersion"),
+            "ciToolsVersion": None,
+            "operatingSystem": None,
+            "architecture": None,
+            "githubRunner": None,
+        }
+
     return {
         "schemaVersion": RESULT_SCHEMA_VERSION,
         "caseId": str(battery["name"]),
@@ -279,7 +289,9 @@ def build_case_result(
         "finishedAt": utc_now(),
         "durationMs": max(0, finished_ms - started_at_ms),
         "duckdbVersion": battery.get("duckdbVersion"),
+        "runtime": runtime,
         "upstream": {
+            "type": battery.get("sourceType", "remote"),
             "repository": battery.get("repository"),
             "pin": battery.get("pin"),
             "commit": test_info.get("upstream_commit"),
@@ -415,6 +427,7 @@ def aggregate_results(
         "schemaVersion": SUMMARY_SCHEMA_VERSION,
         "status": verdict,
         "generatedAt": utc_now(),
+        "runtime": plan.get("runtime"),
         "expectedCases": sorted(cases),
         "passedCases": passed,
         "acceptedFailureCases": accepted_failures,
@@ -431,10 +444,18 @@ def aggregate_results(
 
 
 def summary_markdown(summary: dict[str, Any]) -> str:
+    runtime = summary.get("runtime") or {}
+    runtime_text = (
+        f"{runtime.get('operatingSystem', 'unknown')}/"
+        f"{runtime.get('architecture', 'unknown')} on "
+        f"{runtime.get('githubRunner', 'unknown')}"
+    )
     lines = [
         "# DuckDB extension QA summary",
         "",
         f"**Verdict:** `{summary['status']}`",
+        "",
+        f"**Runtime:** `{runtime_text}`",
         "",
         "| Case | Status | Profiles |",
         "|---|---|---|",
