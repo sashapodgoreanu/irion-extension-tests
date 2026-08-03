@@ -1,0 +1,40 @@
+# Verify ordered transaction behavior for repository-owned Irion scenarios.
+
+statement ok
+CREATE TABLE irion_validation.transaction_probe (
+  id INTEGER PRIMARY KEY,
+  marker VARCHAR
+)
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO irion_validation.transaction_probe VALUES (1, 'rolled-back')
+
+statement ok
+ROLLBACK
+
+query I
+SELECT count(*)
+FROM irion_validation.transaction_probe
+----
+0
+
+statement ok
+BEGIN TRANSACTION
+
+statement ok
+INSERT INTO irion_validation.transaction_probe VALUES
+  (1, 'committed'),
+  (2, 'committed')
+
+statement ok
+COMMIT
+
+query IT rowsort
+SELECT id, marker
+FROM irion_validation.transaction_probe
+----
+1	committed
+2	committed
