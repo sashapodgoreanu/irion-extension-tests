@@ -17,6 +17,7 @@
     "finishedAt",
     "durationMs",
     "duckdbVersion",
+    "runtime",
     "upstream",
     "profiles",
     "extensions",
@@ -35,11 +36,13 @@
     "finishedAt": {"type": "string", "format": "date-time"},
     "durationMs": {"type": "integer", "minimum": 0},
     "duckdbVersion": {"type": ["string", "null"]},
+    "runtime": {"$ref": "#/$defs/runtime"},
     "upstream": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "pin", "commit"],
+      "required": ["type", "repository", "pin", "commit"],
       "properties": {
+        "type": {"enum": ["remote", "self"]},
         "repository": {"type": ["string", "null"]},
         "pin": {"type": ["string", "null"]},
         "commit": {"type": ["string", "null"]}
@@ -98,6 +101,20 @@
     "services": {
       "type": "array",
       "items": {"type": "object"}
+    }
+  },
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duckdbVersion", "ciToolsVersion", "operatingSystem", "architecture", "githubRunner"],
+      "properties": {
+        "duckdbVersion": {"type": ["string", "null"]},
+        "ciToolsVersion": {"type": ["string", "null"]},
+        "operatingSystem": {"const": "linux"},
+        "architecture": {"const": "x86_64"},
+        "githubRunner": {"type": "string", "minLength": 1}
+      }
     }
   }
 }
