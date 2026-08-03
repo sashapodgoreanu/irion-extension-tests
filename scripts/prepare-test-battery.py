@@ -14,6 +14,7 @@ from typing import Any
 EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
+VALID_SOURCE_TYPES = {"remote", "self"}
 VALID_SERVICE_TYPES = {
     "python-http",
     "squid",
@@ -200,8 +201,17 @@ def main() -> int:
 
         name = required_string(battery, "name")
         runner = required_string(battery, "runner")
-        pin = required_string(battery, "pin")
+        source_type = required_string(battery, "sourceType")
+        if source_type not in VALID_SOURCE_TYPES:
+            raise BatteryError(f"unsupported source type: {source_type}")
+        source_ref = required_string(battery, "pin") if source_type == "remote" else "self"
         duckdb_version = required_string(battery, "duckdbVersion")
+        runtime = battery.get("runtime")
+        if not isinstance(runtime, dict):
+            raise BatteryError("runtime must be an object")
+        operating_system = required_string(runtime, "operatingSystem")
+        architecture = required_string(runtime, "architecture")
+        github_runner = required_string(runtime, "githubRunner")
         services = normalize_services(battery.get("services"), "services")
         prerequisites = normalize_prerequisites(battery.get("prerequisites"))
         capabilities = battery.get("capabilities")
@@ -305,9 +315,13 @@ def main() -> int:
         env_values = {
             "BATTERY_NAME": name,
             "RUNNER_KIND": runner,
+            "SOURCE_TYPE": source_type,
             "TEST_FILTER": profiles[0]["tests"],
-            "UPSTREAM_REF": pin,
+            "UPSTREAM_REF": source_ref,
             "DUCKDB_VERSION": duckdb_version,
+            "OPERATING_SYSTEM": operating_system,
+            "ARCHITECTURE": architecture,
+            "GITHUB_RUNNER_LABEL": github_runner,
         }
         (output_dir / "battery.env").write_text(
             "".join(f"{key}={shlex.quote(value)}\n" for key, value in env_values.items()),
