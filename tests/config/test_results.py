@@ -9,7 +9,12 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from qa.results import aggregate_results, build_case_result, parse_unittest_log
+from qa.results import (
+    aggregate_results,
+    build_case_result,
+    parse_unittest_log,
+    summary_markdown,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RESULT_WRITER = REPOSITORY_ROOT / "scripts" / "write-test-result.py"
@@ -31,11 +36,22 @@ DEFAULT_POLICY = {
     "schemaVersion": 1,
     "defaults": {"minimumDiscovered": 1, "minimumExecuted": 1},
     "overrides": [],
+    "skipAuthorizations": [],
 }
 
 
-def battery(*, accepted: bool = False, source_type: str = "remote") -> dict:
+def battery(
+    *,
+    accepted: bool = False,
+    source_type: str = "remote",
+    ignored_tests: list[dict] | None = None,
+) -> dict:
     capabilities = ["accepted-failure"] if accepted else []
+    prerequisites = (
+        [{"type": "google-bigquery"}, {"type": "external-cloud-account"}]
+        if accepted
+        else []
+    )
     value = {
         "name": "httpfs",
         "runner": "standard",
@@ -43,9 +59,11 @@ def battery(*, accepted: bool = False, source_type: str = "remote") -> dict:
         "duckdbVersion": "v1.5.5",
         "runtime": RUNTIME,
         "capabilities": capabilities,
+        "prerequisites": prerequisites,
         "services": [],
         "extensions": [{"name": "httpfs"}],
         "profiles": [{"name": "sql", "tests": "test/sql/*", "services": []}],
+        "ignoredTests": ignored_tests or [],
     }
     if source_type == "remote":
         value.update(
@@ -58,6 +76,15 @@ def battery(*, accepted: bool = False, source_type: str = "remote") -> dict:
 
 def plan(*cases: dict) -> dict:
     return {"runtime": RUNTIME, "cases": list(cases)}
+
+
+def case_plan(*, accepted: bool = False, name: str = "httpfs") -> dict:
+    return {
+        "name": name,
+        "execution": {
+            "capabilities": ["accepted-failure"] if accepted else [],
+        },
+    }
 
 
 class ResultTestCase(unittest.TestCase):
@@ -82,6 +109,23 @@ class ResultTestCase(unittest.TestCase):
         self.assertEqual(parsed["passed"], 120)
         self.assertEqual(parsed["failed"], 0)
         self.assertEqual(parsed["skipped"], 2)
+
+    def test_parse_composite_isolated_runner_summary(self) -> None:
+        parsed = parse_unittest_log(
+            "[1/4] test/sql/one.test\n"
+            "All tests passed (10 assertions in 1 test case)\n"
+            "[2/4] test/sql/two.test\n"
+            "All tests were skipped (total skipped 1)\n"
+            "[3/4] test/sql/three.test\n"
+            "All tests passed (20 assertions in 1 test case)\n"
+            "[4/4] test/sql/four.test\n"
+            "All tests were skipped (total skipped 1)\n"
+        )
+        self.assertEqual(parsed["discovered"], 4)
+        self.assertEqual(parsed["executed"], 2)
+        self.assertEqual(parsed["passed"], 2)
+        self.assertEqual(parsed["skipped"], 2)
+        self.assertEqual(parsed["assertions"], 30)
 
     def test_parse_all_skipped_summary(self) -> None:
         parsed = parse_unittest_log(
@@ -119,6 +163,23 @@ class ResultTestCase(unittest.TestCase):
             self.assertEqual(result["upstream"]["type"], "remote")
             self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
 
+    def test_result_records_linux_runtime_and_raw_non_execution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "[3/3] (100%): test/sql/example.test\n"
+                "All tests passed (1 skipped test, 8 assertions in 2 test cases)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            profile = result["profiles"][0]
+            self.assertEqual(result["runtime"], RUNTIME)
+            self.assertEqual(profile["notExecuted"], 1)
+            self.assertEqual(profile["skipped"], 1)
+            self.assertEqual(profile["irionExclusions"], [])
+            self.assertFalse(result["externalPrerequisite"]["notRun"])
+            self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
+
     def test_self_source_result_has_no_remote_coordinates(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             log_dir = Path(directory)
@@ -133,6 +194,37 @@ class ResultTestCase(unittest.TestCase):
             self.assertEqual(
                 result["upstream"],
                 {"type": "self", "repository": None, "pin": None, "commit": None},
+            )
+            self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
+
+    def test_result_records_irion_exclusions_with_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "All tests passed (1 assertions in 1 test case)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(
+                battery(
+                    ignored_tests=[
+                        {
+                            "path": "test/sql/not-applicable.test",
+                            "reason": "Approved Irion exclusion",
+                            "profiles": ["sql"],
+                        }
+                    ]
+                ),
+                log_dir,
+                exit_code=0,
+            )
+            self.assertEqual(
+                result["profiles"][0]["irionExclusions"],
+                [
+                    {
+                        "path": "test/sql/not-applicable.test",
+                        "reason": "Approved Irion exclusion",
+                    }
+                ],
             )
             self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
 
@@ -160,6 +252,7 @@ class ResultTestCase(unittest.TestCase):
             self.assertEqual(profile["passed"], 396)
             self.assertEqual(profile["failed"], 0)
             self.assertEqual(profile["skipped"], 26)
+            self.assertEqual(profile["notExecuted"], 26)
             self.assertEqual(profile["assertions"], 89778)
             self.assertEqual(
                 profile["log"],
@@ -178,13 +271,10 @@ class ResultTestCase(unittest.TestCase):
             result = build_case_result(battery(), log_dir, exit_code=0)
             self.assertEqual(result["status"], "passed")
             self.assertEqual(result["profiles"][0]["status"], "skipped")
-            summary = aggregate_results(
-                plan({"name": "httpfs", "execution": {"capabilities": []}}),
-                [result],
-                DEFAULT_POLICY,
-            )
+            summary = aggregate_results(plan(case_plan()), [result], DEFAULT_POLICY)
             self.assertEqual(summary["status"], "failed")
             self.assertEqual(summary["runtime"], RUNTIME)
+            self.assertEqual(summary["skipViolations"][0]["type"], "unexpected_skip")
             self.assertEqual(
                 summary["coverageViolations"],
                 [
@@ -199,21 +289,129 @@ class ResultTestCase(unittest.TestCase):
                 ],
             )
 
-    def test_accepted_failure_is_explicit(self) -> None:
+    def test_unexpected_skip_fails_aggregate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "[2/2] (100%): test/sql/example.test\n"
+                "All tests passed (1 skipped test, 8 assertions in 1 test case)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            summary = aggregate_results(plan(case_plan()), [result], DEFAULT_POLICY)
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(summary["skipViolations"][0]["type"], "unexpected_skip")
+            self.assertEqual(summary["nonExecution"][0]["unexpected"], 1)
+            self.assertFalse(list(Draft202012Validator(SUMMARY_SCHEMA).iter_errors(summary)))
+
+    def test_authorized_upstream_skip_passes_aggregate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "[2/2] (100%): test/sql/example.test\n"
+                "All tests passed (1 skipped test, 8 assertions in 1 test case)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            policy = {
+                **DEFAULT_POLICY,
+                "skipAuthorizations": [
+                    {
+                        "case": "httpfs",
+                        "profile": "sql",
+                        "category": "upstream_declared",
+                        "expected": 1,
+                        "reason": "Declared by the pinned upstream suite",
+                    }
+                ],
+            }
+            summary = aggregate_results(plan(case_plan()), [result], policy)
+            self.assertEqual(summary["status"], "passed")
+            self.assertEqual(summary["skipViolations"], [])
+            classification = summary["nonExecution"][0]
+            self.assertEqual(classification["upstreamDeclared"], 1)
+            self.assertEqual(classification["unexpected"], 0)
+            self.assertIn("Non-execution classification", summary_markdown(summary))
+            self.assertFalse(list(Draft202012Validator(SUMMARY_SCHEMA).iter_errors(summary)))
+
+    def test_stale_skip_authorization_fails_aggregate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "[2/2] (100%): test/sql/example.test\n"
+                "All tests passed (1 skipped test, 8 assertions in 1 test case)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            policy = {
+                **DEFAULT_POLICY,
+                "skipAuthorizations": [
+                    {
+                        "case": "httpfs",
+                        "profile": "sql",
+                        "category": "upstream_declared",
+                        "expected": 2,
+                        "reason": "Old pinned baseline",
+                    }
+                ],
+            }
+            summary = aggregate_results(plan(case_plan()), [result], policy)
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(summary["skipViolations"][0]["type"], "stale_authorization")
+
+    def test_decreased_discovery_or_execution_fails_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "unittest-sql.log").write_text(
+                "[2/2] (100%): test/sql/example.test\n"
+                "All tests passed (4 assertions in 2 test cases)\n",
+                encoding="utf-8",
+            )
+            result = build_case_result(battery(), log_dir, exit_code=0)
+            policy = {
+                **DEFAULT_POLICY,
+                "overrides": [
+                    {
+                        "case": "httpfs",
+                        "profile": "sql",
+                        "minimumDiscovered": 3,
+                        "minimumExecuted": 3,
+                    }
+                ],
+            }
+            summary = aggregate_results(plan(case_plan()), [result], policy)
+            self.assertEqual(summary["status"], "failed")
+            self.assertEqual(
+                {item["metric"] for item in summary["coverageViolations"]},
+                {"discovered", "executed"},
+            )
+
+    def test_external_prerequisite_not_run_is_explicit_and_accepted(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             result = build_case_result(
                 battery(accepted=True),
                 Path(directory),
                 exit_code=1,
-                reason="missing-cloud-account",
+                reason="missing-google-cloud-credentials",
+            )
+            summary = aggregate_results(
+                plan(case_plan(accepted=True)),
+                [result],
+                DEFAULT_POLICY,
             )
             self.assertEqual(result["status"], "accepted_failure")
-            self.assertTrue(result["acceptedFailure"])
+            self.assertTrue(result["externalPrerequisite"]["notRun"])
+            self.assertEqual(summary["status"], "passed")
+            self.assertEqual(summary["externalPrerequisiteCases"], ["httpfs"])
+            self.assertTrue(summary["nonExecution"][0]["externalPrerequisite"])
+            self.assertEqual(summary["skipViolations"], [])
+            self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
+            self.assertFalse(list(Draft202012Validator(SUMMARY_SCHEMA).iter_errors(summary)))
 
     def test_aggregate_rejects_missing_and_nonaccepted_failures(self) -> None:
         source_plan = plan(
-            {"name": "httpfs", "execution": {"capabilities": []}},
-            {"name": "bigquery", "execution": {"capabilities": ["accepted-failure"]}},
+            case_plan(),
+            case_plan(accepted=True, name="bigquery"),
         )
         summary = aggregate_results(
             source_plan,
@@ -222,9 +420,11 @@ class ResultTestCase(unittest.TestCase):
                     "caseId": "httpfs",
                     "status": "failed",
                     "acceptedFailure": False,
+                    "externalPrerequisite": {"notRun": False},
                     "profiles": [],
                 }
             ],
+            DEFAULT_POLICY,
         )
         self.assertEqual(summary["status"], "failed")
         self.assertEqual(summary["failedCases"], ["httpfs"])
@@ -233,8 +433,8 @@ class ResultTestCase(unittest.TestCase):
 
     def test_aggregate_accepts_only_declared_accepted_failure(self) -> None:
         source_plan = plan(
-            {"name": "httpfs", "execution": {"capabilities": []}},
-            {"name": "bigquery", "execution": {"capabilities": ["accepted-failure"]}},
+            case_plan(),
+            case_plan(accepted=True, name="bigquery"),
         )
         summary = aggregate_results(
             source_plan,
@@ -243,6 +443,11 @@ class ResultTestCase(unittest.TestCase):
                     "caseId": "httpfs",
                     "status": "passed",
                     "acceptedFailure": False,
+                    "externalPrerequisite": {
+                        "notRun": False,
+                        "reason": None,
+                        "prerequisites": [],
+                    },
                     "profiles": [
                         {
                             "name": "sql",
@@ -250,6 +455,8 @@ class ResultTestCase(unittest.TestCase):
                             "discovered": 1,
                             "executed": 1,
                             "skipped": 0,
+                            "notExecuted": 0,
+                            "irionExclusions": [],
                         }
                     ],
                 },
@@ -257,14 +464,31 @@ class ResultTestCase(unittest.TestCase):
                     "caseId": "bigquery",
                     "status": "accepted_failure",
                     "acceptedFailure": True,
-                    "profiles": [{"status": "not_run"}],
+                    "externalPrerequisite": {
+                        "notRun": True,
+                        "reason": "missing-cloud-account",
+                        "prerequisites": ["external-cloud-account"],
+                    },
+                    "profiles": [
+                        {
+                            "name": "all",
+                            "status": "not_run",
+                            "discovered": None,
+                            "executed": None,
+                            "skipped": None,
+                            "notExecuted": None,
+                            "irionExclusions": [],
+                        }
+                    ],
                 },
             ],
             DEFAULT_POLICY,
         )
         self.assertEqual(summary["status"], "passed")
         self.assertEqual(summary["acceptedFailureCases"], ["bigquery"])
+        self.assertEqual(summary["externalPrerequisiteCases"], ["bigquery"])
         self.assertEqual(summary["coverageViolations"], [])
+        self.assertEqual(summary["skipViolations"], [])
         self.assertEqual(summary["runtime"], RUNTIME)
 
 
