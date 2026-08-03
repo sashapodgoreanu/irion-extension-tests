@@ -2,6 +2,16 @@
 
 The `irion` battery runs repository-owned SQLLogicTests through the same GitHub Actions matrix and the same shared DuckDB runtime used by the upstream extension batteries.
 
+The battery uses `source: self`. Its tests are executed directly from the QA repository workspace, so it does not check out this repository a second time and does not depend on a feature branch or another permanent branch reference.
+
+The current validation contract is explicit:
+
+- operating system: `linux`;
+- architecture: `x86_64`;
+- GitHub Actions runner: `ubuntu-24.04`.
+
+These runtime values are compiled into the execution plan and recorded in every structured result and in the aggregate summary.
+
 ## Layout
 
 ```text
