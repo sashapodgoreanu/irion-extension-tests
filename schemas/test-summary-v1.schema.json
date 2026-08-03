@@ -8,6 +8,7 @@
     "schemaVersion",
     "status",
     "generatedAt",
+    "runtime",
     "expectedCases",
     "passedCases",
     "acceptedFailureCases",
@@ -23,6 +24,7 @@
     "schemaVersion": {"const": 1},
     "status": {"enum": ["passed", "failed"]},
     "generatedAt": {"type": "string", "format": "date-time"},
+    "runtime": {"$ref": "#/$defs/runtime"},
     "expectedCases": {"$ref": "#/$defs/stringList"},
     "passedCases": {"$ref": "#/$defs/stringList"},
     "acceptedFailureCases": {"$ref": "#/$defs/stringList"},
@@ -57,6 +59,18 @@
     }
   },
   "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duckdbVersion", "ciToolsVersion", "operatingSystem", "architecture", "githubRunner"],
+      "properties": {
+        "duckdbVersion": {"type": "string", "minLength": 1},
+        "ciToolsVersion": {"type": "string", "minLength": 1},
+        "operatingSystem": {"const": "linux"},
+        "architecture": {"const": "x86_64"},
+        "githubRunner": {"type": "string", "minLength": 1}
+      }
+    },
     "stringList": {
       "type": "array",
       "uniqueItems": true,
