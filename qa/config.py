@@ -30,8 +30,17 @@ PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
 VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
+VALID_SOURCE_TYPES = frozenset({"remote", "self"})
 VALID_SERVICE_TYPES = frozenset(
-    {"python-http", "squid", "httpfs-minio", "azurite", "unity-catalog-oss", "postgres", "sqlserver"}
+    {
+        "python-http",
+        "squid",
+        "httpfs-minio",
+        "azurite",
+        "unity-catalog-oss",
+        "postgres",
+        "sqlserver",
+    }
 )
 VALID_PREREQUISITE_TYPES = frozenset(
     {"google-bigquery", "external-cloud-account"}
@@ -58,6 +67,13 @@ class ConfigError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeConfig:
+    operating_system: str
+    architecture: str
+    github_runner: str
+
+
+@dataclass(frozen=True, slots=True)
 class DuckDbConfig:
     version: str
     ci_tools_version: str
@@ -78,11 +94,6 @@ class ServiceConfig:
     name: str
     service_type: str
     options: tuple[tuple[str, Any], ...] = ()
-
-    def payload(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"name": self.name, "type": self.service_type}
-        result.update(dict(self.options))
-        return result
 
     def execution_service(self) -> ExecutionService:
         return ExecutionService(
@@ -165,8 +176,9 @@ class BatteryConfig:
     name: str
     is_enabled: bool
     runner: str
-    repository: str
-    pin: str
+    source_type: str
+    repository: str | None
+    pin: str | None
     submodules: str
     services: tuple[ServiceConfig, ...]
     prerequisites: tuple[PrerequisiteConfig, ...]
@@ -178,6 +190,7 @@ class BatteryConfig:
 @dataclass(frozen=True, slots=True)
 class QaConfig:
     schema_version: int
+    runtime: RuntimeConfig
     duckdb: DuckDbConfig
     default_extensions: tuple[ExtensionConfig, ...]
     test_batteries: tuple[BatteryConfig, ...]
@@ -317,9 +330,7 @@ def _parse_prerequisites(
                 f"{path} contains duplicate prerequisite {prerequisite_type}"
             )
         seen.add(prerequisite_type)
-        result.append(
-            PrerequisiteConfig(prerequisite_type=prerequisite_type)
-        )
+        result.append(PrerequisiteConfig(prerequisite_type=prerequisite_type))
     return tuple(result)
 
 
@@ -406,44 +417,61 @@ def _parse_ignored_tests(
         ignored = _parse_ignored_test(item, f"{path}[{index}]")
         key = (ignored.path, tuple(sorted(ignored.profiles)))
         if key in seen:
-            raise ConfigError(
-                f"{path} contains duplicate ignored test {ignored.path}"
-            )
+            raise ConfigError(f"{path} contains duplicate ignored test {ignored.path}")
         seen.add(key)
         result.append(ignored)
     return tuple(result)
 
 
+def _parse_source(
+    raw: Mapping[str, Any], path: str
+) -> tuple[str, str | None, str | None, str]:
+    source_type = raw["source"].strip()
+    if source_type not in VALID_SOURCE_TYPES:
+        raise ConfigError(f"{path}.source is unsupported: {source_type}")
+    if source_type == "self":
+        return source_type, None, None, "false"
+
+    repository = raw["repository"].strip()
+    pin = raw["pin"].strip()
+    if not REPOSITORY_NAME.fullmatch(repository):
+        raise ConfigError(f"{path}.repository must use owner/name form")
+    return (
+        source_type,
+        repository,
+        pin,
+        _normalize_submodules(raw.get("submodules", False)),
+    )
+
+
 def parse_config(data: Mapping[str, Any]) -> QaConfig:
+    runtime_raw = data["runtime"]
+    runtime = RuntimeConfig(
+        operating_system=runtime_raw["operatingSystem"].strip(),
+        architecture=runtime_raw["architecture"].strip(),
+        github_runner=runtime_raw["githubRunner"].strip(),
+    )
     duckdb_raw = data["duckdb"]
     duckdb = DuckDbConfig(
         version=duckdb_raw["version"].strip(),
         ci_tools_version=duckdb_raw["ciToolsVersion"].strip(),
     )
-    defaults = _parse_extensions(
-        data["defaultExtensions"], "defaultExtensions"
-    )
+    defaults = _parse_extensions(data["defaultExtensions"], "defaultExtensions")
 
     batteries: list[BatteryConfig] = []
     for name, raw in data["testBatteries"].items():
         if not EXTENSION_NAME.fullmatch(name):
-            raise ConfigError(
-                f"testBatteries contains invalid name {name!r}"
-            )
+            raise ConfigError(f"testBatteries contains invalid name {name!r}")
         path = f"testBatteries.{name}"
         runner = raw["runner"].strip()
         if runner not in VALID_RUNNERS:
             raise ConfigError(f"{path}.runner is unsupported: {runner}")
-        repository = raw["repository"].strip()
-        if not REPOSITORY_NAME.fullmatch(repository):
-            raise ConfigError(f"{path}.repository must use owner/name form")
+        source_type, repository, pin, submodules = _parse_source(raw, path)
         services = _parse_services(raw["services"], f"{path}.services")
         prerequisites = _parse_prerequisites(
             raw["prerequisites"], f"{path}.prerequisites"
         )
-        profiles = _parse_profiles(
-            raw["profiles"], f"{path}.profiles", runner
-        )
+        profiles = _parse_profiles(raw["profiles"], f"{path}.profiles", runner)
         battery_service_names = {service.name for service in services}
         for profile in profiles:
             overlap = sorted(
@@ -460,9 +488,7 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
             raw.get("ignoredTests", ()), f"{path}.ignoredTests"
         )
         for ignored in ignored_tests:
-            unknown_profiles = sorted(
-                set(ignored.profiles) - profile_names
-            )
+            unknown_profiles = sorted(set(ignored.profiles) - profile_names)
             if unknown_profiles:
                 raise ConfigError(
                     f"{path}.ignoredTests references unknown profile "
@@ -473,11 +499,10 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
                 name=name,
                 is_enabled=raw["isEnabled"],
                 runner=runner,
+                source_type=source_type,
                 repository=repository,
-                pin=raw["pin"].strip(),
-                submodules=_normalize_submodules(
-                    raw.get("submodules", False)
-                ),
+                pin=pin,
+                submodules=submodules,
                 services=services,
                 prerequisites=prerequisites,
                 profiles=profiles,
@@ -490,6 +515,7 @@ def parse_config(data: Mapping[str, Any]) -> QaConfig:
 
     return QaConfig(
         schema_version=data["schemaVersion"],
+        runtime=runtime,
         duckdb=duckdb,
         default_extensions=defaults,
         test_batteries=tuple(batteries),
@@ -500,9 +526,7 @@ def load_config(
     config_path: Path, schema_path: Path | None = None
 ) -> QaConfig:
     try:
-        data = yaml.safe_load(
-            config_path.read_text(encoding="utf-8")
-        )
+        data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except OSError as exc:
         raise ConfigError(str(exc)) from exc
     except yaml.YAMLError as exc:
@@ -512,8 +536,7 @@ def load_config(
     schema_version = data.get("schemaVersion")
     if schema_version != SUPPORTED_SCHEMA_VERSION:
         raise ConfigError(
-            f"schemaVersion must be {SUPPORTED_SCHEMA_VERSION}; "
-            f"found {schema_version!r}"
+            f"schemaVersion must be {SUPPORTED_SCHEMA_VERSION}; found {schema_version!r}"
         )
     if schema_path is None:
         schema_path = (
@@ -528,9 +551,7 @@ def load_config(
 def _active_extensions(
     extensions: Sequence[ExtensionConfig],
 ) -> tuple[ExtensionConfig, ...]:
-    return tuple(
-        extension for extension in extensions if extension.is_used
-    )
+    return tuple(extension for extension in extensions if extension.is_used)
 
 
 def _merge_extensions(
@@ -560,10 +581,7 @@ def _merge_extensions(
                     f"for {extension.name}: {existing.install_from} != "
                     f"{extension.install_from}"
                 )
-            if (
-                existing.install_from is None
-                and extension.install_from is not None
-            ):
+            if existing.install_from is None and extension.install_from is not None:
                 replacement = ExtensionConfig(
                     name=existing.name,
                     is_used=True,
@@ -588,19 +606,13 @@ def _capabilities(battery: BatteryConfig) -> tuple[str, ...]:
         for service in profile.services:
             add(SERVICE_CAPABILITIES[service.service_type])
     for prerequisite in battery.prerequisites:
-        add(
-            PREREQUISITE_CAPABILITIES[
-                prerequisite.prerequisite_type
-            ]
-        )
+        add(PREREQUISITE_CAPABILITIES[prerequisite.prerequisite_type])
     return tuple(ordered)
 
 
 def resolve_config(config: QaConfig) -> ExecutionPlan:
     """Compile validated configuration into a versioned execution plan."""
-    active_defaults = _active_extensions(
-        config.default_extensions
-    )
+    active_defaults = _active_extensions(config.default_extensions)
     cases: list[ExecutionCase] = []
     for battery in config.test_batteries:
         if not battery.is_enabled:
@@ -612,19 +624,12 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
             path,
         )
         if not resolved_extensions:
-            raise ConfigError(
-                f"{path} resolves to an empty extension set"
-            )
-        resolved_names = {
-            extension.name for extension in resolved_extensions
-        }
+            raise ConfigError(f"{path} resolves to an empty extension set")
+        resolved_names = {extension.name for extension in resolved_extensions}
         for profile in battery.profiles:
-            if isinstance(
-                profile.test_config, GeneratedTestConfig
-            ):
+            if isinstance(profile.test_config, GeneratedTestConfig):
                 unknown = sorted(
-                    set(profile.test_config.excluded_extensions)
-                    - resolved_names
+                    set(profile.test_config.excluded_extensions) - resolved_names
                 )
                 if unknown:
                     raise ConfigError(
@@ -635,6 +640,7 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
             ExecutionCase(
                 name=battery.name,
                 source=ExecutionSource(
+                    source_type=battery.source_type,
                     repository=battery.repository,
                     pin=battery.pin,
                     submodules=battery.submodules,
@@ -642,8 +648,7 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
                 contract=ExecutionContract(
                     runner=battery.runner,
                     services=tuple(
-                        service.execution_service()
-                        for service in battery.services
+                        service.execution_service() for service in battery.services
                     ),
                     prerequisites=tuple(
                         item.execution_prerequisite()
@@ -651,8 +656,7 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
                     ),
                     capabilities=_capabilities(battery),
                     profiles=tuple(
-                        profile.execution_profile()
-                        for profile in battery.profiles
+                        profile.execution_profile() for profile in battery.profiles
                     ),
                 ),
                 extensions=tuple(
@@ -666,13 +670,14 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
             )
         )
     if not cases:
-        raise ConfigError(
-            "at least one test battery must have isEnabled: true"
-        )
+        raise ConfigError("at least one test battery must have isEnabled: true")
     return ExecutionPlan(
         runtime=ExecutionRuntime(
             duckdb_version=config.duckdb.version,
             ci_tools_version=config.duckdb.ci_tools_version,
+            operating_system=config.runtime.operating_system,
+            architecture=config.runtime.architecture,
+            github_runner=config.runtime.github_runner,
         ),
         cases=tuple(cases),
     )
