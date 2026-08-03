@@ -20,6 +20,9 @@ jobs:
       matrix: ${{ steps.resolve.outputs.matrix }}
       duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
       ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
+      operating_system: ${{ steps.resolve.outputs.operating_system }}
+      architecture: ${{ steps.resolve.outputs.architecture }}
+      github_runner: ${{ steps.resolve.outputs.github_runner }}
       enabled_batteries: ${{ steps.resolve.outputs.enabled_batteries }}
       execution_plan_sha256: ${{ steps.resolve.outputs.execution_plan_sha256 }}
 
@@ -59,13 +62,15 @@ jobs:
       - name: Report enabled batteries
         run: |
           echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
+          echo "Runtime: ${{ steps.resolve.outputs.operating_system }}/${{ steps.resolve.outputs.architecture }}"
+          echo "GitHub runner: ${{ steps.resolve.outputs.github_runner }}"
           echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
           echo "Execution plan SHA-256: ${{ steps.resolve.outputs.execution_plan_sha256 }}"
 
   build:
     name: Prepare DuckDB runtime
     needs: configure
-    runs-on: ubuntu-24.04
+    runs-on: ${{ needs.configure.outputs.github_runner }}
     timeout-minutes: 90
 
     steps:
@@ -86,9 +91,10 @@ jobs:
 
           BUILD_INPUT_HASH="$({
             printf '%s\n' \
-              'cache-schema=v2' \
-              'runner=ubuntu-24.04' \
-              'architecture=linux-amd64' \
+              'cache-schema=v3' \
+              'runner=${{ needs.configure.outputs.github_runner }}' \
+              'operating-system=${{ needs.configure.outputs.operating_system }}' \
+              'architecture=${{ needs.configure.outputs.architecture }}' \
               'duckdb-version=${{ needs.configure.outputs.duckdb_version }}' \
               'ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}' \
               "duckdb-sha=${DUCKDB_SHA}" \
@@ -102,7 +108,7 @@ jobs:
               src
           } | sha256sum | cut -d' ' -f1)"
 
-          CACHE_KEY="duckdb-runtime-v2-ubuntu24-linux-amd64-${BUILD_INPUT_HASH}"
+          CACHE_KEY="duckdb-runtime-v3-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
           echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
           echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
           echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
@@ -141,6 +147,9 @@ jobs:
           {
             echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
             echo "cache_hit=${{ steps.duckdb-runtime-cache.outputs.cache-hit }}"
+            echo "operating_system=${{ needs.configure.outputs.operating_system }}"
+            echo "architecture=${{ needs.configure.outputs.architecture }}"
+            echo "github_runner=${{ needs.configure.outputs.github_runner }}"
             echo "duckdb_commit=${{ steps.duckdb-runtime-key.outputs.duckdb_sha }}"
             echo "ci_tools_commit=${{ steps.duckdb-runtime-key.outputs.ci_tools_sha }}"
           } >>build/artifact/logs/build-info.txt
@@ -148,7 +157,7 @@ jobs:
       - name: Upload shared build
         uses: actions/upload-artifact@v4
         with:
-          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-linux-amd64
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}
           path: build/artifact/
           if-no-files-found: error
           retention-days: 7
@@ -158,7 +167,7 @@ jobs:
     needs:
       - configure
       - build
-    runs-on: ubuntu-24.04
+    runs-on: ${{ needs.configure.outputs.github_runner }}
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
@@ -177,7 +186,8 @@ jobs:
           printf '%s\n' "${BATTERY_CONFIG_JSON}" >"build/config/${{ matrix.name }}.json"
           echo "RESULT_STARTED_AT_MS=$(date +%s%3N)" >>"${GITHUB_ENV}"
 
-      - name: Checkout upstream tests
+      - name: Checkout remote test source
+        if: matrix.sourceType == 'remote'
         uses: actions/checkout@v4
         with:
           repository: ${{ matrix.repository }}
@@ -186,10 +196,24 @@ jobs:
           fetch-depth: 1
           submodules: ${{ matrix.submodules }}
 
+      - name: Resolve test source root
+        id: test_source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          if [[ '${{ matrix.sourceType }}' == 'self' ]]; then
+            root="${GITHUB_WORKSPACE}"
+          else
+            root="${GITHUB_WORKSPACE}/upstream/${{ matrix.name }}"
+          fi
+          test -d "${root}"
+          echo "root=${root}" >>"${GITHUB_OUTPUT}"
+          echo "Using ${{ matrix.sourceType }} test source: ${root}"
+
       - name: Download shared build
         uses: actions/download-artifact@v4
         with:
-          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-linux-amd64
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}
           path: build/artifact
 
       - name: Restore executable permissions
@@ -268,7 +292,7 @@ jobs:
         run: |
           bash scripts/run-test-battery.sh \
             "build/config/${{ matrix.name }}.json" \
-            "${{ github.workspace }}/upstream/${{ matrix.name }}"
+            "${{ steps.test_source.outputs.root }}"
 
       - name: Ensure structured test result
         if: always()
@@ -327,7 +351,7 @@ jobs:
       - configure
       - test
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ${{ needs.configure.outputs.github_runner }}
 
     steps:
       - name: Checkout QA repository
