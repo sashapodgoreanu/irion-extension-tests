@@ -12,16 +12,29 @@ from qa import load_config, resolve_config
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 PROFILE_PREPARER = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
 
 
 class IrionRuntimeTest(unittest.TestCase):
-    def test_irion_is_a_standard_matrix_battery(self) -> None:
+    def test_irion_is_a_self_sourced_standard_matrix_battery(self) -> None:
         plan = resolve_config(load_config(CONFIG_PATH))
         irion = next(case for case in plan.matrix()["include"] if case["name"] == "irion")
 
         self.assertEqual(irion["runner"], "standard")
-        self.assertEqual(irion["repository"], "sashapodgoreanu/irion-extension-tests")
-        self.assertEqual(irion["pin"], "003-irion-test-battery")
+        self.assertEqual(irion["sourceType"], "self")
+        self.assertNotIn("repository", irion)
+        self.assertNotIn("pin", irion)
+        self.assertNotIn("submodules", irion)
+        self.assertEqual(
+            irion["runtime"],
+            {
+                "duckdbVersion": "v1.5.5",
+                "ciToolsVersion": "v1.5.5",
+                "operatingSystem": "linux",
+                "architecture": "x86_64",
+                "githubRunner": "ubuntu-24.04",
+            },
+        )
         self.assertEqual([profile["name"] for profile in irion["profiles"]], ["baseline"])
         self.assertEqual(irion["profiles"][0]["tests"], "test/sql/irion/*")
         self.assertEqual(
@@ -31,6 +44,13 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertEqual(irion["services"], [])
         self.assertEqual(irion["prerequisites"], [])
         self.assertNotIn("accepted-failure", irion["capabilities"])
+
+    def test_workflow_uses_workspace_for_self_source(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("if: matrix.sourceType == 'remote'", workflow)
+        self.assertIn("if [[ '${{ matrix.sourceType }}' == 'self' ]]", workflow)
+        self.assertIn('root="${GITHUB_WORKSPACE}"', workflow)
+        self.assertIn('"${{ steps.test_source.outputs.root }}"', workflow)
 
     def test_repository_init_script_is_combined_with_extension_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
