@@ -98,12 +98,13 @@ Changing `isEnabled` does not add or remove an extension from `defaultExtensions
 
 ## BigQuery test configuration
 
-The BigQuery battery uses the Google Cloud project and dataset below:
+The BigQuery battery uses these Google Cloud resources:
 
 ```text
 Project ID: duckdb-bigquery
 Dataset ID: duckdb_bigquery_tests
-Location: EU
+Dataset location: EU
+Cloud Storage bucket: ctstorage-bucket
 ```
 
 Create the dataset once, if it does not already exist:
@@ -124,19 +125,23 @@ Repository → Settings → Secrets and variables → Actions
 | `BQ_TEST_PROJECT` | `duckdb-bigquery` | No |
 | `BQ_TEST_DATASET` | `duckdb_bigquery_tests` | No |
 | `BQ_TEST_BILLING_PROJECT` | `duckdb-bigquery` | No |
+| `BQ_TEST_EXPORT_URI` | `gs://ctstorage-bucket/duckdb-bigquery-tests/export-*.parquet` | No |
 
-Only `GCS_SERVICE_ACCOUNT_KEY` contains confidential credentials. The other values are configuration values. They are currently stored as repository secrets because the workflow reads them through the GitHub Actions `secrets` context.
+Only `GCS_SERVICE_ACCOUNT_KEY` contains confidential credentials. The other values are configuration values. They can still be stored as repository secrets because the workflow reads them through the GitHub Actions `secrets` context.
 
-The service account must be able to:
+`BQ_TEST_EXPORT_URI` enables the upstream `bigquery_extract` test. The service account must have `roles/storage.objectAdmin` on `ctstorage-bucket` so the test can create and remove exported Parquet objects.
+
+The service account must also be able to:
 
 - run BigQuery jobs;
 - read the public datasets used by the upstream suite;
 - create, update and delete tables in `duckdb_bigquery_tests`.
 
-Verify the dataset from the command line with:
+Verify the configured resources from the command line with:
 
 ```powershell
 bq show duckdb-bigquery:duckdb_bigquery_tests
+gcloud storage ls gs://ctstorage-bucket
 ```
 
 Do not commit the service-account JSON file to this repository.
