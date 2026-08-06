@@ -21,6 +21,13 @@ source "${BATTERY_RUNTIME_CONFIG_DIR}/battery.env"
 # shellcheck disable=SC1091
 source "${SERVICE_MANAGER}"
 
+# The upstream BigQuery suite uses the same project as its billing project in
+# this repository. Keep the explicit variable available to SQLLogicTest even
+# when the workflow only passes BQ_TEST_PROJECT to the process environment.
+if [[ "${BATTERY_NAME}" == "bigquery" && -n "${BQ_TEST_PROJECT:-}" ]]; then
+  export BQ_TEST_BILLING_PROJECT="${BQ_TEST_BILLING_PROJECT:-${BQ_TEST_PROJECT}}"
+fi
+
 LOG_DIR="${PWD}/build/logs/${BATTERY_NAME}"
 RESULT_DIR="${PWD}/build/results/${BATTERY_NAME}"
 RESULT_FILE="${RESULT_DIR}/result.json"
