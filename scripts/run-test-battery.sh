@@ -13,7 +13,6 @@ RESULT_WRITER="${SCRIPT_DIR}/write-test-result.py"
 BATTERY_NAME_HINT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "${BATTERY_CONFIG_FILE}")"
 BATTERY_RUNTIME_CONFIG_DIR="${RUNNER_TEMP:-${PWD}/build/runtime}/battery-config/${BATTERY_NAME_HINT}"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
-UNITTEST_BIN="${ARTIFACT_DIR}/bin/unittest"
 
 rm -rf "${BATTERY_RUNTIME_CONFIG_DIR}"
 python3 "${PREPARE_SCRIPT}" "${BATTERY_CONFIG_FILE}" "${BATTERY_RUNTIME_CONFIG_DIR}"
@@ -64,30 +63,11 @@ if [[ ! -x "${DUCKDB_BIN}" ]]; then
   echo "DuckDB runtime is missing or not executable: ${DUCKDB_BIN}" >&2
   exit 1
 fi
-if [[ ! -x "${UNITTEST_BIN}" ]]; then
-  echo "DuckDB unittest runtime is missing or not executable: ${UNITTEST_BIN}" >&2
-  exit 1
-fi
 if [[ ! -x "${RESULT_WRITER}" ]]; then
   echo "Structured result writer is missing or not executable: ${RESULT_WRITER}" >&2
   exit 1
 fi
 export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
-
-# DuckDB's SQLLogicTest `require` directive is enabled through the unittest
-# command-line option, not through the test configuration file. The upstream
-# BigQuery suite marks every file with `require bigquery`, so wrap the job-local
-# unittest executable and provide that option only for this battery.
-if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
-  mv "${UNITTEST_BIN}" "${UNITTEST_BIN}.real"
-  cat >"${UNITTEST_BIN}" <<'WRAPPER'
-#!/usr/bin/env bash
-set -Eeuo pipefail
-binary_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec "${binary_dir}/unittest.real" --require bigquery "$@"
-WRAPPER
-  chmod +x "${UNITTEST_BIN}"
-fi
 
 ignore_upstream_test() {
   local relative_path=$1
@@ -117,6 +97,42 @@ if [[ "${UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
     echo "${BATTERY_NAME} checkout must be ${UPSTREAM_REF}; found ${actual_commit}" >&2
     exit 1
   fi
+fi
+
+prepare_bigquery_dynamic_tests() {
+  local test_file
+  local patched=0
+  local -a test_files=()
+
+  mapfile -d '' test_files < <(
+    find "${UPSTREAM_ROOT}/test/sql" -type f \
+      \( -name '*.test' -o -name '*.test_slow' -o -name '*.test_coverage' \) \
+      -print0 | sort -z
+  )
+
+  for test_file in "${test_files[@]}"; do
+    if grep -Eq '^[[:space:]]*require[[:space:]]+bigquery[[:space:]]*$' "${test_file}"; then
+      sed -i -E '/^[[:space:]]*require[[:space:]]+bigquery[[:space:]]*$/d' "${test_file}"
+      patched=$((patched + 1))
+    fi
+  done
+
+  if [[ "${patched}" -eq 0 ]]; then
+    echo "No BigQuery SQLLogicTest requirement guards were found" >&2
+    return 1
+  fi
+
+  echo "Adapted ${patched} BigQuery SQLLogicTest files for the dynamic extension runtime"
+}
+
+# Upstream builds BigQuery into its unittest binary, while this repository
+# installs and validates the community extension dynamically. The upstream
+# `require bigquery` guard therefore cannot represent this runtime and would
+# skip or fail every file. Remove only that build-mode guard from the ephemeral
+# checkout; validate-extension-probe.py still blocks execution unless BigQuery
+# is installed and loaded successfully.
+if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
+  prepare_bigquery_dynamic_tests
 fi
 
 export ARTIFACT_DIR
@@ -151,5 +167,14 @@ case "${RUNNER_KIND}" in
     status=2
     ;;
 esac
+
+# Bash suppresses errexit inside functions invoked through `||`, so a failing
+# Catch2 pipeline could previously be followed by a successful post-check and
+# return zero. Treat any non-zero Catch2 failure summary as a battery failure.
+if [[ "${status}" -eq 0 && "${RUNNER_KIND}" == "standard" ]] && \
+   grep -R -E -q 'test cases?:.*\|[[:space:]]*[1-9][0-9]* failed' "${LOG_DIR}"/unittest-*.log 2>/dev/null; then
+  echo "DuckDB unittest reported failing test cases" >&2
+  status=1
+fi
 
 exit "${status}"
