@@ -136,7 +136,7 @@ old = "billing_project=${BQ_TEST_BILLING_PROJECT}"
 new = "billing_project='${BQ_TEST_BILLING_PROJECT}'"
 if old not in text:
     raise SystemExit("BigQuery billing project expression was not found")
-public_dataset.write_text(text.replace(old, new), encoding="utf-8")
+public_dataset.write_text(text.replace(old, new, 1), encoding="utf-8")
 
 jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
 text = jobs_test.read_text(encoding="utf-8")
