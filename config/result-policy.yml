@@ -46,6 +46,11 @@ overrides:
   minimumDiscovered: 2
   minimumExecuted: 2
   maximumSkipped: 0
+- case: bigquery
+  profile: all
+  minimumDiscovered: 45
+  minimumExecuted: 45
+  maximumSkipped: 0
 - case: mssql
   profile: all
   minimumDiscovered: 142

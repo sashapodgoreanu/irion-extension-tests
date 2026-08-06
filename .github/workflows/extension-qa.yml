@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  BQ_TEST_EXPORT_URI: ${{ secrets.BQ_TEST_EXPORT_URI }}
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -237,6 +240,7 @@ jobs:
           test -n "${GCS_SERVICE_ACCOUNT_KEY}" || { echo "Missing repository secret GCS_SERVICE_ACCOUNT_KEY" >&2; exit 1; }
           test -n "${BQ_TEST_PROJECT}" || { echo "Missing repository secret BQ_TEST_PROJECT" >&2; exit 1; }
           test -n "${BQ_TEST_DATASET}" || { echo "Missing repository secret BQ_TEST_DATASET" >&2; exit 1; }
+          test -n "${BQ_TEST_EXPORT_URI}" || { echo "Missing repository secret BQ_TEST_EXPORT_URI" >&2; exit 1; }
 
       - name: Authenticate Google Cloud
         if: contains(matrix.capabilities, 'google-cloud-auth') && steps.google_credentials.outcome == 'success'

@@ -21,6 +21,16 @@ source "${BATTERY_RUNTIME_CONFIG_DIR}/battery.env"
 # shellcheck disable=SC1091
 source "${SERVICE_MANAGER}"
 
+# The upstream BigQuery suite uses the same project as its billing project in
+# this repository. GitHub's auth action already creates a temporary JSON key
+# file, so expose that same path to the service-account secret tests.
+if [[ "${BATTERY_NAME}" == "bigquery" && -n "${BQ_TEST_PROJECT:-}" ]]; then
+  export BQ_TEST_BILLING_PROJECT="${BQ_TEST_BILLING_PROJECT:-${BQ_TEST_PROJECT}}"
+  if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+    export BQ_TEST_SA_KEY_PATH="${BQ_TEST_SA_KEY_PATH:-${GOOGLE_APPLICATION_CREDENTIALS}}"
+  fi
+fi
+
 LOG_DIR="${PWD}/build/logs/${BATTERY_NAME}"
 RESULT_DIR="${PWD}/build/results/${BATTERY_NAME}"
 RESULT_FILE="${RESULT_DIR}/result.json"
@@ -92,6 +102,68 @@ if [[ "${UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
   fi
 fi
 
+prepare_bigquery_dynamic_tests() {
+  python3 - "${UPSTREAM_ROOT}" <<'PY'
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1])
+test_root = root / "test" / "sql"
+test_files = sorted(
+    path
+    for path in test_root.rglob("*")
+    if path.is_file() and path.name.endswith((".test", ".test_slow", ".test_coverage"))
+)
+
+require_count = 0
+location_count = 0
+for path in test_files:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    filtered = [line for line in lines if line.strip() != "require bigquery"]
+    require_count += len(lines) - len(filtered)
+    text = "".join(filtered)
+    location_count += text.count("europe-west3")
+    text = text.replace("europe-west3", "EU")
+    path.write_text(text, encoding="utf-8")
+
+if require_count == 0:
+    raise SystemExit("No BigQuery SQLLogicTest requirement guards were found")
+
+public_dataset = test_root / "storage" / "attach_public_dataset.test"
+text = public_dataset.read_text(encoding="utf-8")
+old = "billing_project=${BQ_TEST_BILLING_PROJECT}"
+new = "billing_project='${BQ_TEST_BILLING_PROJECT}'"
+if old not in text:
+    raise SystemExit("BigQuery billing project expression was not found")
+public_dataset.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
+text = jobs_test.read_text(encoding="utf-8")
+old = "<REGEX>:[a-zA-Z0-9]+"
+new = "<REGEX>:[a-zA-Z0-9-]+"
+if old not in text:
+    raise SystemExit("BigQuery project result regex was not found")
+jobs_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+print(
+    f"Adapted {require_count} BigQuery SQLLogicTest files for the dynamic runtime; "
+    f"normalized {location_count} job locations to EU"
+)
+PY
+}
+
+# Upstream builds BigQuery into its unittest binary, while this repository
+# installs and validates the community extension dynamically. The upstream
+# `require bigquery` guard therefore cannot represent this runtime. The pinned
+# suite also assumes a project ID without dashes and a europe-west3 dataset;
+# adapt those environment-specific assumptions to this repository's EU dataset.
+# validate-extension-probe.py still blocks execution unless BigQuery is installed
+# and loaded successfully.
+if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
+  prepare_bigquery_dynamic_tests
+fi
+
 export ARTIFACT_DIR
 export BATTERY_RUNTIME_CONFIG_DIR
 export DUCKDB_VERSION
@@ -124,5 +196,14 @@ case "${RUNNER_KIND}" in
     status=2
     ;;
 esac
+
+# Bash suppresses errexit inside functions invoked through `||`, so a failing
+# Catch2 pipeline could previously be followed by a successful post-check and
+# return zero. Treat any non-zero Catch2 failure summary as a battery failure.
+if [[ "${status}" -eq 0 && "${RUNNER_KIND}" == "standard" ]] && \
+   grep -R -E -q 'test cases?:.*\|[[:space:]]*[1-9][0-9]* failed' "${LOG_DIR}"/unittest-*.log 2>/dev/null; then
+  echo "DuckDB unittest reported failing test cases" >&2
+  status=1
+fi
 
 exit "${status}"
