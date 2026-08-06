@@ -13,6 +13,7 @@ RESULT_WRITER="${SCRIPT_DIR}/write-test-result.py"
 BATTERY_NAME_HINT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["name"])' "${BATTERY_CONFIG_FILE}")"
 BATTERY_RUNTIME_CONFIG_DIR="${RUNNER_TEMP:-${PWD}/build/runtime}/battery-config/${BATTERY_NAME_HINT}"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
+UNITTEST_BIN="${ARTIFACT_DIR}/bin/unittest"
 
 rm -rf "${BATTERY_RUNTIME_CONFIG_DIR}"
 python3 "${PREPARE_SCRIPT}" "${BATTERY_CONFIG_FILE}" "${BATTERY_RUNTIME_CONFIG_DIR}"
@@ -63,11 +64,30 @@ if [[ ! -x "${DUCKDB_BIN}" ]]; then
   echo "DuckDB runtime is missing or not executable: ${DUCKDB_BIN}" >&2
   exit 1
 fi
+if [[ ! -x "${UNITTEST_BIN}" ]]; then
+  echo "DuckDB unittest runtime is missing or not executable: ${UNITTEST_BIN}" >&2
+  exit 1
+fi
 if [[ ! -x "${RESULT_WRITER}" ]]; then
   echo "Structured result writer is missing or not executable: ${RESULT_WRITER}" >&2
   exit 1
 fi
 export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
+
+# DuckDB's SQLLogicTest `require` directive is enabled through the unittest
+# command-line option, not through the test configuration file. The upstream
+# BigQuery suite marks every file with `require bigquery`, so wrap the job-local
+# unittest executable and provide that option only for this battery.
+if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
+  mv "${UNITTEST_BIN}" "${UNITTEST_BIN}.real"
+  cat >"${UNITTEST_BIN}" <<'WRAPPER'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+binary_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "${binary_dir}/unittest.real" --require bigquery "$@"
+WRAPPER
+  chmod +x "${UNITTEST_BIN}"
+fi
 
 ignore_upstream_test() {
   local relative_path=$1
