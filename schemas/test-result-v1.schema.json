@@ -17,7 +17,9 @@
     "finishedAt",
     "durationMs",
     "duckdbVersion",
+    "runtime",
     "upstream",
+    "externalPrerequisite",
     "profiles",
     "extensions",
     "services"
@@ -35,14 +37,30 @@
     "finishedAt": {"type": "string", "format": "date-time"},
     "durationMs": {"type": "integer", "minimum": 0},
     "duckdbVersion": {"type": ["string", "null"]},
+    "runtime": {"$ref": "#/$defs/runtime"},
     "upstream": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository", "pin", "commit"],
+      "required": ["type", "repository", "pin", "commit"],
       "properties": {
+        "type": {"enum": ["remote", "self"]},
         "repository": {"type": ["string", "null"]},
         "pin": {"type": ["string", "null"]},
         "commit": {"type": ["string", "null"]}
+      }
+    },
+    "externalPrerequisite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["notRun", "reason", "prerequisites"],
+      "properties": {
+        "notRun": {"type": "boolean"},
+        "reason": {"type": ["string", "null"]},
+        "prerequisites": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        }
       }
     },
     "profiles": {
@@ -62,7 +80,9 @@
           "passed",
           "failed",
           "skipped",
-          "assertions"
+          "assertions",
+          "notExecuted",
+          "irionExclusions"
         ],
         "properties": {
           "name": {"type": "string", "minLength": 1},
@@ -75,7 +95,12 @@
           "passed": {"type": ["integer", "null"], "minimum": 0},
           "failed": {"type": ["integer", "null"], "minimum": 0},
           "skipped": {"type": ["integer", "null"], "minimum": 0},
-          "assertions": {"type": ["integer", "null"], "minimum": 0}
+          "assertions": {"type": ["integer", "null"], "minimum": 0},
+          "notExecuted": {"type": ["integer", "null"], "minimum": 0},
+          "irionExclusions": {
+            "type": "array",
+            "items": {"$ref": "#/$defs/irionExclusion"}
+          }
         }
       }
     },
@@ -98,6 +123,29 @@
     "services": {
       "type": "array",
       "items": {"type": "object"}
+    }
+  },
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duckdbVersion", "ciToolsVersion", "operatingSystem", "architecture", "githubRunner"],
+      "properties": {
+        "duckdbVersion": {"type": ["string", "null"]},
+        "ciToolsVersion": {"type": ["string", "null"]},
+        "operatingSystem": {"const": "linux"},
+        "architecture": {"const": "x86_64"},
+        "githubRunner": {"type": "string", "minLength": 1}
+      }
+    },
+    "irionExclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "pattern": ".*\\S.*"}
+      }
     }
   }
 }

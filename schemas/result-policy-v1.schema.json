@@ -4,7 +4,7 @@
   "title": "DuckDB Extension QA Result Policy",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "defaults", "overrides"],
+  "required": ["schemaVersion", "defaults", "overrides", "skipAuthorizations"],
   "properties": {
     "schemaVersion": {"const": 1},
     "defaults": {"$ref": "#/$defs/thresholds"},
@@ -23,6 +23,10 @@
           }
         ]
       }
+    },
+    "skipAuthorizations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/skipAuthorization"}
     }
   },
   "$defs": {
@@ -35,6 +39,18 @@
         "maximumSkipped": {"type": "integer", "minimum": 0},
         "case": {"type": "string"},
         "profile": {"type": "string"}
+      }
+    },
+    "skipAuthorization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case", "profile", "category", "expected", "reason"],
+      "properties": {
+        "case": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+        "profile": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+        "category": {"const": "upstream_declared"},
+        "expected": {"type": "integer", "minimum": 1},
+        "reason": {"type": "string", "pattern": ".*\\S.*"}
       }
     }
   }

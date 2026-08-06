@@ -8,24 +8,30 @@
     "schemaVersion",
     "status",
     "generatedAt",
+    "runtime",
     "expectedCases",
     "passedCases",
     "acceptedFailureCases",
+    "externalPrerequisiteCases",
     "failedCases",
     "invalidCases",
     "missingCases",
     "unexpectedCases",
     "duplicateCases",
     "coverageViolations",
+    "nonExecution",
+    "skipViolations",
     "results"
   ],
   "properties": {
     "schemaVersion": {"const": 1},
     "status": {"enum": ["passed", "failed"]},
     "generatedAt": {"type": "string", "format": "date-time"},
+    "runtime": {"$ref": "#/$defs/runtime"},
     "expectedCases": {"$ref": "#/$defs/stringList"},
     "passedCases": {"$ref": "#/$defs/stringList"},
     "acceptedFailureCases": {"$ref": "#/$defs/stringList"},
+    "externalPrerequisiteCases": {"$ref": "#/$defs/stringList"},
     "failedCases": {"$ref": "#/$defs/stringList"},
     "invalidCases": {"$ref": "#/$defs/stringList"},
     "missingCases": {"$ref": "#/$defs/stringList"},
@@ -33,19 +39,15 @@
     "duplicateCases": {"$ref": "#/$defs/stringList"},
     "coverageViolations": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["caseId", "profile", "metric", "operator", "actual", "expected"],
-        "properties": {
-          "caseId": {"type": "string", "minLength": 1},
-          "profile": {"type": "string", "minLength": 1},
-          "metric": {"enum": ["discovered", "executed", "skipped"]},
-          "operator": {"enum": [">=", "<="]},
-          "actual": {"type": ["integer", "null"], "minimum": 0},
-          "expected": {"type": "integer", "minimum": 0}
-        }
-      }
+      "items": {"$ref": "#/$defs/coverageViolation"}
+    },
+    "nonExecution": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/nonExecution"}
+    },
+    "skipViolations": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/skipViolation"}
     },
     "invalidResultFiles": {
       "type": "array",
@@ -57,10 +59,89 @@
     }
   },
   "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duckdbVersion", "ciToolsVersion", "operatingSystem", "architecture", "githubRunner"],
+      "properties": {
+        "duckdbVersion": {"type": "string", "minLength": 1},
+        "ciToolsVersion": {"type": "string", "minLength": 1},
+        "operatingSystem": {"const": "linux"},
+        "architecture": {"const": "x86_64"},
+        "githubRunner": {"type": "string", "minLength": 1}
+      }
+    },
     "stringList": {
       "type": "array",
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
+    },
+    "irionExclusion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "pattern": ".*\\S.*"}
+      }
+    },
+    "coverageViolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "profile", "metric", "operator", "actual", "expected"],
+      "properties": {
+        "caseId": {"type": "string", "minLength": 1},
+        "profile": {"type": "string", "minLength": 1},
+        "metric": {"enum": ["discovered", "executed", "skipped"]},
+        "operator": {"enum": [">=", "<="]},
+        "actual": {"type": ["integer", "null"], "minimum": 0},
+        "expected": {"type": "integer", "minimum": 0}
+      }
+    },
+    "nonExecution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "caseId",
+        "profile",
+        "observedNotExecuted",
+        "runnerReportedSkipped",
+        "upstreamDeclared",
+        "upstreamReason",
+        "irionExclusions",
+        "externalPrerequisite",
+        "externalReason",
+        "unexpected",
+        "authorizationShortfall"
+      ],
+      "properties": {
+        "caseId": {"type": "string", "minLength": 1},
+        "profile": {"type": "string", "minLength": 1},
+        "observedNotExecuted": {"type": ["integer", "null"], "minimum": 0},
+        "runnerReportedSkipped": {"type": ["integer", "null"], "minimum": 0},
+        "upstreamDeclared": {"type": "integer", "minimum": 0},
+        "upstreamReason": {"type": ["string", "null"]},
+        "irionExclusions": {
+          "type": "array",
+          "items": {"$ref": "#/$defs/irionExclusion"}
+        },
+        "externalPrerequisite": {"type": "boolean"},
+        "externalReason": {"type": ["string", "null"]},
+        "unexpected": {"type": ["integer", "null"], "minimum": 0},
+        "authorizationShortfall": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "skipViolation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["caseId", "profile", "type", "observed", "expected"],
+      "properties": {
+        "caseId": {"type": "string", "minLength": 1},
+        "profile": {"type": "string", "minLength": 1},
+        "type": {"enum": ["unexpected_skip", "stale_authorization", "duplicate_authorization", "missing_metrics"]},
+        "observed": {"type": ["integer", "null"], "minimum": 0},
+        "expected": {"type": ["integer", "null"], "minimum": 0}
+      }
     }
   }
 }

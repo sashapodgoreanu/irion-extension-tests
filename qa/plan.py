@@ -15,11 +15,17 @@ EXECUTION_PLAN_SCHEMA_VERSION = 4
 class ExecutionRuntime:
     duckdb_version: str
     ci_tools_version: str
+    operating_system: str
+    architecture: str
+    github_runner: str
 
     def payload(self) -> dict[str, str]:
         return {
             "duckdbVersion": self.duckdb_version,
             "ciToolsVersion": self.ci_tools_version,
+            "operatingSystem": self.operating_system,
+            "architecture": self.architecture,
+            "githubRunner": self.github_runner,
         }
 
 
@@ -70,16 +76,20 @@ class ExecutionIgnoredTest:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionSource:
-    repository: str
-    pin: str
-    submodules: str
+    source_type: str
+    repository: str | None = None
+    pin: str | None = None
+    submodules: str = "false"
 
-    def payload(self) -> dict[str, str]:
-        return {
-            "repository": self.repository,
-            "pin": self.pin,
-            "submodules": self.submodules,
-        }
+    def payload(self) -> dict[str, Any]:
+        result: dict[str, Any] = {"type": self.source_type}
+        if self.repository is not None:
+            result["repository"] = self.repository
+        if self.pin is not None:
+            result["pin"] = self.pin
+        if self.source_type == "remote":
+            result["submodules"] = self.submodules
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,16 +145,15 @@ class ExecutionCase:
             "ignoredTests": [ignored.payload() for ignored in self.ignored_tests],
         }
 
-    def matrix_payload(self, duckdb_version: str) -> dict[str, Any]:
+    def matrix_payload(self, runtime: ExecutionRuntime) -> dict[str, Any]:
         profiles = [profile.payload() for profile in self.contract.profiles]
-        return {
+        result: dict[str, Any] = {
             "name": self.name,
             "runner": self.contract.runner,
-            "repository": self.source.repository,
-            "pin": self.source.pin,
+            "sourceType": self.source.source_type,
             "tests": self.contract.profiles[0].tests,
-            "submodules": self.source.submodules,
-            "duckdbVersion": duckdb_version,
+            "duckdbVersion": runtime.duckdb_version,
+            "runtime": runtime.payload(),
             "services": [service.payload() for service in self.contract.services],
             "prerequisites": [item.payload() for item in self.contract.prerequisites],
             "capabilities": list(self.contract.capabilities),
@@ -152,6 +161,13 @@ class ExecutionCase:
             "extensions": [extension.payload() for extension in self.extensions],
             "ignoredTests": [ignored.payload() for ignored in self.ignored_tests],
         }
+        if self.source.repository is not None:
+            result["repository"] = self.source.repository
+        if self.source.pin is not None:
+            result["pin"] = self.source.pin
+        if self.source.source_type == "remote":
+            result["submodules"] = self.source.submodules
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,9 +197,7 @@ class ExecutionPlan:
 
     def matrix(self) -> dict[str, list[dict[str, Any]]]:
         return {
-            "include": [
-                case.matrix_payload(self.runtime.duckdb_version) for case in self.cases
-            ]
+            "include": [case.matrix_payload(self.runtime) for case in self.cases]
         }
 
     def canonical_json(self) -> str:
@@ -203,6 +217,9 @@ class ExecutionPlan:
             f"matrix={compact_matrix}",
             f"duckdb_version={self.runtime.duckdb_version}",
             f"ci_tools_version={self.runtime.ci_tools_version}",
+            f"operating_system={self.runtime.operating_system}",
+            f"architecture={self.runtime.architecture}",
+            f"github_runner={self.runtime.github_runner}",
             f"enabled_batteries={enabled}",
             f"execution_plan_sha256={self.sha256()}",
         )

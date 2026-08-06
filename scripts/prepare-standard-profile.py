@@ -37,30 +37,67 @@ def add_profile_skips(config: dict[str, Any], additions: list[dict[str, str]]) -
     config["skip_tests"] = skip_tests
 
 
-def combine_upstream_on_init(
-    config: dict[str, Any], init_script: Path, destination: Path
+def resolve_upstream_init_script(
+    config: dict[str, Any], upstream_root: Path
+) -> Path | None:
+    configured = config.pop("init_script", "")
+    if configured in (None, ""):
+        return None
+    if not isinstance(configured, str):
+        raise ProfileError("upstream init_script must be a string")
+
+    source = (upstream_root / configured).resolve()
+    try:
+        source.relative_to(upstream_root)
+    except ValueError as exc:
+        raise ProfileError("upstream init_script escaped the checkout") from exc
+    if not source.is_file():
+        raise ProfileError(f"upstream init_script is missing: {source}")
+    return source
+
+
+def combine_upstream_initialization(
+    config: dict[str, Any],
+    runtime_init_script: Path,
+    upstream_root: Path,
+    destination: Path,
 ) -> Path:
-    """Preserve upstream on_init while prepending the resolved extension loads.
+    """Combine resolved extension loads with repository-owned initialization.
 
     DuckDB's test runner parses init_script by replacing the on_init option with
     the file contents. Keeping both JSON keys therefore silently discards the
-    upstream catalog setup when init_script appears later in the object.
+    upstream catalog setup when init_script appears later in the object. Local
+    Irion batteries also keep their initialization SQL in the repository, so a
+    relative upstream init_script is resolved and merged into one generated file.
     """
 
+    upstream_init_script = resolve_upstream_init_script(config, upstream_root)
     existing_on_init = config.pop("on_init", "")
     if existing_on_init and not isinstance(existing_on_init, str):
         raise ProfileError("upstream on_init must be a string")
-    if not existing_on_init:
-        return init_script
+    if upstream_init_script is None and not existing_on_init:
+        return runtime_init_script
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     combined_init = destination.with_suffix(".init.sql")
-    base_sql = init_script.read_text(encoding="utf-8").rstrip()
-    combined_init.write_text(
-        f"{base_sql}\n\n-- Preserved from the upstream test config.\n"
-        f"{existing_on_init.strip()}\n",
-        encoding="utf-8",
-    )
+    sections = [
+        runtime_init_script.read_text(encoding="utf-8").rstrip(),
+    ]
+    if upstream_init_script is not None:
+        sections.extend(
+            [
+                "-- Preserved from the repository test config init_script.",
+                upstream_init_script.read_text(encoding="utf-8").strip(),
+            ]
+        )
+    if existing_on_init:
+        sections.extend(
+            [
+                "-- Preserved from the repository test config on_init.",
+                existing_on_init.strip(),
+            ]
+        )
+    combined_init.write_text("\n\n".join(sections) + "\n", encoding="utf-8")
     return combined_init.resolve()
 
 
@@ -137,7 +174,9 @@ def main() -> int:
                 value for value in (connection_sql, existing_connection_sql) if value
             )
             config["init_script"] = str(
-                combine_upstream_on_init(config, init_script, destination)
+                combine_upstream_initialization(
+                    config, init_script, upstream_root, destination
+                )
             )
         else:
             raise ProfileError(f"unsupported profile testConfig kind: {kind}")

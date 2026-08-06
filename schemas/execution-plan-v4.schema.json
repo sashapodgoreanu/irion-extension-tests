@@ -1,1 +1,257 @@
-{"$schema":"https://json-schema.org/draft/2020-12/schema","$id":"https://irion.example/schemas/execution-plan/v4","title":"Irion DuckDB extension QA execution plan","type":"object","additionalProperties":false,"required":["schemaVersion","runtime","cases"],"properties":{"schemaVersion":{"const":4},"runtime":{"type":"object","additionalProperties":false,"required":["duckdbVersion","ciToolsVersion"],"properties":{"duckdbVersion":{"type":"string","minLength":1},"ciToolsVersion":{"type":"string","minLength":1}}},"cases":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/case"}}},"$defs":{"extensionName":{"type":"string","pattern":"^[a-z][a-z0-9_]*$"},"profileName":{"type":"string","pattern":"^[a-z][a-z0-9_-]*$"},"serviceName":{"type":"string","pattern":"^[a-z][a-z0-9_-]*$"},"simpleName":{"type":"string","pattern":"^[A-Za-z][A-Za-z0-9_-]*$"},"port":{"type":"integer","minimum":1024,"maximum":65535},"pythonHttpService":{"type":"object","additionalProperties":false,"required":["name","type","port"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"python-http"},"port":{"$ref":"#/$defs/port"}}},"squidService":{"type":"object","additionalProperties":false,"required":["name","type","port"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"squid"},"port":{"$ref":"#/$defs/port"},"auth":{"type":"boolean"}}},"httpfsMinioService":{"type":"object","additionalProperties":false,"required":["name","type"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"httpfs-minio"}}},"azuriteService":{"type":"object","additionalProperties":false,"required":["name","type","port"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"azurite"},"port":{"$ref":"#/$defs/port"}}},"postgresService":{"type":"object","additionalProperties":false,"required":["name","type","version","database","port"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"postgres"},"version":{"type":"string","pattern":"^[0-9]+(?:\\.[0-9]+)?$"},"database":{"$ref":"#/$defs/simpleName"},"username":{"$ref":"#/$defs/simpleName"},"port":{"$ref":"#/$defs/port"}}},"sqlserverService":{"type":"object","additionalProperties":false,"required":["name","type","version","database","port"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"sqlserver"},"version":{"const":"2022"},"database":{"$ref":"#/$defs/simpleName"},"username":{"$ref":"#/$defs/simpleName"},"port":{"$ref":"#/$defs/port"}}},"service":{"oneOf":[{"$ref":"#/$defs/pythonHttpService"},{"$ref":"#/$defs/squidService"},{"$ref":"#/$defs/httpfsMinioService"},{"$ref":"#/$defs/azuriteService"},{"$ref":"#/$defs/unityCatalogOssService"},{"$ref":"#/$defs/postgresService"},{"$ref":"#/$defs/sqlserverService"}]},"prerequisite":{"type":"object","additionalProperties":false,"required":["type"],"properties":{"type":{"enum":["google-bigquery","external-cloud-account"]}}},"extension":{"type":"object","additionalProperties":false,"required":["name"],"properties":{"name":{"$ref":"#/$defs/extensionName"},"installFrom":{"$ref":"#/$defs/extensionName"}}},"generatedTestConfig":{"type":"object","additionalProperties":false,"required":["kind","excludedExtensions","staticallyLoadedExtensions"],"properties":{"kind":{"const":"generated"},"description":{"type":"string","minLength":1},"excludedExtensions":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/extensionName"}},"staticallyLoadedExtensions":{"type":"array","minItems":1,"uniqueItems":true,"items":{"$ref":"#/$defs/extensionName"}}}},"upstreamTestConfig":{"type":"object","additionalProperties":false,"required":["kind","path"],"properties":{"kind":{"const":"upstream"},"path":{"type":"string","minLength":1}}},"profile":{"type":"object","additionalProperties":false,"required":["name","tests","services"],"properties":{"name":{"$ref":"#/$defs/profileName"},"tests":{"type":"string","minLength":1},"services":{"type":"array","items":{"$ref":"#/$defs/service"}},"testConfig":{"oneOf":[{"$ref":"#/$defs/generatedTestConfig"},{"$ref":"#/$defs/upstreamTestConfig"}]}}},"ignoredTest":{"type":"object","additionalProperties":false,"required":["path","reason"],"properties":{"path":{"type":"string","minLength":1},"reason":{"type":"string","minLength":1},"profiles":{"type":"array","uniqueItems":true,"items":{"$ref":"#/$defs/profileName"}}}},"source":{"type":"object","additionalProperties":false,"required":["repository","pin","submodules"],"properties":{"repository":{"type":"string","pattern":"^[^/\\s]+/[^/\\s]+$"},"pin":{"type":"string","minLength":1},"submodules":{"enum":["true","false","recursive"]}}},"execution":{"type":"object","additionalProperties":false,"required":["runner","services","prerequisites","capabilities","profiles"],"properties":{"runner":{"enum":["standard","postgres-scanner","mssql-release"]},"services":{"type":"array","items":{"$ref":"#/$defs/service"}},"prerequisites":{"type":"array","items":{"$ref":"#/$defs/prerequisite"}},"capabilities":{"type":"array","uniqueItems":true,"items":{"type":"string","minLength":1}},"profiles":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/profile"}}}},"case":{"type":"object","additionalProperties":false,"required":["name","source","execution","extensions","ignoredTests"],"properties":{"name":{"$ref":"#/$defs/extensionName"},"source":{"$ref":"#/$defs/source"},"execution":{"$ref":"#/$defs/execution"},"extensions":{"type":"array","minItems":1,"items":{"$ref":"#/$defs/extension"}},"ignoredTests":{"type":"array","items":{"$ref":"#/$defs/ignoredTest"}}}},"unityCatalogOssService":{"type":"object","additionalProperties":false,"required":["name","type","version","port"],"properties":{"name":{"$ref":"#/$defs/serviceName"},"type":{"const":"unity-catalog-oss"},"version":{"type":"string","pattern":"^[0-9a-f]{40}$"},"port":{"$ref":"#/$defs/port"}}}}}
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://irion.example/schemas/execution-plan/v4",
+  "title": "Irion DuckDB extension QA execution plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runtime", "cases"],
+  "properties": {
+    "schemaVersion": {"const": 4},
+    "runtime": {"$ref": "#/$defs/runtime"},
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/case"}
+    }
+  },
+  "$defs": {
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["duckdbVersion", "ciToolsVersion", "operatingSystem", "architecture", "githubRunner"],
+      "properties": {
+        "duckdbVersion": {"type": "string", "minLength": 1},
+        "ciToolsVersion": {"type": "string", "minLength": 1},
+        "operatingSystem": {"const": "linux"},
+        "architecture": {"const": "x86_64"},
+        "githubRunner": {"type": "string", "minLength": 1}
+      }
+    },
+    "extensionName": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+    "profileName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "serviceName": {"type": "string", "pattern": "^[a-z][a-z0-9_-]*$"},
+    "simpleName": {"type": "string", "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"},
+    "port": {"type": "integer", "minimum": 1024, "maximum": 65535},
+    "pythonHttpService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "python-http"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "squidService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "squid"},
+        "port": {"$ref": "#/$defs/port"},
+        "auth": {"type": "boolean"}
+      }
+    },
+    "httpfsMinioService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "httpfs-minio"}
+      }
+    },
+    "azuriteService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "azurite"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "unityCatalogOssService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "version", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "unity-catalog-oss"},
+        "version": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "postgresService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "version", "database", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "postgres"},
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)?$"},
+        "database": {"$ref": "#/$defs/simpleName"},
+        "username": {"$ref": "#/$defs/simpleName"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "sqlserverService": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type", "version", "database", "port"],
+      "properties": {
+        "name": {"$ref": "#/$defs/serviceName"},
+        "type": {"const": "sqlserver"},
+        "version": {"const": "2022"},
+        "database": {"$ref": "#/$defs/simpleName"},
+        "username": {"$ref": "#/$defs/simpleName"},
+        "port": {"$ref": "#/$defs/port"}
+      }
+    },
+    "service": {
+      "oneOf": [
+        {"$ref": "#/$defs/pythonHttpService"},
+        {"$ref": "#/$defs/squidService"},
+        {"$ref": "#/$defs/httpfsMinioService"},
+        {"$ref": "#/$defs/azuriteService"},
+        {"$ref": "#/$defs/unityCatalogOssService"},
+        {"$ref": "#/$defs/postgresService"},
+        {"$ref": "#/$defs/sqlserverService"}
+      ]
+    },
+    "prerequisite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["google-bigquery", "external-cloud-account"]}
+      }
+    },
+    "extension": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": {"$ref": "#/$defs/extensionName"},
+        "installFrom": {"$ref": "#/$defs/extensionName"}
+      }
+    },
+    "generatedTestConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "excludedExtensions", "staticallyLoadedExtensions"],
+      "properties": {
+        "kind": {"const": "generated"},
+        "description": {"type": "string", "minLength": 1},
+        "excludedExtensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/extensionName"}
+        },
+        "staticallyLoadedExtensions": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/extensionName"}
+        }
+      }
+    },
+    "upstreamTestConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path"],
+      "properties": {
+        "kind": {"const": "upstream"},
+        "path": {"type": "string", "minLength": 1}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "tests", "services"],
+      "properties": {
+        "name": {"$ref": "#/$defs/profileName"},
+        "tests": {"type": "string", "minLength": 1},
+        "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
+        "testConfig": {
+          "oneOf": [
+            {"$ref": "#/$defs/generatedTestConfig"},
+            {"$ref": "#/$defs/upstreamTestConfig"}
+          ]
+        }
+      }
+    },
+    "ignoredTest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "reason"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "reason": {"type": "string", "minLength": 1},
+        "profiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/profileName"}
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["remote", "self"]},
+        "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
+        "pin": {"type": "string", "minLength": 1},
+        "submodules": {"enum": ["true", "false", "recursive"]}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"const": "remote"}}},
+          "then": {"required": ["repository", "pin", "submodules"]}
+        },
+        {
+          "if": {"properties": {"type": {"const": "self"}}},
+          "then": {
+            "not": {
+              "anyOf": [
+                {"required": ["repository"]},
+                {"required": ["pin"]},
+                {"required": ["submodules"]}
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["runner", "services", "prerequisites", "capabilities", "profiles"],
+      "properties": {
+        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+        "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
+        "prerequisites": {"type": "array", "items": {"$ref": "#/$defs/prerequisite"}},
+        "capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1}
+        },
+        "profiles": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/profile"}}
+      }
+    },
+    "case": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "source", "execution", "extensions", "ignoredTests"],
+      "properties": {
+        "name": {"$ref": "#/$defs/extensionName"},
+        "source": {"$ref": "#/$defs/source"},
+        "execution": {"$ref": "#/$defs/execution"},
+        "extensions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/extension"}},
+        "ignoredTests": {"type": "array", "items": {"$ref": "#/$defs/ignoredTest"}}
+      }
+    }
+  }
+}

@@ -1,4 +1,8 @@
 schemaVersion: 4
+runtime:
+  operatingSystem: linux
+  architecture: x86_64
+  githubRunner: ubuntu-24.04
 duckdb:
   version: v1.5.5
   ciToolsVersion: v1.5.5
@@ -29,6 +33,7 @@ testBatteries:
   httpfs:
     isEnabled: true
     runner: standard
+    source: remote
     repository: duckdb/duckdb-httpfs
     pin: 827222fb45a043a7a852d1f7aae46901492a3cda
     submodules: recursive
@@ -68,11 +73,11 @@ testBatteries:
       isUsed: true
     ignoredTests:
     - path: test/sql/copy/s3/parquet_s3_tpcds.test_slow
-      reason: Requires TPC-DS answer fixtures that are not present in the standalone
-        HTTPFS checkout
+      reason: Requires TPC-DS answer fixtures that are not present in the standalone HTTPFS checkout
   ducklake:
     isEnabled: true
     runner: standard
+    source: remote
     repository: duckdb/ducklake
     pin: d8a1881e22516ea3d186d73e83c65fe5bd1a1dc4
     submodules: recursive
@@ -84,8 +89,7 @@ testBatteries:
       services: []
       testConfig:
         kind: generated
-        description: DuckLake filesystem autoloading profile with HTTPFS initially
-          unloaded
+        description: DuckLake filesystem autoloading profile with HTTPFS initially unloaded
         excludedExtensions:
         - httpfs
         - postgres_scanner
@@ -132,6 +136,7 @@ testBatteries:
   postgres_scanner:
     isEnabled: true
     runner: postgres-scanner
+    source: remote
     repository: duckdb/duckdb-postgres
     pin: 41223e51559cd581f1c06e170b71c71df25bbaac
     submodules: recursive
@@ -169,6 +174,7 @@ testBatteries:
   delta:
     isEnabled: true
     runner: standard
+    source: remote
     repository: duckdb/duckdb-delta
     pin: 45c40878601b54b4188b09e08732fe0d576ad222
     submodules: recursive
@@ -203,6 +209,7 @@ testBatteries:
   iceberg:
     isEnabled: true
     runner: standard
+    source: remote
     repository: duckdb/duckdb-iceberg
     pin: 45163a28e0ed6a2071a82a1bf1dd432d0216cf9c
     submodules: recursive
@@ -241,6 +248,7 @@ testBatteries:
   azure:
     isEnabled: true
     runner: standard
+    source: remote
     repository: duckdb/duckdb-azure
     pin: 003214c96d0caa39d5c3e27a9e1976a0692c7d37
     submodules: recursive
@@ -284,6 +292,7 @@ testBatteries:
   unity_catalog:
     isEnabled: true
     runner: standard
+    source: remote
     repository: duckdb/unity_catalog
     pin: fd851475780ca064d9706a5025ea6e5d1d9d7e23
     submodules: recursive
@@ -327,6 +336,7 @@ testBatteries:
   bigquery:
     isEnabled: true
     runner: standard
+    source: remote
     repository: hafenkran/duckdb-bigquery
     pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
     submodules: recursive
@@ -353,6 +363,7 @@ testBatteries:
   mssql:
     isEnabled: true
     runner: mssql-release
+    source: remote
     repository: hugr-lab/mssql-extension
     pin: v0.2.2
     submodules: false
@@ -386,13 +397,29 @@ testBatteries:
       isUsed: true
     ignoredTests:
     - path: test/sql/azure/azure_device_code.test
-      reason: Requires Azure credential-chain parameters not supported by the DuckDB
-        v1.5.5 Azure binary
+      reason: Requires Azure credential-chain parameters not supported by the DuckDB v1.5.5 Azure binary
     - path: test/sql/ctas/ctas_auto_tablock.test
-      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB
-        v1.5.5 runtime
+      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB v1.5.5 runtime
     - path: test/sql/ctas/ctas_if_not_exists.test
-      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB
-        v1.5.5 runtime
+      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB v1.5.5 runtime
     - path: test/sql/catalog/ddl_if_not_exists.test
       reason: MSSQL v0.2.2 returns a different SQL Server object-exists error message
+  irion:
+    isEnabled: true
+    runner: standard
+    source: self
+    services: []
+    prerequisites: []
+    profiles:
+    - name: baseline
+      tests: test/sql/irion/*
+      services: []
+      testConfig:
+        kind: upstream
+        path: test/configs/irion.json
+    extensions:
+    - name: json
+      isUsed: true
+    - name: sqlite_scanner
+      isUsed: true
+    ignoredTests: []
