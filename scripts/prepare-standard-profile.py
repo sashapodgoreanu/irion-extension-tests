@@ -139,11 +139,15 @@ def main() -> int:
         if kind == "generated":
             loaded_extensions = list(test_config["staticallyLoadedExtensions"])
             # SQLLogicTest evaluates `require bigquery` against this list. The
-            # shared runtime loads BigQuery dynamically through the generated
-            # init script, so expose it to the test runner as available too.
-            if any(item.get("name") == "bigquery" for item in extensions):
-                if "bigquery" not in loaded_extensions:
-                    loaded_extensions.append("bigquery")
+            # BigQuery runtime loads the extension dynamically through the
+            # generated init script, so expose it to the runner for this profile.
+            if (
+                test_config.get("description")
+                == "Google BigQuery compatibility profile"
+                and any(item.get("name") == "bigquery" for item in extensions)
+                and "bigquery" not in loaded_extensions
+            ):
+                loaded_extensions.append("bigquery")
             config: dict[str, Any] = {
                 "description": test_config.get(
                     "description", f"{profile_name} compatibility profile"
