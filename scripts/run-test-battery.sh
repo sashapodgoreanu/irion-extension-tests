@@ -22,10 +22,13 @@ source "${BATTERY_RUNTIME_CONFIG_DIR}/battery.env"
 source "${SERVICE_MANAGER}"
 
 # The upstream BigQuery suite uses the same project as its billing project in
-# this repository. Keep the explicit variable available to SQLLogicTest even
-# when the workflow only passes BQ_TEST_PROJECT to the process environment.
+# this repository. GitHub's auth action already creates a temporary JSON key
+# file, so expose that same path to the service-account secret tests.
 if [[ "${BATTERY_NAME}" == "bigquery" && -n "${BQ_TEST_PROJECT:-}" ]]; then
   export BQ_TEST_BILLING_PROJECT="${BQ_TEST_BILLING_PROJECT:-${BQ_TEST_PROJECT}}"
+  if [[ -n "${GOOGLE_APPLICATION_CREDENTIALS:-}" ]]; then
+    export BQ_TEST_SA_KEY_PATH="${BQ_TEST_SA_KEY_PATH:-${GOOGLE_APPLICATION_CREDENTIALS}}"
+  fi
 fi
 
 LOG_DIR="${PWD}/build/logs/${BATTERY_NAME}"
@@ -100,37 +103,63 @@ if [[ "${UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
 fi
 
 prepare_bigquery_dynamic_tests() {
-  local test_file
-  local patched=0
-  local -a test_files=()
+  python3 - "${UPSTREAM_ROOT}" <<'PY'
+from pathlib import Path
+import sys
 
-  mapfile -d '' test_files < <(
-    find "${UPSTREAM_ROOT}/test/sql" -type f \
-      \( -name '*.test' -o -name '*.test_slow' -o -name '*.test_coverage' \) \
-      -print0 | sort -z
-  )
+root = Path(sys.argv[1])
+test_root = root / "test" / "sql"
+test_files = sorted(
+    path
+    for path in test_root.rglob("*")
+    if path.is_file() and path.name.endswith((".test", ".test_slow", ".test_coverage"))
+)
 
-  for test_file in "${test_files[@]}"; do
-    if grep -Eq '^[[:space:]]*require[[:space:]]+bigquery[[:space:]]*$' "${test_file}"; then
-      sed -i -E '/^[[:space:]]*require[[:space:]]+bigquery[[:space:]]*$/d' "${test_file}"
-      patched=$((patched + 1))
-    fi
-  done
+require_count = 0
+location_count = 0
+for path in test_files:
+    text = path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    filtered = [line for line in lines if line.strip() != "require bigquery"]
+    require_count += len(lines) - len(filtered)
+    text = "".join(filtered)
+    location_count += text.count("europe-west3")
+    text = text.replace("europe-west3", "EU")
+    path.write_text(text, encoding="utf-8")
 
-  if [[ "${patched}" -eq 0 ]]; then
-    echo "No BigQuery SQLLogicTest requirement guards were found" >&2
-    return 1
-  fi
+if require_count == 0:
+    raise SystemExit("No BigQuery SQLLogicTest requirement guards were found")
 
-  echo "Adapted ${patched} BigQuery SQLLogicTest files for the dynamic extension runtime"
+public_dataset = test_root / "storage" / "attach_public_dataset.test"
+text = public_dataset.read_text(encoding="utf-8")
+old = "billing_project=${BQ_TEST_BILLING_PROJECT}"
+new = "billing_project='${BQ_TEST_BILLING_PROJECT}'"
+if old not in text:
+    raise SystemExit("BigQuery billing project expression was not found")
+public_dataset.write_text(text.replace(old, new), encoding="utf-8")
+
+jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
+text = jobs_test.read_text(encoding="utf-8")
+old = "<REGEX>:[a-zA-Z0-9]+"
+new = "<REGEX>:[a-zA-Z0-9-]+"
+if old not in text:
+    raise SystemExit("BigQuery project result regex was not found")
+jobs_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+print(
+    f"Adapted {require_count} BigQuery SQLLogicTest files for the dynamic runtime; "
+    f"normalized {location_count} job locations to EU"
+)
+PY
 }
 
 # Upstream builds BigQuery into its unittest binary, while this repository
 # installs and validates the community extension dynamically. The upstream
-# `require bigquery` guard therefore cannot represent this runtime and would
-# skip or fail every file. Remove only that build-mode guard from the ephemeral
-# checkout; validate-extension-probe.py still blocks execution unless BigQuery
-# is installed and loaded successfully.
+# `require bigquery` guard therefore cannot represent this runtime. The pinned
+# suite also assumes a project ID without dashes and a europe-west3 dataset;
+# adapt those environment-specific assumptions to this repository's EU dataset.
+# validate-extension-probe.py still blocks execution unless BigQuery is installed
+# and loaded successfully.
 if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
   prepare_bigquery_dynamic_tests
 fi
