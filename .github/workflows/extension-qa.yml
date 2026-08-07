@@ -1,7 +1,6 @@
 name: DuckDB Extension Compatibility
 
 on:
-  push:
   pull_request:
   workflow_dispatch:
 
