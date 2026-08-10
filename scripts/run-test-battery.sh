@@ -51,7 +51,7 @@ finalize_result() {
   local writer_status=0
   trap - EXIT
   qa_log INFO "cleanup started exit_code=${original_status}"
-  qa_service_stop_all || qa_log WARN "service cleanup reported an error"
+  qa_service_stop_all || true
 
   if [[ "${QA_SERVICE_HOST_ONLY}" == "1" ]]; then
     qa_log INFO "service-host mode finished exit_code=${original_status}"
@@ -125,7 +125,8 @@ if [[ "${QA_SERVICE_HOST_ONLY}" == "1" ]]; then
   qa_prerequisite_check_file "${BATTERY_RUNTIME_CONFIG_DIR}/prerequisites.json"
   qa_log INFO "starting battery-level services"
   qa_service_manager_init "${SERVICE_RUNTIME_ROOT}" "${UPSTREAM_ROOT}" "${LOG_DIR}/services"
-  qa_service_start_file "${BATTERY_RUNTIME_CONFIG_DIR}/services.json"
+  services_manifest="${BATTERY_RUNTIME_CONFIG_DIR}/services.json"
+  qa_service_start_file "${services_manifest}"
   qa_log INFO "battery-level services started"
   wait_for_service_host_stop
   exit 0
