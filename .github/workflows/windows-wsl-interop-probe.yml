@@ -1,0 +1,64 @@
+name: Windows WSL Native Interop Probe
+
+on:
+  push:
+    branches:
+      - 006-windows-docker-probe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Ubuntu WSL
+        id: runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $distro = 'Ubuntu-24.04'
+          $installed = @(wsl --list --quiet) -replace "`0", '' | ForEach-Object { $_.Trim() }
+          if ($installed -notcontains $distro) {
+            wsl --install -d $distro --no-launch --web-download
+            if ($LASTEXITCODE -ne 0) { throw "wsl install failed: $LASTEXITCODE" }
+          }
+          $workspace = $env:GITHUB_WORKSPACE
+          $drive = $workspace.Substring(0, 1).ToLowerInvariant()
+          $tail = $workspace.Substring(2).Replace('\', '/')
+          $linux = "/mnt/$drive$tail"
+          "workspace_linux=$linux" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Probe environment and path interop
+        shell: pwsh
+        env:
+          WORKSPACE_LINUX: ${{ steps.runtime.outputs.workspace_linux }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Content -Path interop-marker.txt -Value 'interop-ok' -Encoding ascii
+          $script = @'
+          set -Eeuo pipefail
+          export QA_INTEROP_VALUE=from-wsl
+          export WSLENV="${WSLENV:+${WSLENV}:}QA_INTEROP_VALUE"
+
+          value="$(cmd.exe /d /s /c 'echo %QA_INTEROP_VALUE%' | tr -d '\r')"
+          [[ "${value}" == "from-wsl" ]] || { echo "Environment did not cross WSL -> Windows: ${value}" >&2; exit 1; }
+
+          linux_path="$1/interop-marker.txt"
+          windows_path="$(wslpath -w "${linux_path}")"
+          marker="$(powershell.exe -NoProfile -Command '(Get-Content -Raw $args[0]).Trim()' "${windows_path}" | tr -d '\r')"
+          [[ "${marker}" == "interop-ok" ]] || { echo "Explicit wslpath conversion failed: ${marker}" >&2; exit 1; }
+
+          auto_marker="$(powershell.exe -NoProfile -Command '(Get-Content -Raw $args[0]).Trim()' "${linux_path}" 2>/dev/null | tr -d '\r' || true)"
+          printf 'explicit_path=%s\nautomatic_path_result=%s\n' "${windows_path}" "${auto_marker}"
+          '@
+          $utf8 = [System.Text.UTF8Encoding]::new($false)
+          $script = $script.Replace("`r`n", "`n").Replace("`r", "`n")
+          [System.IO.File]::WriteAllText((Join-Path $env:GITHUB_WORKSPACE 'interop-probe.sh'), $script, $utf8)
+          wsl -d Ubuntu-24.04 -u root -- bash "$env:WORKSPACE_LINUX/interop-probe.sh" "$env:WORKSPACE_LINUX"
+          if ($LASTEXITCODE -ne 0) { throw 'WSL native Windows interop probe failed' }
