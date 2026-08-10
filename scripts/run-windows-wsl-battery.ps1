@@ -31,6 +31,23 @@ $runtimeLinux = "$workspaceLinux/build/windows/runtime/$BatteryName"
 $duckdbExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/duckdb.exe')
 $unittestExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/unittest.exe')
 
+# Fixture generators such as Iceberg persist absolute /mnt/<drive>/... paths in
+# metadata. Native Windows interprets a leading slash as the root of the current
+# drive, so mirror the WSL mount namespace with a junction on that drive.
+$workspaceRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE))
+$workspaceDrive = $workspaceRoot.Substring(0, 1).ToLowerInvariant()
+$systemRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($env:SystemRoot))
+$aliasRoots = @($workspaceRoot, $systemRoot) | Select-Object -Unique
+foreach ($aliasRoot in $aliasRoots) {
+    $wslAliasParent = Join-Path $aliasRoot 'mnt'
+    $wslDriveAlias = Join-Path $wslAliasParent $workspaceDrive
+    if (-not (Test-Path -LiteralPath $wslDriveAlias)) {
+        New-Item -ItemType Directory -Path $wslAliasParent -Force | Out-Null
+        New-Item -ItemType Junction -Path $wslDriveAlias -Target $workspaceRoot | Out-Null
+    }
+}
+Write-Host "Native Windows WSL path aliases ready: /mnt/$workspaceDrive -> $workspaceRoot"
+
 # actions/checkout runs on the Windows host, so remote repositories that do not
 # declare LF explicitly can arrive with CRLF shell fixtures. The shared battery
 # orchestration runs those fixtures in WSL. Normalize only shell-like files in
@@ -48,11 +65,28 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Unable to prepare WSL proxy artifact'
 }
 
+if ($BatteryName -eq 'delta') {
+    # GNU tar delegates .zst decompression to the zstd executable. Without it,
+    # unwrap_golden_tables.sh leaves the golden-table directories empty.
+    wsl -d $distro -u root -- bash -lc "command -v zstd >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq zstd)"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to install zstd for the Delta Windows fixture host'
+    }
+}
+
+# Keep platform-specific source differences explicit and drift-checked instead
+# of weakening the shared Linux battery or silently skipping Windows coverage.
+wsl -d $distro -u root -- python3 "$workspaceLinux/scripts/prepare-windows-test-source.py" $BatteryName $sourceLinux
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to prepare native Windows source adaptations for $BatteryName"
+}
+
 $environment = [System.Collections.Generic.List[string]]::new()
 $environment.Add("ARTIFACT_DIR=$proxyArtifactLinux")
 $environment.Add("RUNNER_TEMP=$runtimeLinux")
 $environment.Add("RESULT_STARTED_AT_MS=$StartedAtMs")
 $environment.Add("DUCKDB_VERSION=$DuckDBVersion")
+$environment.Add('QA_NATIVE_WINDOWS=1')
 $environment.Add("QA_WSL_RUNTIME_HELPER=$workspaceLinux/scripts/windows-wsl-runtime.sh")
 $environment.Add("QA_WSL_RUNTIME_PY=$workspaceLinux/scripts/windows-wsl-runtime.py")
 $environment.Add("QA_WINDOWS_DUCKDB_EXE=$duckdbExeLinux")
@@ -65,6 +99,11 @@ $environment.Add("GITHUB_RUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT")
 # normal -c probes and SQLLogicTest execution keep their existing input rules.
 if ($BatteryName -in @('postgres_scanner', 'mssql')) {
     $environment.Add('QA_DUCKDB_TRANSLATE_STDIN=1')
+}
+if ($BatteryName -eq 'postgres_scanner') {
+    # postgres_execute sends this path to the Linux PostgreSQL server. Do not
+    # mark it as a WSLENV path: the native process must preserve /mnt/... text.
+    $environment.Add("PGSCANNER_SERVER_WORKING_DIRECTORY=$sourceLinux")
 }
 
 foreach ($name in @('BQ_TEST_PROJECT', 'BQ_TEST_DATASET', 'BQ_TEST_EXPORT_URI')) {
