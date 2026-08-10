@@ -58,31 +58,46 @@ jobs:
           wsl -d $distro -u root -- bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq docker.io ca-certificates curl'
           if ($LASTEXITCODE -ne 0) { throw 'Docker installation in WSL failed' }
 
-          wsl -d $distro -u root -- bash -lc 'pkill dockerd || true; rm -f /var/run/docker.pid; nohup dockerd -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2375 >/tmp/dockerd.log 2>&1 &'
+          wsl -d $distro -u root -- bash -lc 'pkill dockerd || true; rm -f /var/run/docker.pid; nohup dockerd --tls=false -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2375 >/tmp/dockerd.log 2>&1 &'
           if ($LASTEXITCODE -ne 0) { throw 'Unable to start dockerd in WSL' }
 
           $ready = $false
-          for ($i = 0; $i -lt 60; $i++) {
-            wsl -d $distro -u root -- bash -lc 'docker info >/dev/null 2>&1'
+          for ($i = 0; $i -lt 90; $i++) {
+            wsl -d $distro -u root -- bash -lc 'curl -fsS http://127.0.0.1:2375/_ping >/dev/null 2>&1'
             if ($LASTEXITCODE -eq 0) { $ready = $true; break }
-            Start-Sleep -Seconds 2
+            Start-Sleep -Seconds 1
           }
           if (-not $ready) {
+            Write-Host '=== dockerd log ==='
             wsl -d $distro -u root -- bash -lc 'cat /tmp/dockerd.log || true'
-            throw 'Docker Engine in WSL did not become ready'
+            Write-Host '=== listening sockets ==='
+            wsl -d $distro -u root -- bash -lc 'ss -ltnp || true'
+            throw 'Docker TCP endpoint in WSL did not become ready'
           }
 
           $addresses = ((wsl -d $distro -u root -- hostname -I) -replace "`0", '').Trim() -split '\s+'
           $wslIp = $addresses[0]
           if (-not $wslIp) { throw 'Unable to resolve WSL IP address' }
-          $dockerHost = "tcp://${wslIp}:2375"
+
+          $dockerHost = $null
+          foreach ($candidate in @('tcp://127.0.0.1:2375', "tcp://${wslIp}:2375")) {
+            Write-Host "Trying Docker endpoint $candidate"
+            docker -H $candidate version
+            if ($LASTEXITCODE -eq 0) {
+              $dockerHost = $candidate
+              break
+            }
+          }
+          if (-not $dockerHost) {
+            Write-Host '=== dockerd log ==='
+            wsl -d $distro -u root -- bash -lc 'tail -n 200 /tmp/dockerd.log || true'
+            throw 'Windows docker.exe cannot reach WSL dockerd over TCP'
+          }
+
           "wsl_ip=$wslIp" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
           "docker_host=$dockerHost" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-
           Write-Host "WSL IP: $wslIp"
-          Write-Host "Docker host: $dockerHost"
-          docker -H $dockerHost version
-          if ($LASTEXITCODE -ne 0) { throw 'Windows docker.exe cannot reach WSL dockerd' }
+          Write-Host "Selected Docker host: $dockerHost"
           docker -H $dockerHost info --format 'OSType={{.OSType}} Architecture={{.Architecture}} ServerVersion={{.ServerVersion}}'
 
       - name: Run Linux container from Windows Docker CLI
