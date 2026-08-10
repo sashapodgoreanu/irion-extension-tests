@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +48,8 @@ def main() -> int:
     text_parser = subparsers.add_parser("translate-text")
     text_parser.add_argument("value")
 
+    subparsers.add_parser("translate-stdin")
+
     config_parser = subparsers.add_parser("translate-config")
     config_parser.add_argument("source", type=Path)
     config_parser.add_argument("destination", type=Path)
@@ -54,6 +57,9 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "translate-text":
         print(translate_text(args.value), end="")
+        return 0
+    if args.command == "translate-stdin":
+        sys.stdout.write(translate_text(sys.stdin.read()))
         return 0
     if args.command == "translate-config":
         translate_config(args.source, args.destination)
