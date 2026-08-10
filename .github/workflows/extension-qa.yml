@@ -193,7 +193,7 @@ jobs:
           $duckdbSha = (git rev-parse HEAD:duckdb).Trim()
           $ciToolsSha = (git rev-parse HEAD:extension-ci-tools).Trim()
           $inputs = [System.Collections.Generic.List[string]]::new()
-          $inputs.Add('cache-schema=v2')
+          $inputs.Add('cache-schema=v1')
           $inputs.Add('runner=${{ needs.configure.outputs.windows_github_runner }}')
           $inputs.Add('operating-system=${{ needs.configure.outputs.windows_operating_system }}')
           $inputs.Add('architecture=${{ needs.configure.outputs.windows_architecture }}')
@@ -221,7 +221,7 @@ jobs:
           finally {
             $sha256.Dispose()
           }
-          $cacheKey = "duckdb-runtime-v2-${{ needs.configure.outputs.windows_operating_system }}-${{ needs.configure.outputs.windows_architecture }}-$inputHash"
+          $cacheKey = "duckdb-runtime-v1-${{ needs.configure.outputs.windows_operating_system }}-${{ needs.configure.outputs.windows_architecture }}-$inputHash"
           "key=$cacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "duckdb_sha=$duckdbSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "ci_tools_sha=$ciToolsSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
