@@ -7,6 +7,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $distro = 'Ubuntu-24.04'
 
+python -m pip install --disable-pip-version-check -r requirements/qa.txt
+if ($LASTEXITCODE -ne 0) {
+    throw 'Unable to install shared QA Python dependencies on Windows'
+}
+
 function Invoke-WslBash {
     param([Parameter(Mandatory = $true)][string]$Command)
     wsl -d $distro -u root -- bash -lc $Command
