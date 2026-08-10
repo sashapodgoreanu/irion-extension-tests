@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Run service-free standard SQLLogicTest profiles with native Windows DuckDB."""
+"""Run standard SQLLogicTest profiles with native Windows DuckDB."""
 
 from __future__ import annotations
 
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -69,7 +70,7 @@ def validate_portable_battery(battery: dict[str, Any]) -> None:
         raise WindowsTestError(f"Windows battery {name} must use the standard runner")
     if battery.get("services"):
         raise WindowsTestError(
-            f"Windows battery {name} has services; keep container-backed coverage on Linux"
+            f"Windows battery {name} has services; a Windows service adapter is required"
         )
     profiles = battery.get("profiles")
     if not isinstance(profiles, list) or not profiles:
@@ -77,8 +78,50 @@ def validate_portable_battery(battery: dict[str, Any]) -> None:
     for profile in profiles:
         if profile.get("services"):
             raise WindowsTestError(
-                f"Windows profile {name}/{profile.get('name')} has services; keep it on Linux"
+                f"Windows profile {name}/{profile.get('name')} has services; "
+                "a Windows service adapter is required"
             )
+
+
+def prepare_local_extension_repo(
+    *,
+    home_dir: Path,
+    runtime_dir: Path,
+    duckdb_version: str,
+    env: dict[str, str],
+    log_dir: Path,
+) -> None:
+    """Mirror Linux's LOCAL_EXTENSION_REPO contract for Windows SQLLogicTest.
+
+    The DuckLake autoload suite deliberately points DuckDB at a local extension
+    repository after changing extension_directory. The probe above installs the
+    resolved extensions under HOME/.duckdb; copy that repository into the test
+    runtime exactly as the Linux harness does and expose LOCAL_EXTENSION_REPO.
+    """
+
+    platform = "windows_amd64"
+    source_dir = home_dir / ".duckdb" / "extensions" / duckdb_version / platform
+    if not source_dir.is_dir():
+        raise WindowsTestError(
+            f"Installed DuckDB extension directory was not found: {source_dir}"
+        )
+
+    repository_root = runtime_dir / "repository"
+    destination_dir = repository_root / duckdb_version / platform
+    destination_dir.mkdir(parents=True, exist_ok=True)
+    for source in source_dir.iterdir():
+        destination = destination_dir / source.name
+        if source.is_dir():
+            shutil.copytree(source, destination, dirs_exist_ok=True)
+        else:
+            shutil.copy2(source, destination)
+
+    env["LOCAL_EXTENSION_REPO"] = str(repository_root)
+    (log_dir / "runtime-info.txt").write_text(
+        f"local_extension_repo={repository_root}\n"
+        f"extension_platform={platform}\n",
+        encoding="utf-8",
+    )
 
 
 def append_summary(name: str, profile_timings: list[tuple[str, float]]) -> None:
@@ -175,6 +218,17 @@ def main() -> int:
             ],
             env=env,
             cwd=REPOSITORY_ROOT,
+        )
+
+        duckdb_version = str(battery.get("duckdbVersion", "")).strip()
+        if not duckdb_version:
+            raise WindowsTestError("Battery configuration has no duckdbVersion")
+        prepare_local_extension_repo(
+            home_dir=home_dir,
+            runtime_dir=runtime_dir,
+            duckdb_version=duckdb_version,
+            env=env,
+            log_dir=log_dir,
         )
 
         profiles = read_json(config_dir / "profiles.json")
