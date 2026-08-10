@@ -20,6 +20,73 @@ function Invoke-WslBash {
     }
 }
 
+function Convert-GitWorkingTreeToLf {
+    param([Parameter(Mandatory = $true)][string]$RepositoryPath)
+
+    if (-not (Test-Path (Join-Path $RepositoryPath '.git'))) {
+        return
+    }
+
+    & git -C $RepositoryPath config core.autocrlf false
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to disable core.autocrlf for $RepositoryPath"
+    }
+    & git -C $RepositoryPath config core.eol lf
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to select LF line endings for $RepositoryPath"
+    }
+
+    $converted = 0
+    $entries = @(& git -C $RepositoryPath ls-files --eol)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to inspect Git line endings for $RepositoryPath"
+    }
+
+    foreach ($entry in $entries) {
+        if ($entry -notmatch '(^|\s)w/crlf(\s|$)') {
+            continue
+        }
+        $tabIndex = $entry.IndexOf("`t")
+        if ($tabIndex -lt 0) {
+            continue
+        }
+        $relativePath = $entry.Substring($tabIndex + 1)
+        $filePath = Join-Path $RepositoryPath $relativePath
+        if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) {
+            continue
+        }
+
+        $bytes = [System.IO.File]::ReadAllBytes($filePath)
+        $stream = [System.IO.MemoryStream]::new($bytes.Length)
+        try {
+            $changed = $false
+            for ($index = 0; $index -lt $bytes.Length; $index++) {
+                if (
+                    $bytes[$index] -eq 13 -and
+                    ($index + 1) -lt $bytes.Length -and
+                    $bytes[$index + 1] -eq 10
+                ) {
+                    $stream.WriteByte(10)
+                    $index++
+                    $changed = $true
+                }
+                else {
+                    $stream.WriteByte($bytes[$index])
+                }
+            }
+            if ($changed) {
+                [System.IO.File]::WriteAllBytes($filePath, $stream.ToArray())
+                $converted++
+            }
+        }
+        finally {
+            $stream.Dispose()
+        }
+    }
+
+    Write-Host "Normalized $converted CRLF tracked files to LF in $RepositoryPath"
+}
+
 $installed = @(wsl --list --quiet) -replace "`0", '' | ForEach-Object { $_.Trim() }
 if ($installed -notcontains $distro) {
     wsl --install -d $distro --no-launch --web-download
@@ -35,6 +102,26 @@ if ($workspace -notmatch '^[A-Za-z]:\\') {
 $drive = $workspace.Substring(0, 1).ToLowerInvariant()
 $tail = $workspace.Substring(2).Replace('\', '/')
 $workspaceLinux = "/mnt/$drive$tail"
+
+# actions/checkout runs through Git for Windows before WSL is prepared. Its
+# default checkout policy may materialize upstream shell scripts as CRLF, which
+# makes otherwise valid Bash entrypoints fail inside WSL (for example env_minio,
+# run_squid.sh and integration_test.sh). Normalize only tracked files Git reports
+# as w/crlf, then repeat for recursively checked-out submodules.
+$upstreamPath = Join-Path $workspace "upstream\$BatteryName"
+if (Test-Path $upstreamPath) {
+    Convert-GitWorkingTreeToLf -RepositoryPath $upstreamPath
+    $submodulePaths = @(& git -C $upstreamPath submodule foreach --recursive --quiet 'pwd -W')
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to enumerate submodules for $BatteryName"
+    }
+    foreach ($submodulePath in $submodulePaths) {
+        $normalizedSubmodulePath = $submodulePath.Trim()
+        if ($normalizedSubmodulePath) {
+            Convert-GitWorkingTreeToLf -RepositoryPath $normalizedSubmodulePath
+        }
+    }
+}
 
 $capabilities = @()
 if ($CapabilitiesJson) {
