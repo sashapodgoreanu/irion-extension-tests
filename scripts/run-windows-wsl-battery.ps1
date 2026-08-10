@@ -11,6 +11,21 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $distro = 'Ubuntu-24.04'
+$workspace = [System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)
+$logDir = Join-Path $workspace "build\logs\$BatteryName"
+$runnerLog = Join-Path $logDir 'windows-runner.log'
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+function Write-QaLog {
+    param(
+        [Parameter(Mandatory = $true)][string]$Level,
+        [Parameter(Mandatory = $true)][string]$Message
+    )
+    $timestamp = [DateTimeOffset]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $line = "$timestamp [$Level] [$BatteryName] $Message"
+    Write-Host $line
+    Add-Content -LiteralPath $runnerLog -Value $line -Encoding utf8
+}
 
 function Convert-ToWslPath {
     param([Parameter(Mandatory = $true)][string]$Path)
@@ -22,6 +37,75 @@ function Convert-ToWslPath {
     $tail = $Matches[2].Replace('\', '/')
     return "/mnt/$drive/$tail"
 }
+
+function Invoke-NativeStandardBattery {
+    $artifactDir = Join-Path $workspace 'build\artifact-windows'
+    $configFile = Join-Path $workspace "build\config\$BatteryName.json"
+    $runtimeConfig = Join-Path $workspace "build\windows\native-config\$BatteryName"
+    $nativeRuntime = Join-Path $workspace 'build\windows\native-runtime'
+    $runner = Join-Path $workspace 'scripts\run-standard-tests.py'
+    $preparer = Join-Path $workspace 'scripts\prepare-test-battery.py'
+
+    Remove-Item -LiteralPath $runtimeConfig -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $runtimeConfig,$nativeRuntime | Out-Null
+
+    Write-QaLog INFO "native preparation config=$configFile runtime_config=$runtimeConfig"
+    & python $preparer $configFile $runtimeConfig
+    if ($LASTEXITCODE -ne 0) {
+        throw "prepare-test-battery.py failed with exit code $LASTEXITCODE"
+    }
+
+    $previousArtifact = $env:ARTIFACT_DIR
+    $previousRuntimeConfig = $env:BATTERY_RUNTIME_CONFIG_DIR
+    $previousRunnerTemp = $env:RUNNER_TEMP
+    $previousVersion = $env:DUCKDB_VERSION
+    try {
+        $env:ARTIFACT_DIR = $artifactDir
+        $env:BATTERY_RUNTIME_CONFIG_DIR = $runtimeConfig
+        $env:RUNNER_TEMP = $nativeRuntime
+        $env:DUCKDB_VERSION = $DuckDBVersion
+        $env:RESULT_STARTED_AT_MS = $StartedAtMs
+
+        $duckdb = Join-Path $artifactDir 'bin\duckdb.exe'
+        $unittest = Join-Path $artifactDir 'bin\unittest.exe'
+        Write-QaLog INFO "native execution duckdb=$duckdb unittest=$unittest source=$SourceRoot"
+        if (-not (Test-Path -LiteralPath $duckdb -PathType Leaf)) {
+            throw "Native DuckDB executable is missing: $duckdb"
+        }
+        if (-not (Test-Path -LiteralPath $unittest -PathType Leaf)) {
+            throw "Native unittest executable is missing: $unittest"
+        }
+
+        & python $runner $BatteryName $SourceRoot
+        $exitCode = $LASTEXITCODE
+        Write-QaLog INFO "native standard runner exit_code=$exitCode"
+        if ($exitCode -ne 0) {
+            throw "Native Windows standard battery $BatteryName failed with exit code $exitCode"
+        }
+    }
+    finally {
+        $env:ARTIFACT_DIR = $previousArtifact
+        $env:BATTERY_RUNTIME_CONFIG_DIR = $previousRuntimeConfig
+        $env:RUNNER_TEMP = $previousRunnerTemp
+        $env:DUCKDB_VERSION = $previousVersion
+    }
+}
+
+Write-QaLog INFO "Windows battery entry source=$SourceRoot duckdb_version=$DuckDBVersion"
+
+# Migration is deliberately incremental. These batteries have no WSL-hosted
+# infrastructure or profile-scoped services, so they are the first proof that
+# DuckDB/unittest can execute entirely on the Windows host. Additional batteries
+# move to this path as their infrastructure preparation is detached from Bash.
+$nativeStandardBatteries = @('irion', 'bigquery')
+if ($nativeStandardBatteries -contains $BatteryName) {
+    Write-QaLog INFO 'execution_mode=native-windows-standard wsl_used_for_tests=false'
+    Invoke-NativeStandardBattery
+    Write-QaLog INFO 'battery completed successfully'
+    exit 0
+}
+
+Write-QaLog INFO 'execution_mode=legacy-wsl-orchestration migration_pending=true'
 
 $workspaceLinux = Convert-ToWslPath $env:GITHUB_WORKSPACE
 $sourceLinux = Convert-ToWslPath $SourceRoot
@@ -46,36 +130,32 @@ foreach ($aliasRoot in $aliasRoots) {
         New-Item -ItemType Junction -Path $wslDriveAlias -Target $workspaceRoot | Out-Null
     }
 }
-Write-Host "Native Windows WSL path aliases ready: /mnt/$workspaceDrive -> $workspaceRoot"
+Write-QaLog INFO "WSL path alias /mnt/$workspaceDrive -> $workspaceRoot"
 
-# actions/checkout runs on the Windows host, so remote repositories that do not
-# declare LF explicitly can arrive with CRLF shell fixtures. The shared battery
-# orchestration runs those fixtures in WSL. Normalize only shell-like files in
-# the checked-out test source; SQLLogicTest/data/binary inputs remain untouched.
 $normalizeCommand = @"
 find '$sourceLinux' -type f \( -name '*.sh' -o -name '*.bash' -o -name 'env_*' \) -print0 | xargs -0 -r sed -i 's/\r$//'
 "@
+Write-QaLog INFO 'normalizing WSL shell fixtures'
 wsl -d $distro -u root -- bash -lc $normalizeCommand
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to normalize upstream shell fixtures for $BatteryName"
 }
 
+Write-QaLog INFO 'preparing temporary WSL proxies for batteries not yet migrated'
 wsl -d $distro -u root -- bash -lc "mkdir -p '$proxyArtifactLinux/bin' '$runtimeLinux'; cp '$workspaceLinux/scripts/windows-duckdb-proxy.sh' '$proxyArtifactLinux/bin/duckdb'; cp '$workspaceLinux/scripts/windows-unittest-proxy.sh' '$proxyArtifactLinux/bin/unittest'; chmod +x '$proxyArtifactLinux/bin/duckdb' '$proxyArtifactLinux/bin/unittest' '$workspaceLinux/scripts/'*.sh '$workspaceLinux/scripts/'*.py"
 if ($LASTEXITCODE -ne 0) {
     throw 'Unable to prepare WSL proxy artifact'
 }
 
 if ($BatteryName -eq 'delta') {
-    # GNU tar delegates .zst decompression to the zstd executable. Without it,
-    # unwrap_golden_tables.sh leaves the golden-table directories empty.
+    Write-QaLog INFO 'ensuring Delta zstd fixture dependency'
     wsl -d $distro -u root -- bash -lc "command -v zstd >/dev/null 2>&1 || (apt-get update -qq && apt-get install -y -qq zstd)"
     if ($LASTEXITCODE -ne 0) {
         throw 'Unable to install zstd for the Delta Windows fixture host'
     }
 }
 
-# Keep platform-specific source differences explicit and drift-checked instead
-# of weakening the shared Linux battery or silently skipping Windows coverage.
+Write-QaLog INFO 'applying Windows source adaptations for legacy path'
 wsl -d $distro -u root -- python3 "$workspaceLinux/scripts/prepare-windows-test-source.py" $BatteryName $sourceLinux
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to prepare native Windows source adaptations for $BatteryName"
@@ -94,15 +174,10 @@ $environment.Add("QA_WINDOWS_UNITTEST_EXE=$unittestExeLinux")
 $environment.Add("GITHUB_RUN_ID=$env:GITHUB_RUN_ID")
 $environment.Add("GITHUB_RUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT")
 
-# These specialized upstream fixtures pipe SQL containing WSL-mounted paths to
-# the DuckDB CLI. Let the Windows proxy translate only those stdin SQL streams;
-# normal -c probes and SQLLogicTest execution keep their existing input rules.
 if ($BatteryName -in @('postgres_scanner', 'mssql')) {
     $environment.Add('QA_DUCKDB_TRANSLATE_STDIN=1')
 }
 if ($BatteryName -eq 'postgres_scanner') {
-    # postgres_execute sends this path to the Linux PostgreSQL server. Do not
-    # mark it as a WSLENV path: the native process must preserve /mnt/... text.
     $environment.Add("PGSCANNER_SERVER_WORKING_DIRECTORY=$sourceLinux")
 }
 
@@ -126,8 +201,10 @@ $arguments.Add("$workspaceLinux/scripts/run-test-battery.sh")
 $arguments.Add($configLinux)
 $arguments.Add($sourceLinux)
 
+Write-QaLog INFO 'starting legacy WSL battery path'
 & wsl @arguments
 $exitCode = $LASTEXITCODE
+Write-QaLog INFO "legacy WSL battery exit_code=$exitCode"
 if ($exitCode -ne 0) {
     throw "Shared QA battery $BatteryName failed with exit code $exitCode"
 }
