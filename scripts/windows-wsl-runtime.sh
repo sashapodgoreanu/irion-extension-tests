@@ -103,5 +103,5 @@ qa_finish_native_windows_call() {
 }
 
 qa_translate_windows_text() {
-  python3 "${QA_WSL_RUNTIME_PY}" translate-text -- "$1"
+  printf '%s' "$1" | python3 "${QA_WSL_RUNTIME_PY}" translate-stdin
 }
