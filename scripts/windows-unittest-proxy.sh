@@ -9,6 +9,22 @@ source "${QA_WSL_RUNTIME_HELPER}"
 
 qa_prepare_native_windows_call
 
+# PostgreSQL scanner fixtures use server-side COPY. The container sees the
+# mounted WSL path, so this one variable must cross into unittest.exe as text
+# rather than being translated to a Windows drive path.
+if [[ -n "${PGSCANNERTMP_ABS_DIR_PREFIX:-}" ]]; then
+  cleaned=()
+  IFS=':' read -r -a entries <<<"${WSLENV:-}"
+  for entry in "${entries[@]}"; do
+    [[ "${entry}" == "PGSCANNERTMP_ABS_DIR_PREFIX" ]] && continue
+    [[ "${entry}" == "PGSCANNERTMP_ABS_DIR_PREFIX/p" ]] && continue
+    [[ -n "${entry}" ]] && cleaned+=("${entry}")
+  done
+  WSLENV="$(IFS=:; echo "${cleaned[*]}")"
+  export WSLENV
+  qa_wslenv_add PGSCANNERTMP_ABS_DIR_PREFIX
+fi
+
 translated=()
 while (($#)); do
   case "$1" in
