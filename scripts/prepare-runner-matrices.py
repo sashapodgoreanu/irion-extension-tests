@@ -16,7 +16,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from qa import ConfigError, load_config, resolve_config  # noqa: E402
-from qa.plan import ExecutionRuntime  # noqa: E402
+from qa.plan import ExecutionPlan, ExecutionRuntime  # noqa: E402
 
 
 class RunnerConfigError(ValueError):
@@ -61,34 +61,51 @@ def load_runners(path: Path) -> dict[str, dict[str, Any]]:
     return normalized
 
 
+def runtime_for(plan: ExecutionPlan, runner: dict[str, Any]) -> ExecutionRuntime:
+    return ExecutionRuntime(
+        duckdb_version=plan.runtime.duckdb_version,
+        ci_tools_version=plan.runtime.ci_tools_version,
+        operating_system=runner["operatingSystem"],
+        architecture=runner["architecture"],
+        github_runner=runner["githubRunner"],
+    )
+
+
+def runner_plan(plan: ExecutionPlan, runner: dict[str, Any]) -> ExecutionPlan:
+    return ExecutionPlan(
+        runtime=runtime_for(plan, runner),
+        cases=plan.cases,
+        schema_version=plan.schema_version,
+    )
+
+
 def resolve_runner_matrices(
     extensions_config: Path,
     runners_config: Path,
-) -> tuple[Any, dict[str, dict[str, Any]]]:
+) -> tuple[ExecutionPlan, dict[str, dict[str, Any]]]:
     plan = resolve_config(load_config(extensions_config))
     runners = load_runners(runners_config)
     resolved: dict[str, dict[str, Any]] = {}
 
     for name, runner in runners.items():
-        runtime = ExecutionRuntime(
-            duckdb_version=plan.runtime.duckdb_version,
-            ci_tools_version=plan.runtime.ci_tools_version,
-            operating_system=runner["operatingSystem"],
-            architecture=runner["architecture"],
-            github_runner=runner["githubRunner"],
-        )
+        resolved_plan = runner_plan(plan, runner)
         include = (
-            [case.matrix_payload(runtime) for case in plan.cases]
+            resolved_plan.matrix()["include"]
             if runner["isEnabled"]
             else []
         )
         resolved[name] = {
             **runner,
             "matrix": {"include": include},
-            "runtime": runtime.payload(),
+            "runtime": resolved_plan.runtime.payload(),
+            "executionPlanSha256": resolved_plan.sha256(),
         }
 
     return plan, resolved
+
+
+def runner_plan_path(base: Path, runner_name: str) -> Path:
+    return base.with_name(f"{base.stem}-{runner_name}{base.suffix}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -108,7 +125,13 @@ def main() -> int:
             args.runners_config,
         )
         if args.plan_output is not None:
+            # Keep the original path for backwards compatibility, and emit a
+            # runtime-correct plan for each enabled matrix used by aggregation.
             plan.write_json(args.plan_output)
+            for name, runner in runners.items():
+                runner_plan(plan, runner).write_json(
+                    runner_plan_path(args.plan_output, name)
+                )
         if args.output is not None:
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(
@@ -134,6 +157,7 @@ def main() -> int:
             print(f"{prefix}_operating_system={item['operatingSystem']}")
             print(f"{prefix}_architecture={item['architecture']}")
             print(f"{prefix}_github_runner={item['githubRunner']}")
+            print(f"{prefix}_execution_plan_sha256={item['executionPlanSha256']}")
         return 0
     except (OSError, yaml.YAMLError, ConfigError, RunnerConfigError) as exc:
         print(f"Invalid QA runner configuration: {exc}", file=sys.stderr)
