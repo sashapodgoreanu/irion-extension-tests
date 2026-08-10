@@ -5,6 +5,10 @@ The service/tooling side of Windows QA runs in WSL while DuckDB and unittest are
 native Windows binaries. A few upstream tests encode POSIX-only assumptions in
 fixtures or expectations. Keep those differences here, fail on upstream drift,
 and leave the Linux checkout path untouched.
+
+Adapters must never depend on a fixed number of tests in an upstream battery.
+Test suites are expected to grow. Structural anchors inside a specific file may
+still be validated when an adapter must rewrite that exact upstream construct.
 """
 
 from __future__ import annotations
@@ -18,9 +22,11 @@ class PatchError(ValueError):
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+SQLLOGIC_TEST_SUFFIXES = {".test", ".test_slow"}
 
 
 def replace_exact(path: Path, old: str, new: str, *, expected: int = 1) -> None:
+    """Replace a structural anchor in one known file, never a suite-size contract."""
     text = path.read_text(encoding="utf-8")
     count = text.count(old)
     if count != expected:
@@ -46,6 +52,45 @@ def replace_region(path: Path, start_marker: str, end_marker: str, replacement: 
         raise PatchError(f"{path}: adaptation end marker is ambiguous")
     end = end_start + len(end_marker)
     path.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+
+
+def iter_sqllogic_tests(root: Path):
+    """Yield every current/future SQLLogicTest file without assuming suite size."""
+    for path in sorted(root.rglob("*")):
+        if path.is_file() and path.suffix in SQLLOGIC_TEST_SUFFIXES:
+            yield path
+
+
+def remove_test_directive(root: Path, directive: str) -> tuple[int, int]:
+    """Remove a directive wherever it exists and verify none remain afterwards."""
+    normalized = directive.strip().lower()
+    changed_files = 0
+    removed_directives = 0
+
+    for test in iter_sqllogic_tests(root):
+        lines = test.read_text(encoding="utf-8").splitlines(keepends=True)
+        filtered = [line for line in lines if line.strip().lower() != normalized]
+        removed = len(lines) - len(filtered)
+        if removed:
+            changed_files += 1
+            removed_directives += removed
+            test.write_text("".join(filtered), encoding="utf-8")
+
+    remaining = []
+    for test in iter_sqllogic_tests(root):
+        if any(
+            line.strip().lower() == normalized
+            for line in test.read_text(encoding="utf-8").splitlines()
+        ):
+            remaining.append(test)
+
+    if remaining:
+        preview = ", ".join(str(path) for path in remaining[:5])
+        raise PatchError(
+            f"directive {directive!r} remains in {len(remaining)} SQLLogicTest file(s): {preview}"
+        )
+
+    return changed_files, removed_directives
 
 
 def patch_httpfs(upstream_root: Path) -> None:
@@ -118,40 +163,24 @@ def patch_delta(upstream_root: Path) -> None:
 
 def patch_mssql_upstream(upstream_root: Path) -> None:
     # DuckDB's generic unittest binary cannot satisfy `require mssql` for this
-    # out-of-tree extension on Windows even after the exact signed v0.2.2 binary
-    # is installed and loaded. The Windows runner verifies that binary first and
-    # preloads it on every connection, so remove only the redundant require
-    # directive and execute the complete upstream SQLLogicTest bodies.
-    require_count = 0
-    changed_files = 0
-    for test in sorted((upstream_root / "test/sql").rglob("*.test")):
-        text = test.read_text(encoding="utf-8")
-        lines = text.splitlines(keepends=True)
-        new_lines = []
-        file_count = 0
-        for line in lines:
-            if line.strip().lower() == "require mssql":
-                file_count += 1
-                require_count += 1
-                continue
-            new_lines.append(line)
-        if file_count:
-            changed_files += 1
-            test.write_text("".join(new_lines), encoding="utf-8")
-    # Pinned MSSQL v0.2.2 has 146 guarded SQLLogicTest files. The configured
-    # runner later selects 142 after the four documented compatibility skips.
-    if require_count != 146 or changed_files != 146:
-        raise PatchError(
-            "MSSQL require contract drifted: expected 146 directives in 146 files, "
-            f"found {require_count} directives in {changed_files} files"
-        )
+    # out-of-tree extension on Windows even after the exact signed binary is
+    # installed and loaded. Remove that guard from every SQLLogicTest currently
+    # present; newly added tests are picked up automatically as the suite grows.
+    test_root = upstream_root / "test/sql"
+    changed_files, removed_directives = remove_test_directive(test_root, "require mssql")
+    if removed_directives == 0:
+        raise PatchError("MSSQL source contains no 'require mssql' directives to adapt")
+    print(
+        f"MSSQL Windows adapter removed {removed_directives} require directive(s) "
+        f"from {changed_files} SQLLogicTest file(s)"
+    )
 
 
 def patch_mssql_runner() -> None:
     runner = REPOSITORY_ROOT / "scripts/run-mssql-tests-base.sh"
     start_marker = "# Prepare a SQLLogicTest init profile that loads every compatibility extension"
     end_marker = 'MSSQL_TEST_CONNECTION_SQL="$(sed \'/^[[:space:]]*--/d\' "${MSSQL_TEST_INIT_SCRIPT}" | tr \'\\n\' \' \')"'
-    replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree\n# module. The exact signed repository binary was verified above; preload it on\n# init and on every connection, while the Windows source adapter removes only\n# the redundant require directive from the upstream test files.\ncp \"${INIT_SCRIPT}\" \"${MSSQL_TEST_INIT_SCRIPT}\"\ncp \"${MSSQL_TEST_INIT_SCRIPT}\" \"${LOG_DIR}/init-extensions-with-mssql.sql\"\nMSSQL_TEST_CONNECTION_SQL=\"$(sed '/^[[:space:]]*--/d' \"${MSSQL_TEST_INIT_SCRIPT}\" | tr '\\n' ' ')\""""
+    replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree\n# module. The exact signed repository binary was verified above; preload it on\n# init and on every connection, while the Windows source adapter removes only\n# the redundant require directive from all current/future upstream test files.\ncp \"${INIT_SCRIPT}\" \"${MSSQL_TEST_INIT_SCRIPT}\"\ncp \"${MSSQL_TEST_INIT_SCRIPT}\" \"${LOG_DIR}/init-extensions-with-mssql.sql\"\nMSSQL_TEST_CONNECTION_SQL=\"$(sed '/^[[:space:]]*--/d' \"${MSSQL_TEST_INIT_SCRIPT}\" | tr '\\n' ' ')\""""
     replace_region(runner, start_marker, end_marker, replacement)
     replace_exact(
         runner,
