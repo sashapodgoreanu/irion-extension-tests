@@ -85,7 +85,7 @@ if ($needsDocker) {
 }
 
 if ($capabilities -contains 'azurite') {
-    Invoke-WslBash "if ! command -v node >/dev/null 2>&1 || [ \"$(node --version 2>/dev/null | sed 's/^v//' | cut -d. -f1)\" -lt 22 ]; then curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; apt-get install -y -qq nodejs; fi; npm install --global azurite; azurite --version"
+    Invoke-WslBash "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; apt-get install -y -qq nodejs; npm install --global azurite; node --version; azurite --version"
     Invoke-WslBash "if ! command -v az >/dev/null 2>&1; then curl -sL https://aka.ms/InstallAzureCLIDeb | bash; fi; az --version >/dev/null"
 }
 
