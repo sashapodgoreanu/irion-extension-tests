@@ -94,6 +94,12 @@ jobs:
     needs: configure
     runs-on: ${{ needs.configure.outputs.linux_github_runner }}
     timeout-minutes: 90
+    outputs:
+      matrix: ${{ needs.configure.outputs.linux_matrix }}
+      duckdb_version: ${{ needs.configure.outputs.duckdb_version }}
+      operating_system: ${{ needs.configure.outputs.linux_operating_system }}
+      architecture: ${{ needs.configure.outputs.linux_architecture }}
+      github_runner: ${{ needs.configure.outputs.linux_github_runner }}
 
     steps:
       - name: Checkout repository
@@ -189,6 +195,10 @@ jobs:
     needs: configure
     runs-on: ${{ needs.configure.outputs.windows_github_runner }}
     timeout-minutes: 90
+    outputs:
+      matrix: ${{ needs.configure.outputs.windows_matrix }}
+      duckdb_version: ${{ needs.configure.outputs.duckdb_version }}
+      github_runner: ${{ needs.configure.outputs.windows_github_runner }}
 
     steps:
       - name: Checkout repository
@@ -197,12 +207,71 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Calculate Windows runtime cache key
+        id: windows-runtime-key
+        shell: pwsh
+        run: |
+          $duckdbSha = (git rev-parse HEAD:duckdb).Trim()
+          $ciToolsSha = (git rev-parse HEAD:extension-ci-tools).Trim()
+
+          $inputs = [System.Collections.Generic.List[string]]::new()
+          $inputs.Add('cache-schema=v1')
+          $inputs.Add('runner=${{ needs.configure.outputs.windows_github_runner }}')
+          $inputs.Add('operating-system=windows')
+          $inputs.Add('architecture=x86_64')
+          $inputs.Add('duckdb-version=${{ needs.configure.outputs.duckdb_version }}')
+          $inputs.Add('ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}')
+          $inputs.Add("duckdb-sha=$duckdbSha")
+          $inputs.Add("ci-tools-sha=$ciToolsSha")
+
+          $files = @(
+            '.gitmodules',
+            'CMakeLists.txt',
+            'extension_config.cmake',
+            'scripts/build-windows.ps1'
+          )
+          if (Test-Path 'src') {
+            $files += Get-ChildItem -Path 'src' -Recurse -File |
+              Sort-Object FullName |
+              ForEach-Object { $_.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1) }
+          }
+
+          foreach ($file in $files) {
+            if (Test-Path $file) {
+              $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant()
+              $inputs.Add("$file=$hash")
+            }
+          }
+
+          $payload = [System.Text.Encoding]::UTF8.GetBytes(($inputs -join "`n"))
+          $sha256 = [System.Security.Cryptography.SHA256]::Create()
+          try {
+            $inputHash = [Convert]::ToHexString($sha256.ComputeHash($payload)).ToLowerInvariant()
+          }
+          finally {
+            $sha256.Dispose()
+          }
+
+          $cacheKey = "duckdb-runtime-v1-windows-x86_64-$inputHash"
+          "key=$cacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "duckdb_sha=$duckdbSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "ci_tools_sha=$ciToolsSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Restore cached Windows DuckDB runtime
+        id: windows-runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: build/artifact-windows
+          key: ${{ steps.windows-runtime-key.outputs.key }}
+
       - name: Set up Python
+        if: steps.windows-runtime-cache.outputs.cache-hit != 'true'
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
       - name: Build DuckDB and unittest with MSVC
+        if: steps.windows-runtime-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
           ./scripts/build-windows.ps1 `
@@ -210,7 +279,38 @@ jobs:
             -CiToolsVersion '${{ needs.configure.outputs.ci_tools_version }}' `
             -BuildJobs 4
 
-      - name: Publish build timing
+      - name: Validate restored or built Windows runtime
+        shell: pwsh
+        run: |
+          $duckdb = 'build/artifact-windows/bin/duckdb.exe'
+          $unittest = 'build/artifact-windows/bin/unittest.exe'
+          $buildInfo = 'build/artifact-windows/logs/build-info.txt'
+
+          if (-not (Test-Path $duckdb)) {
+            throw "DuckDB executable is missing: $duckdb"
+          }
+          if (-not (Test-Path $unittest)) {
+            throw "DuckDB unittest executable is missing: $unittest"
+          }
+          if (-not (Test-Path $buildInfo)) {
+            throw "Windows build metadata is missing: $buildInfo"
+          }
+
+          & $duckdb --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "duckdb.exe validation failed with exit code $LASTEXITCODE"
+          }
+          & $unittest --help *> $null
+          if ($LASTEXITCODE -ne 0) {
+            throw "unittest.exe validation failed with exit code $LASTEXITCODE"
+          }
+
+          Add-Content -Path $buildInfo -Value "cache_key=${{ steps.windows-runtime-key.outputs.key }}"
+          Add-Content -Path $buildInfo -Value "cache_hit=${{ steps.windows-runtime-cache.outputs.cache-hit }}"
+          Add-Content -Path $buildInfo -Value "duckdb_commit=${{ steps.windows-runtime-key.outputs.duckdb_sha }}"
+          Add-Content -Path $buildInfo -Value "ci_tools_commit=${{ steps.windows-runtime-key.outputs.ci_tools_sha }}"
+
+      - name: Publish Windows build summary
         shell: pwsh
         run: |
           Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '### Windows DuckDB build'
@@ -229,15 +329,13 @@ jobs:
 
   test-linux:
     name: ${{ matrix.name }}
-    needs:
-      - configure
-      - build-linux
-    runs-on: ${{ needs.configure.outputs.linux_github_runner }}
+    needs: build-linux
+    runs-on: ${{ needs.build-linux.outputs.github_runner }}
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.linux_matrix) }}
+      matrix: ${{ fromJSON(needs.build-linux.outputs.matrix) }}
 
     steps:
       - name: Checkout QA repository
@@ -278,7 +376,7 @@ jobs:
       - name: Download Linux DuckDB runtime
         uses: actions/download-artifact@v4
         with:
-          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.linux_operating_system }}-${{ needs.configure.outputs.linux_architecture }}
+          name: duckdb-${{ needs.build-linux.outputs.duckdb_version }}-${{ needs.build-linux.outputs.operating_system }}-${{ needs.build-linux.outputs.architecture }}
           path: build/artifact
 
       - name: Restore executable permissions
@@ -413,14 +511,12 @@ jobs:
 
   test-windows:
     name: ${{ matrix.name }}
-    needs:
-      - configure
-      - build-windows
-    runs-on: ${{ needs.configure.outputs.windows_github_runner }}
+    needs: build-windows
+    runs-on: ${{ needs.build-windows.outputs.github_runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.windows_matrix) }}
+      matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
 
     steps:
       - name: Checkout QA repository
@@ -463,7 +559,7 @@ jobs:
       - name: Download Windows DuckDB runtime
         uses: actions/download-artifact@v4
         with:
-          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-windows-x86_64
+          name: duckdb-${{ needs.build-windows.outputs.duckdb_version }}-windows-x86_64
           path: build/artifact-windows
 
       - name: Persist Windows battery configuration
@@ -496,13 +592,11 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  aggregate:
-    name: Aggregate structured results
-    needs:
-      - configure
-      - test-linux
+  aggregate-linux:
+    name: Aggregate Linux results
+    needs: test-linux
     if: always()
-    runs-on: ${{ needs.configure.outputs.linux_github_runner }}
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout QA repository
@@ -561,3 +655,23 @@ jobs:
       - name: Enforce aggregate verdict
         if: always()
         run: test '${{ steps.aggregate_results.outcome }}' = 'success'
+
+  aggregate-windows:
+    name: Aggregate Windows results
+    needs: test-windows
+    if: always()
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Publish Windows matrix verdict
+        env:
+          WINDOWS_RESULT: ${{ needs.test-windows.result }}
+        run: |
+          echo "### Windows compatibility results" >>"${GITHUB_STEP_SUMMARY}"
+          echo "" >>"${GITHUB_STEP_SUMMARY}"
+          echo "Matrix result: **${WINDOWS_RESULT}**" >>"${GITHUB_STEP_SUMMARY}"
+
+      - name: Enforce Windows verdict
+        env:
+          WINDOWS_RESULT: ${{ needs.test-windows.result }}
+        run: test "${WINDOWS_RESULT}" = 'success'
