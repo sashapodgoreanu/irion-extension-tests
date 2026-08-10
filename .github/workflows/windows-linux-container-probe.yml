@@ -62,8 +62,13 @@ jobs:
           if (-not $wslIp) { throw 'Unable to resolve WSL IP address' }
           "wsl_ip=$wslIp" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-          $workspaceLinux = ((wsl -d $distro -u root -- wslpath -a $env:GITHUB_WORKSPACE) -replace "`0", '').Trim()
-          if (-not $workspaceLinux) { throw 'Unable to translate GITHUB_WORKSPACE to WSL path' }
+          $workspace = $env:GITHUB_WORKSPACE
+          if ($workspace -notmatch '^[A-Za-z]:\\') { throw "Unexpected Windows workspace path: $workspace" }
+          $drive = $workspace.Substring(0, 1).ToLowerInvariant()
+          $tail = $workspace.Substring(2).Replace('\', '/')
+          $workspaceLinux = "/mnt/$drive$tail"
+          wsl -d $distro -u root -- test -d $workspaceLinux
+          if ($LASTEXITCODE -ne 0) { throw "Translated WSL workspace does not exist: $workspaceLinux" }
           "workspace_linux=$workspaceLinux" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
 
           Write-Host "WSL IP: $wslIp"
@@ -158,7 +163,7 @@ jobs:
           WSL_IP: ${{ steps.linux_runtime.outputs.wsl_ip }}
         run: |
           $ErrorActionPreference = 'Stop'
-          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-postgres 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- bash -lc 'docker rm -f qa-probe-postgres >/dev/null 2>&1 || true'
           wsl -d Ubuntu-24.04 -u root -- docker run -d --name qa-probe-postgres -e POSTGRES_PASSWORD=postgres -p 55432:5432 postgres:17
           if ($LASTEXITCODE -ne 0) { throw 'Unable to start PostgreSQL Linux container' }
 
@@ -189,7 +194,7 @@ jobs:
           WSL_IP: ${{ steps.linux_runtime.outputs.wsl_ip }}
         run: |
           $ErrorActionPreference = 'Stop'
-          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-minio 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- bash -lc 'docker rm -f qa-probe-minio >/dev/null 2>&1 || true'
           wsl -d Ubuntu-24.04 -u root -- docker run -d --name qa-probe-minio -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 -p 59000:9000 minio/minio server /data
           if ($LASTEXITCODE -ne 0) { throw 'Unable to start MinIO Linux container' }
 
@@ -241,9 +246,9 @@ jobs:
         env:
           WORKSPACE_LINUX: ${{ steps.linux_runtime.outputs.workspace_linux }}
         run: |
-          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-postgres qa-probe-minio 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- bash -lc 'docker rm -f qa-probe-postgres qa-probe-minio >/dev/null 2>&1 || true'
           if ($env:WORKSPACE_LINUX) {
             $composeLinux = "$env:WORKSPACE_LINUX/probe-compose.yml"
             wsl -d Ubuntu-24.04 -u root -- docker compose -f $composeLinux down --remove-orphans 2>$null | Out-Null
           }
-          wsl -d Ubuntu-24.04 -u root -- systemctl stop qa-probe-http.service 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- bash -lc 'systemctl stop qa-probe-http.service >/dev/null 2>&1 || true'
