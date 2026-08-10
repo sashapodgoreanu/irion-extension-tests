@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import unittest
@@ -10,6 +11,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = REPOSITORY_ROOT / "scripts" / "prepare-runner-matrices.py"
 EXTENSIONS = REPOSITORY_ROOT / "config" / "extensions.yml"
 RUNNERS = REPOSITORY_ROOT / "config" / "runners.yml"
+WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
+WSL_HELPER = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
 EXPECTED = [
     "httpfs",
     "ducklake",
@@ -52,6 +55,28 @@ class RunnerMatricesTestCase(unittest.TestCase):
         self.assertTrue(all(item["runtime"]["architecture"] == "x86_64" for item in windows))
         self.assertEqual(outputs["linux_enabled"], "true")
         self.assertEqual(outputs["windows_enabled"], "true")
+
+    def test_windows_wsl_argument_bridge_preserves_cli_payloads(self) -> None:
+        environment = os.environ.copy()
+        environment["QA_WSL_RUNTIME_PY"] = str(WSL_RUNTIME)
+        shell = f'source "{WSL_HELPER}"; qa_translate_windows_text "$1"'
+
+        cases = {
+            "-csv": "-csv",
+            "": "",
+            "ATTACH '/mnt/d/a/test.duckdb'": "ATTACH 'D:/a/test.duckdb'",
+        }
+        for source, expected in cases.items():
+            with self.subTest(source=source):
+                result = subprocess.run(
+                    ["bash", "-c", shell, "qa-bridge", source],
+                    cwd=REPOSITORY_ROOT,
+                    env=environment,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertEqual(result.stdout, expected)
 
 
 if __name__ == "__main__":
