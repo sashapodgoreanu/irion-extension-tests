@@ -16,17 +16,19 @@ concurrency:
 
 jobs:
   configure:
-    name: Resolve extension configuration
+    name: Resolve test matrix
     runs-on: ubuntu-24.04
     outputs:
-      matrix: ${{ steps.resolve.outputs.matrix }}
-      duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
-      ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
-      operating_system: ${{ steps.resolve.outputs.operating_system }}
-      architecture: ${{ steps.resolve.outputs.architecture }}
-      github_runner: ${{ steps.resolve.outputs.github_runner }}
-      enabled_batteries: ${{ steps.resolve.outputs.enabled_batteries }}
-      execution_plan_sha256: ${{ steps.resolve.outputs.execution_plan_sha256 }}
+      linux_matrix: ${{ steps.resolve-linux.outputs.matrix }}
+      windows_matrix: ${{ steps.resolve-windows.outputs.matrix }}
+      duckdb_version: ${{ steps.resolve-linux.outputs.duckdb_version }}
+      ci_tools_version: ${{ steps.resolve-linux.outputs.ci_tools_version }}
+      linux_operating_system: ${{ steps.resolve-linux.outputs.operating_system }}
+      linux_architecture: ${{ steps.resolve-linux.outputs.architecture }}
+      linux_github_runner: ${{ steps.resolve-linux.outputs.github_runner }}
+      windows_github_runner: ${{ steps.resolve-windows.outputs.github_runner }}
+      enabled_batteries: ${{ steps.resolve-linux.outputs.enabled_batteries }}
+      execution_plan_sha256: ${{ steps.resolve-linux.outputs.execution_plan_sha256 }}
 
     steps:
       - name: Checkout QA repository
@@ -37,18 +39,30 @@ jobs:
           python3 -m venv .venv
           .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
 
-      - name: Compile execution plan and build matrix
-        id: resolve
+      - name: Resolve Linux test matrix
+        id: resolve-linux
         run: |
           .venv/bin/python scripts/resolve-extension-config.py \
             config/extensions.yml \
             --plan-output build/plan/execution-plan.json \
             >>"${GITHUB_OUTPUT}"
 
-      - name: Persist generated matrix
+      - name: Persist Linux execution matrix
         env:
-          MATRIX_JSON: ${{ steps.resolve.outputs.matrix }}
+          MATRIX_JSON: ${{ steps.resolve-linux.outputs.matrix }}
         run: printf '%s\n' "${MATRIX_JSON}" >build/plan/matrix.json
+
+      - name: Resolve Windows test matrix
+        id: resolve-windows
+        run: |
+          .venv/bin/python scripts/prepare-windows-matrix.py \
+            config/extensions.yml \
+            config/windows-tests.yml \
+            --output build/windows/matrix.json \
+            >>"${GITHUB_OUTPUT}"
+
+      - name: Test configuration contracts
+        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
 
       - name: Upload execution plan
         uses: actions/upload-artifact@v4
@@ -58,21 +72,27 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Test configuration contracts
-        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
+      - name: Upload Windows execution matrix
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-execution-matrix
+          path: build/windows/matrix.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: Report enabled batteries
+      - name: Report resolved runtime matrices
         run: |
-          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
-          echo "Runtime: ${{ steps.resolve.outputs.operating_system }}/${{ steps.resolve.outputs.architecture }}"
-          echo "GitHub runner: ${{ steps.resolve.outputs.github_runner }}"
-          echo "Enabled batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
-          echo "Execution plan SHA-256: ${{ steps.resolve.outputs.execution_plan_sha256 }}"
+          echo "DuckDB: ${{ steps.resolve-linux.outputs.duckdb_version }}"
+          echo "Linux runtime: ${{ steps.resolve-linux.outputs.operating_system }}/${{ steps.resolve-linux.outputs.architecture }}"
+          echo "Linux runner: ${{ steps.resolve-linux.outputs.github_runner }}"
+          echo "Windows runner: ${{ steps.resolve-windows.outputs.github_runner }}"
+          echo "Linux batteries: ${{ steps.resolve-linux.outputs.enabled_batteries }}"
+          echo "Execution plan SHA-256: ${{ steps.resolve-linux.outputs.execution_plan_sha256 }}"
 
-  build:
-    name: Prepare DuckDB runtime
+  build-linux:
+    name: Build Linux ${{ needs.configure.outputs.duckdb_version }}
     needs: configure
-    runs-on: ${{ needs.configure.outputs.github_runner }}
+    runs-on: ${{ needs.configure.outputs.linux_github_runner }}
     timeout-minutes: 90
 
     steps:
@@ -94,9 +114,9 @@ jobs:
           BUILD_INPUT_HASH="$({
             printf '%s\n' \
               'cache-schema=v3' \
-              'runner=${{ needs.configure.outputs.github_runner }}' \
-              'operating-system=${{ needs.configure.outputs.operating_system }}' \
-              'architecture=${{ needs.configure.outputs.architecture }}' \
+              'runner=${{ needs.configure.outputs.linux_github_runner }}' \
+              'operating-system=${{ needs.configure.outputs.linux_operating_system }}' \
+              'architecture=${{ needs.configure.outputs.linux_architecture }}' \
               'duckdb-version=${{ needs.configure.outputs.duckdb_version }}' \
               'ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}' \
               "duckdb-sha=${DUCKDB_SHA}" \
@@ -110,7 +130,7 @@ jobs:
               src
           } | sha256sum | cut -d' ' -f1)"
 
-          CACHE_KEY="duckdb-runtime-v3-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
+          CACHE_KEY="duckdb-runtime-v3-${{ needs.configure.outputs.linux_operating_system }}-${{ needs.configure.outputs.linux_architecture }}-${BUILD_INPUT_HASH}"
           echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
           echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
           echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
@@ -149,32 +169,75 @@ jobs:
           {
             echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
             echo "cache_hit=${{ steps.duckdb-runtime-cache.outputs.cache-hit }}"
-            echo "operating_system=${{ needs.configure.outputs.operating_system }}"
-            echo "architecture=${{ needs.configure.outputs.architecture }}"
-            echo "github_runner=${{ needs.configure.outputs.github_runner }}"
+            echo "operating_system=${{ needs.configure.outputs.linux_operating_system }}"
+            echo "architecture=${{ needs.configure.outputs.linux_architecture }}"
+            echo "github_runner=${{ needs.configure.outputs.linux_github_runner }}"
             echo "duckdb_commit=${{ steps.duckdb-runtime-key.outputs.duckdb_sha }}"
             echo "ci_tools_commit=${{ steps.duckdb-runtime-key.outputs.ci_tools_sha }}"
           } >>build/artifact/logs/build-info.txt
 
-      - name: Upload shared build
+      - name: Upload Linux DuckDB runtime
         uses: actions/upload-artifact@v4
         with:
-          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.linux_operating_system }}-${{ needs.configure.outputs.linux_architecture }}
           path: build/artifact/
           if-no-files-found: error
           retention-days: 7
 
-  test:
-    name: Test ${{ matrix.name }}
+  build-windows:
+    name: Build Windows ${{ needs.configure.outputs.duckdb_version }}
+    needs: configure
+    runs-on: ${{ needs.configure.outputs.windows_github_runner }}
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build DuckDB and unittest with MSVC
+        shell: pwsh
+        run: |
+          ./scripts/build-windows.ps1 `
+            -DuckDBVersion '${{ needs.configure.outputs.duckdb_version }}' `
+            -CiToolsVersion '${{ needs.configure.outputs.ci_tools_version }}' `
+            -BuildJobs 4
+
+      - name: Publish build timing
+        shell: pwsh
+        run: |
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value '### Windows DuckDB build'
+          Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value ''
+          Get-Content build/artifact-windows/logs/build-info.txt | ForEach-Object {
+            Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value "- ``$_``"
+          }
+
+      - name: Upload Windows DuckDB runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-windows-x86_64
+          path: build/artifact-windows/
+          if-no-files-found: error
+          retention-days: 7
+
+  test-linux:
+    name: ${{ matrix.name }}
     needs:
       - configure
-      - build
-    runs-on: ${{ needs.configure.outputs.github_runner }}
+      - build-linux
+    runs-on: ${{ needs.configure.outputs.linux_github_runner }}
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.configure.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.configure.outputs.linux_matrix) }}
 
     steps:
       - name: Checkout QA repository
@@ -212,10 +275,10 @@ jobs:
           echo "root=${root}" >>"${GITHUB_OUTPUT}"
           echo "Using ${{ matrix.sourceType }} test source: ${root}"
 
-      - name: Download shared build
+      - name: Download Linux DuckDB runtime
         uses: actions/download-artifact@v4
         with:
-          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.linux_operating_system }}-${{ needs.configure.outputs.linux_architecture }}
           path: build/artifact
 
       - name: Restore executable permissions
@@ -348,13 +411,98 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  test-windows:
+    name: ${{ matrix.name }}
+    needs:
+      - configure
+      - build-windows
+    runs-on: ${{ needs.configure.outputs.windows_github_runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.configure.outputs.windows_matrix) }}
+
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test tooling
+        shell: pwsh
+        run: python -m pip install --disable-pip-version-check -r requirements/qa.txt
+
+      - name: Checkout remote test source
+        if: matrix.sourceType == 'remote'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.pin }}
+          path: upstream/${{ matrix.name }}
+          fetch-depth: 1
+          submodules: ${{ matrix.submodules }}
+
+      - name: Resolve test source root
+        id: test_source
+        shell: pwsh
+        run: |
+          if ('${{ matrix.sourceType }}' -eq 'self') {
+            $root = $env:GITHUB_WORKSPACE
+          }
+          else {
+            $root = Join-Path $env:GITHUB_WORKSPACE 'upstream/${{ matrix.name }}'
+          }
+          if (-not (Test-Path $root)) {
+            throw "Windows test source root is missing: $root"
+          }
+          "root=$root" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Download Windows DuckDB runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-windows-x86_64
+          path: build/artifact-windows
+
+      - name: Persist Windows battery configuration
+        shell: pwsh
+        env:
+          BATTERY_CONFIG_JSON: ${{ toJSON(matrix) }}
+        run: |
+          New-Item -ItemType Directory -Force -Path 'build/windows/config' | Out-Null
+          Set-Content `
+            -Path 'build/windows/config/${{ matrix.name }}.json' `
+            -Value $env:BATTERY_CONFIG_JSON `
+            -Encoding utf8
+
+      - name: Run test battery
+        shell: pwsh
+        run: |
+          python scripts/run-windows-standard-tests.py `
+            'build/windows/config/${{ matrix.name }}.json' `
+            '${{ steps.test_source.outputs.root }}' `
+            'build/artifact-windows' `
+            'build/windows/runtime/${{ matrix.name }}' `
+            'build/windows/logs/${{ matrix.name }}'
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-logs-${{ matrix.name }}
+          path: build/windows/logs/${{ matrix.name }}/
+          if-no-files-found: warn
+          retention-days: 7
+
   aggregate:
     name: Aggregate structured results
     needs:
       - configure
-      - test
+      - test-linux
     if: always()
-    runs-on: ${{ needs.configure.outputs.github_runner }}
+    runs-on: ${{ needs.configure.outputs.linux_github_runner }}
 
     steps:
       - name: Checkout QA repository
