@@ -60,6 +60,13 @@ $environment.Add("QA_WINDOWS_UNITTEST_EXE=$unittestExeLinux")
 $environment.Add("GITHUB_RUN_ID=$env:GITHUB_RUN_ID")
 $environment.Add("GITHUB_RUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT")
 
+# These specialized upstream fixtures pipe SQL containing WSL-mounted paths to
+# the DuckDB CLI. Let the Windows proxy translate only those stdin SQL streams;
+# normal -c probes and SQLLogicTest execution keep their existing input rules.
+if ($BatteryName -in @('postgres_scanner', 'mssql')) {
+    $environment.Add('QA_DUCKDB_TRANSLATE_STDIN=1')
+}
+
 foreach ($name in @('BQ_TEST_PROJECT', 'BQ_TEST_DATASET', 'BQ_TEST_EXPORT_URI')) {
     $value = [Environment]::GetEnvironmentVariable($name)
     if ($null -ne $value -and $value -ne '') {

@@ -13,6 +13,7 @@ EXTENSIONS = REPOSITORY_ROOT / "config" / "extensions.yml"
 RUNNERS = REPOSITORY_ROOT / "config" / "runners.yml"
 WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
 WSL_HELPER = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
+WINDOWS_DUCKDB_PROXY = REPOSITORY_ROOT / "scripts" / "windows-duckdb-proxy.sh"
 EXPECTED = [
     "httpfs",
     "ducklake",
@@ -77,6 +78,12 @@ class RunnerMatricesTestCase(unittest.TestCase):
                     capture_output=True,
                 )
                 self.assertEqual(result.stdout, expected)
+
+    def test_windows_duckdb_proxy_translates_stdin_only_when_opted_in(self) -> None:
+        text = WINDOWS_DUCKDB_PROXY.read_text(encoding="utf-8")
+        self.assertIn('QA_DUCKDB_TRANSLATE_STDIN:-0', text)
+        self.assertIn('translate-stdin', text)
+        self.assertIn('has_inline_command', text)
 
 
 if __name__ == "__main__":

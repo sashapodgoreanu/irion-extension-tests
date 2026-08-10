@@ -158,7 +158,6 @@ if ($BatteryName -in @('delta', 'iceberg')) {
     [void]$packages.Add('build-essential')
 }
 if ($BatteryName -eq 'delta') {
-    [void]$packages.Add('cargo')
     [void]$packages.Add('pkg-config')
     [void]$packages.Add('libssl-dev')
     [void]$packages.Add('unzip')
@@ -171,6 +170,13 @@ if ($BatteryName -eq 'unity_catalog') {
 $packageList = ($packages | Sort-Object) -join ' '
 Invoke-WslBash "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq $packageList"
 Invoke-WslBash "git config --global --add safe.directory '*'"
+
+if ($BatteryName -eq 'delta') {
+    # Ubuntu 24.04 ships Cargo 1.75, while the pinned delta-kernel workspace uses
+    # resolver = '3'. Install the current stable toolchain instead of relying on
+    # the distro Rust package, and expose the rustup shims on the normal PATH.
+    Invoke-WslBash "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable; ln -sf /root/.cargo/bin/cargo /usr/local/bin/cargo; ln -sf /root/.cargo/bin/rustc /usr/local/bin/rustc; cargo --version; rustc --version"
+}
 
 if ($needsDocker) {
     Invoke-WslBash "systemctl enable --now docker; docker info --format 'OSType={{.OSType}} Architecture={{.Architecture}}'; docker compose version"
