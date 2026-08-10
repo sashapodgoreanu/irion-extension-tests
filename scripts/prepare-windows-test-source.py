@@ -138,9 +138,11 @@ def patch_mssql_upstream(upstream_root: Path) -> None:
         if file_count:
             changed_files += 1
             test.write_text("".join(new_lines), encoding="utf-8")
-    if require_count != 142 or changed_files != 142:
+    # Pinned MSSQL v0.2.2 has 146 guarded SQLLogicTest files. The configured
+    # runner later selects 142 after the four documented compatibility skips.
+    if require_count != 146 or changed_files != 146:
         raise PatchError(
-            "MSSQL require contract drifted: expected 142 directives in 142 files, "
+            "MSSQL require contract drifted: expected 146 directives in 146 files, "
             f"found {require_count} directives in {changed_files} files"
         )
 
