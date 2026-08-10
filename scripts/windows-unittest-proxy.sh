@@ -50,8 +50,9 @@ while (($#)); do
   esac
 done
 
+# SQLLogicTest is non-interactive in CI; keep it independent from caller stdin.
 set +e
-"${QA_WINDOWS_UNITTEST_EXE}" "${translated[@]}"
+"${QA_WINDOWS_UNITTEST_EXE}" "${translated[@]}" </dev/null
 status=$?
 set -e
 
