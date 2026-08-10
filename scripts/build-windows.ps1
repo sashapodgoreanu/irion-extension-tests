@@ -16,7 +16,7 @@ function Invoke-Checked {
         [Parameter(Mandatory = $true)]
         [string]$Command,
 
-        [Parameter(ValueFromRemainingArguments = $true)]
+        [Parameter(Mandatory = $true)]
         [string[]]$Arguments
     )
 
@@ -35,8 +35,8 @@ function Checkout-Ref {
         [string]$Ref
     )
 
-    Invoke-Checked git -C $Directory fetch --depth 1 origin $Ref
-    Invoke-Checked git -C $Directory checkout --detach FETCH_HEAD
+    Invoke-Checked -Command git -Arguments @('-C', $Directory, 'fetch', '--depth', '1', 'origin', $Ref)
+    Invoke-Checked -Command git -Arguments @('-C', $Directory, 'checkout', '--detach', 'FETCH_HEAD')
 }
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -52,7 +52,7 @@ Checkout-Ref -Directory $CiToolsRoot -Ref $CiToolsVersion
 # Match DuckDB's upstream Windows CI preparation before configuring MSVC.
 Push-Location $DuckDBRoot
 try {
-    Invoke-Checked python scripts/windows_ci.py
+    Invoke-Checked -Command python -Arguments @('scripts/windows_ci.py')
 }
 finally {
     Pop-Location
@@ -67,19 +67,20 @@ $DuckDBSource = (Resolve-Path $DuckDBRoot).Path.Replace('\', '/')
 $BuildPath = (Resolve-Path $BuildRoot).Path.Replace('\', '/')
 $ExtensionConfig = (Resolve-Path (Join-Path $RepoRoot 'extension_config.cmake')).Path.Replace('\', '/')
 
-Invoke-Checked cmake `
-    -S $DuckDBSource `
-    -B $BuildPath `
-    '-DCMAKE_BUILD_TYPE=Release' `
-    '-DCMAKE_GENERATOR_PLATFORM=x64' `
-    '-DENABLE_EXTENSION_AUTOLOADING=1' `
-    '-DENABLE_EXTENSION_AUTOINSTALL=1' `
-    '-DDISABLE_UNITY=1' `
-    '-DBUILD_UNITTESTS=TRUE' `
-    '-DENABLE_UNITTEST_CPP_TESTS=FALSE' `
+$ConfigureArguments = @(
+    '-S', $DuckDBSource,
+    '-B', $BuildPath,
+    '-DCMAKE_BUILD_TYPE=Release',
+    '-DCMAKE_GENERATOR_PLATFORM=x64',
+    '-DENABLE_EXTENSION_AUTOLOADING=1',
+    '-DENABLE_EXTENSION_AUTOINSTALL=1',
+    '-DDISABLE_UNITY=1',
+    '-DBUILD_UNITTESTS=TRUE',
+    '-DENABLE_UNITTEST_CPP_TESTS=FALSE',
     "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig"
-
-Invoke-Checked cmake --build $BuildPath --config Release --parallel $BuildJobs
+)
+Invoke-Checked -Command cmake -Arguments $ConfigureArguments
+Invoke-Checked -Command cmake -Arguments @('--build', $BuildPath, '--config', 'Release', '--parallel', "$BuildJobs")
 
 $DuckDBExe = Join-Path $BuildRoot 'Release/duckdb.exe'
 $UnitTestExe = Join-Path $BuildRoot 'test/Release/unittest.exe'
@@ -107,8 +108,8 @@ Copy-Item $DuckDBExe (Join-Path $BinDir 'duckdb.exe')
 Copy-Item $UnitTestExe (Join-Path $BinDir 'unittest.exe')
 Copy-Item $QaExtension.FullName (Join-Path $ExtensionDir $QaExtension.Name)
 
-Invoke-Checked (Join-Path $BinDir 'duckdb.exe') --version
-Invoke-Checked (Join-Path $BinDir 'unittest.exe') --help
+Invoke-Checked -Command (Join-Path $BinDir 'duckdb.exe') -Arguments @('--version')
+Invoke-Checked -Command (Join-Path $BinDir 'unittest.exe') -Arguments @('--help')
 
 $Stopwatch.Stop()
 $DuckDBCommit = (& git -C $DuckDBRoot rev-parse HEAD).Trim()
