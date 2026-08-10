@@ -11,7 +11,7 @@ function Invoke-WslBash {
     param([Parameter(Mandatory = $true)][string]$Command)
     wsl -d $distro -u root -- bash -lc $Command
     if ($LASTEXITCODE -ne 0) {
-        throw "WSL command failed with exit code $LASTEXITCODE: $Command"
+        throw "WSL command failed with exit code ${LASTEXITCODE}: $Command"
     }
 }
 
