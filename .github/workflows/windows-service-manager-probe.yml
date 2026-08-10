@@ -44,6 +44,8 @@ jobs:
 
       - name: Create shared service-manager probe inputs
         shell: pwsh
+        env:
+          WORKSPACE_LINUX: ${{ steps.runtime.outputs.workspace_linux }}
         run: |
           @'
           [
@@ -79,8 +81,12 @@ jobs:
           done
           '@ | Set-Content -Path probe-service-host.sh -Encoding utf8
 
+          wsl -d Ubuntu-24.04 -u root -- sed -i 's/\r$//' "$env:WORKSPACE_LINUX/probe-service-host.sh"
+          if ($LASTEXITCODE -ne 0) { throw 'Failed to normalize probe host script line endings' }
+
       - name: Run existing service-manager.sh in persistent WSL host
         id: service_manager
+        continue-on-error: true
         shell: pwsh
         env:
           WORKSPACE_LINUX: ${{ steps.runtime.outputs.workspace_linux }}
@@ -132,9 +138,9 @@ jobs:
 
       - name: Probe Windows hosts alias to WSL Linux container
         id: host_alias
+        if: always()
+        continue-on-error: true
         shell: pwsh
-        env:
-          WORKSPACE_LINUX: ${{ steps.runtime.outputs.workspace_linux }}
         run: |
           $ErrorActionPreference = 'Stop'
           wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-alias *> $null
