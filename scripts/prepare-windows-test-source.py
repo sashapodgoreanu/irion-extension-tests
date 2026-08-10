@@ -2,8 +2,8 @@
 """Apply narrow source adaptations for native Windows SQLLogicTest execution.
 
 The service/tooling side of Windows QA runs in WSL while DuckDB and unittest are
-native Windows binaries.  A few upstream tests encode POSIX-only assumptions in
-fixtures or expectations.  Keep those differences here, fail on upstream drift,
+native Windows binaries. A few upstream tests encode POSIX-only assumptions in
+fixtures or expectations. Keep those differences here, fail on upstream drift,
 and leave the Linux checkout path untouched.
 """
 
@@ -51,7 +51,7 @@ def replace_region(path: Path, start_marker: str, end_marker: str, replacement: 
 def patch_httpfs(upstream_root: Path) -> None:
     test = upstream_root / "test/sql/copy/s3/glob_s3_paging.test_slow"
     # WinHTTP/curl scheduling issues the same eleven GETs for each paging
-    # context.  The functional paging result is unchanged; only the diagnostic
+    # context. The functional paging result is unchanged; only the diagnostic
     # HTTP request-count expectation differs from Linux.
     replace_exact(
         test,
@@ -63,7 +63,7 @@ def patch_httpfs(upstream_root: Path) -> None:
 def patch_ducklake(upstream_root: Path) -> None:
     test = upstream_root / "test/sql/remove_orphans/metadata_in_data_path.test"
     # Windows SQLLogicTest can retain unrelated database files in the shared
-    # temp directory.  The test's contract is that *its* metadata DB survives,
+    # temp directory. The test's contract is that *its* metadata DB survives,
     # so probe that exact path rather than counting every .db in the directory.
     replace_exact(
         test,
@@ -75,9 +75,9 @@ def patch_ducklake(upstream_root: Path) -> None:
 
 def patch_azure(upstream_root: Path) -> None:
     script = upstream_root / "scripts/upload_test_files_to_azurite.sh"
-    # Azure CLI may consume stdin.  The upstream while-read loop shares stdin
+    # Azure CLI may consume stdin. The upstream while-read loop shares stdin
     # with the process substitution, so a child invocation can drain all file
-    # names after the first one.  Materialize the list before uploading.
+    # names after the first one. Materialize the list before uploading.
     replace_exact(
         script,
         """while read filepath; do\n  remote_filepath=\"$(echo \"${filepath}\" | cut -c 8-)\"\n  copy_file \"${filepath}\" \"${remote_filepath}\"\ndone < <(find ./data -type f)""",
@@ -116,16 +116,45 @@ def patch_delta(upstream_root: Path) -> None:
     )
 
 
+def patch_mssql_upstream(upstream_root: Path) -> None:
+    # DuckDB's generic unittest binary cannot satisfy `require mssql` for this
+    # out-of-tree extension on Windows even after the exact signed v0.2.2 binary
+    # is installed and loaded. The Windows runner verifies that binary first and
+    # preloads it on every connection, so remove only the redundant require
+    # directive and execute the complete upstream SQLLogicTest bodies.
+    require_count = 0
+    changed_files = 0
+    for test in sorted((upstream_root / "test/sql").rglob("*.test")):
+        text = test.read_text(encoding="utf-8")
+        lines = text.splitlines(keepends=True)
+        new_lines = []
+        file_count = 0
+        for line in lines:
+            if line.strip().lower() == "require mssql":
+                file_count += 1
+                require_count += 1
+                continue
+            new_lines.append(line)
+        if file_count:
+            changed_files += 1
+            test.write_text("".join(new_lines), encoding="utf-8")
+    if require_count != 142 or changed_files != 142:
+        raise PatchError(
+            "MSSQL require contract drifted: expected 142 directives in 142 files, "
+            f"found {require_count} directives in {changed_files} files"
+        )
+
+
 def patch_mssql_runner() -> None:
     runner = REPOSITORY_ROOT / "scripts/run-mssql-tests-base.sh"
     start_marker = "# Prepare a SQLLogicTest init profile that loads every compatibility extension"
     end_marker = 'MSSQL_TEST_CONNECTION_SQL="$(sed \'/^[[:space:]]*--/d\' "${MSSQL_TEST_INIT_SCRIPT}" | tr \'\\n\' \' \')"'
-    replacement = """# Native Windows SQLLogicTest does not dynamically satisfy `require mssql` from\n# the repository-installed extension. Load the already-probed binary explicitly\n# and advertise it to the runner while keeping the upstream require guards.\ncp \"${INIT_SCRIPT}\" \"${MSSQL_TEST_INIT_SCRIPT}\"\ncp \"${MSSQL_TEST_INIT_SCRIPT}\" \"${LOG_DIR}/init-extensions-with-mssql.sql\"\nMSSQL_TEST_CONNECTION_SQL=\"$(sed '/^[[:space:]]*--/d' \"${MSSQL_TEST_INIT_SCRIPT}\" | tr '\\n' ' ')\""""
+    replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree\n# module. The exact signed repository binary was verified above; preload it on\n# init and on every connection, while the Windows source adapter removes only\n# the redundant require directive from the upstream test files.\ncp \"${INIT_SCRIPT}\" \"${MSSQL_TEST_INIT_SCRIPT}\"\ncp \"${MSSQL_TEST_INIT_SCRIPT}\" \"${LOG_DIR}/init-extensions-with-mssql.sql\"\nMSSQL_TEST_CONNECTION_SQL=\"$(sed '/^[[:space:]]*--/d' \"${MSSQL_TEST_INIT_SCRIPT}\" | tr '\\n' ' ')\""""
     replace_region(runner, start_marker, end_marker, replacement)
     replace_exact(
         runner,
         '    # MSSQL is intentionally absent because it is not compiled into unittest.\n    "statically_loaded_extensions": ["core_functions", "parquet"],',
-        '    # Native Windows loads the exact dynamically installed binary in init_script.\n    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],',
+        '    # Native Windows preloads the exact dynamically installed binary.\n    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],',
     )
 
 
@@ -135,6 +164,7 @@ PATCHERS = {
     "azure": patch_azure,
     "postgres_scanner": patch_postgres_scanner,
     "delta": patch_delta,
+    "mssql": patch_mssql_upstream,
 }
 
 
