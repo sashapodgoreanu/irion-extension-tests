@@ -1,0 +1,192 @@
+name: Windows Shared Service Manager Probe
+
+on:
+  push:
+    branches:
+      - 006-windows-docker-probe
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe shared service manager and Windows host aliases
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Ubuntu WSL and Linux service tooling
+        id: runtime
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $distro = 'Ubuntu-24.04'
+          $installed = @(wsl --list --quiet) -replace "`0", '' | ForEach-Object { $_.Trim() }
+          if ($installed -notcontains $distro) {
+            wsl --install -d $distro --no-launch --web-download
+            if ($LASTEXITCODE -ne 0) { throw "wsl --install failed: $LASTEXITCODE" }
+          }
+
+          wsl -d $distro -u root -- bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq docker.io docker-compose-v2 python3 curl sudo; systemctl enable --now docker; docker info --format "OSType={{.OSType}} Architecture={{.Architecture}}"'
+          if ($LASTEXITCODE -ne 0) { throw 'WSL service tooling setup failed' }
+
+          $workspace = $env:GITHUB_WORKSPACE
+          $drive = $workspace.Substring(0, 1).ToLowerInvariant()
+          $tail = $workspace.Substring(2).Replace('\', '/')
+          $workspaceLinux = "/mnt/$drive$tail"
+          wsl -d $distro -u root -- test -d $workspaceLinux
+          if ($LASTEXITCODE -ne 0) { throw "WSL workspace missing: $workspaceLinux" }
+          "workspace_linux=$workspaceLinux" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Create shared service-manager probe inputs
+        shell: pwsh
+        run: |
+          @'
+          [
+            {
+              "name": "http-server",
+              "type": "python-http",
+              "port": 18082
+            }
+          ]
+          '@ | Set-Content -Path probe-services.json -Encoding utf8
+
+          @'
+          #!/usr/bin/env bash
+          set -Eeuo pipefail
+          repo=$1
+          runtime=$2
+          logs=$3
+          services=$4
+          ready=$5
+          stop=$6
+
+          source "${repo}/scripts/service-manager.sh"
+          qa_service_manager_init "${runtime}" "${repo}" "${logs}"
+          trap 'qa_service_stop_all' EXIT
+          qa_service_start_file "${services}"
+
+          {
+            env | grep -E '^(PYTHON_HTTP_SERVER_|HTTP_PROXY_|PG|MSSQL_|AZURE_|AZ_|UC_|UNITY_|TEST_)' || true
+          } >"${runtime}/service-env.txt"
+          printf 'ready\n' >"${ready}"
+          while [[ ! -f "${stop}" ]]; do
+            sleep 1
+          done
+          '@ | Set-Content -Path probe-service-host.sh -Encoding utf8
+
+      - name: Run existing service-manager.sh in persistent WSL host
+        id: service_manager
+        shell: pwsh
+        env:
+          WORKSPACE_LINUX: ${{ steps.runtime.outputs.workspace_linux }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $readyWindows = Join-Path $env:GITHUB_WORKSPACE 'probe-service.ready'
+          $stopWindows = Join-Path $env:GITHUB_WORKSPACE 'probe-service.stop'
+          Remove-Item $readyWindows,$stopWindows -Force -ErrorAction SilentlyContinue
+
+          $repo = $env:WORKSPACE_LINUX
+          $runtime = "$repo/build/probe-service-runtime"
+          $logs = "$repo/build/probe-service-logs"
+          $services = "$repo/probe-services.json"
+          $ready = "$repo/probe-service.ready"
+          $stop = "$repo/probe-service.stop"
+          $hostScript = "$repo/probe-service-host.sh"
+
+          $process = Start-Process -FilePath wsl.exe -ArgumentList @(
+            '-d','Ubuntu-24.04','-u','root','--',
+            'bash',$hostScript,$repo,$runtime,$logs,$services,$ready,$stop
+          ) -PassThru -NoNewWindow
+
+          try {
+            $readyObserved = $false
+            for ($i = 0; $i -lt 60; $i++) {
+              if (Test-Path $readyWindows) { $readyObserved = $true; break }
+              if ($process.HasExited) { throw "WSL service host exited early with code $($process.ExitCode)" }
+              Start-Sleep -Seconds 1
+            }
+            if (-not $readyObserved) { throw 'Shared service manager did not report ready' }
+
+            $response = Invoke-WebRequest -NoProxy -UseBasicParsing -TimeoutSec 5 -Uri 'http://127.0.0.1:18082/'
+            if ($response.StatusCode -ne 200) { throw "Unexpected service-manager HTTP status: $($response.StatusCode)" }
+            Write-Host 'Native Windows reached service started by the existing service-manager.sh.'
+
+            $envFile = Join-Path $env:GITHUB_WORKSPACE 'build/probe-service-runtime/service-env.txt'
+            $envText = Get-Content $envFile
+            $envText | ForEach-Object { Write-Host $_ }
+            if (-not ($envText -match 'PYTHON_HTTP_SERVER_URL=http://127.0.0.1:18082')) {
+              throw 'service-manager environment contract is missing expected HTTP URL'
+            }
+          }
+          finally {
+            Set-Content -Path $stopWindows -Value 'stop' -Encoding ascii
+            if (-not $process.WaitForExit(15000)) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
+
+      - name: Probe Windows hosts alias to WSL Linux container
+        id: host_alias
+        shell: pwsh
+        env:
+          WORKSPACE_LINUX: ${{ steps.runtime.outputs.workspace_linux }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-alias *> $null
+          wsl -d Ubuntu-24.04 -u root -- docker run -d --name qa-probe-alias -p 18083:80 nginx:1.29-alpine
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to start host-alias probe container' }
+
+          $hostsPath = Join-Path $env:SystemRoot 'System32\drivers\etc\hosts'
+          $aliases = @(
+            'duckdb-minio.com',
+            'test-bucket.duckdb-minio.com',
+            'test-bucket-2.duckdb-minio.com',
+            'test-bucket-public.duckdb-minio.com'
+          )
+          foreach ($alias in $aliases) {
+            if (-not (Select-String -Path $hostsPath -SimpleMatch $alias -Quiet)) {
+              Add-Content -Path $hostsPath -Value "127.0.0.1 $alias"
+            }
+          }
+          Clear-DnsClientCache
+
+          $reachable = $false
+          for ($i = 0; $i -lt 30; $i++) {
+            try {
+              $response = Invoke-WebRequest -NoProxy -UseBasicParsing -TimeoutSec 3 -Uri 'http://duckdb-minio.com:18083/'
+              if ($response.StatusCode -eq 200) { $reachable = $true; break }
+            } catch { Start-Sleep -Seconds 1 }
+          }
+          if (-not $reachable) {
+            Get-Content $hostsPath | Select-String 'duckdb-minio'
+            throw 'Windows hosts alias cannot reach WSL Linux container'
+          }
+          Write-Host 'Windows custom host alias resolved to the WSL-published Linux container.'
+
+      - name: Cleanup
+        if: always()
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-alias *> $null
+          exit 0
+
+      - name: Enforce probe verdict
+        if: always()
+        shell: pwsh
+        env:
+          SERVICE_MANAGER: ${{ steps.service_manager.outcome }}
+          HOST_ALIAS: ${{ steps.host_alias.outcome }}
+        run: |
+          if ($env:SERVICE_MANAGER -ne 'success' -or $env:HOST_ALIAS -ne 'success') {
+            throw "Probe failed: service-manager=$env:SERVICE_MANAGER host-alias=$env:HOST_ALIAS"
+          }
+          Add-Content $env:GITHUB_STEP_SUMMARY '# Shared service-manager probe'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY "- Existing service-manager.sh from WSL -> native Windows: **$env:SERVICE_MANAGER**"
+          Add-Content $env:GITHUB_STEP_SUMMARY "- Windows host aliases -> WSL Linux container: **$env:HOST_ALIAS**"
