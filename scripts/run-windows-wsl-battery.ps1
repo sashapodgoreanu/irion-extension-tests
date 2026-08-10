@@ -31,6 +31,18 @@ $runtimeLinux = "$workspaceLinux/build/windows/runtime/$BatteryName"
 $duckdbExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/duckdb.exe')
 $unittestExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/unittest.exe')
 
+# actions/checkout runs on the Windows host, so remote repositories that do not
+# declare LF explicitly can arrive with CRLF shell fixtures. The shared battery
+# orchestration runs those fixtures in WSL. Normalize only shell-like files in
+# the checked-out test source; SQLLogicTest/data/binary inputs remain untouched.
+$normalizeCommand = @"
+find '$sourceLinux' -type f \( -name '*.sh' -o -name '*.bash' -o -name 'env_*' \) -print0 | xargs -0 -r sed -i 's/\r$//'
+"@
+wsl -d $distro -u root -- bash -lc $normalizeCommand
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to normalize upstream shell fixtures for $BatteryName"
+}
+
 wsl -d $distro -u root -- bash -lc "mkdir -p '$proxyArtifactLinux/bin' '$runtimeLinux'; cp '$workspaceLinux/scripts/windows-duckdb-proxy.sh' '$proxyArtifactLinux/bin/duckdb'; cp '$workspaceLinux/scripts/windows-unittest-proxy.sh' '$proxyArtifactLinux/bin/unittest'; chmod +x '$proxyArtifactLinux/bin/duckdb' '$proxyArtifactLinux/bin/unittest' '$workspaceLinux/scripts/'*.sh '$workspaceLinux/scripts/'*.py"
 if ($LASTEXITCODE -ne 0) {
     throw 'Unable to prepare WSL proxy artifact'
