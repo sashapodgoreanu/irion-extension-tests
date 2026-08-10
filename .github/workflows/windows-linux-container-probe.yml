@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   probe:
-    name: Probe Windows native process + Linux containers
+    name: Probe native Windows tests with WSL Linux services
     runs-on: windows-latest
     timeout-minutes: 45
 
@@ -19,11 +19,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Probe runner, WSL and Docker
+      - name: Inspect Windows host
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Continue'
-          Write-Host '=== Windows ==='
           Get-ComputerInfo | Select-Object WindowsProductName, WindowsVersion, OsBuildNumber
           Write-Host '=== WSL ==='
           wsl --version
@@ -31,10 +30,10 @@ jobs:
           wsl --list --verbose
           Write-Host '=== Preinstalled Docker ==='
           docker version
-          docker info
-          Get-Service *docker* | Format-Table -AutoSize
+          docker info --format 'OSType={{.OSType}} Architecture={{.Architecture}} ServerVersion={{.ServerVersion}}'
+          docker compose version
 
-      - name: Ensure Ubuntu WSL distribution
+      - name: Install Ubuntu WSL
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -45,170 +44,206 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "wsl --install failed: $LASTEXITCODE" }
           }
           wsl --list --verbose
-          wsl -d $distro -u root -- bash -lc 'uname -a && cat /etc/os-release'
+          wsl -d $distro -u root -- bash -lc 'uname -a; cat /etc/os-release; systemctl is-system-running || true'
           if ($LASTEXITCODE -ne 0) { throw "Unable to launch $distro" }
 
-      - name: Start Linux Docker Engine inside WSL
-        id: docker_wsl
+      - name: Start WSL Linux Docker runtime
+        id: linux_runtime
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $distro = 'Ubuntu-24.04'
 
-          wsl -d $distro -u root -- bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get install -y -qq docker.io ca-certificates curl'
-          if ($LASTEXITCODE -ne 0) { throw 'Docker installation in WSL failed' }
-
-          wsl -d $distro -u root -- bash -lc 'pkill dockerd || true; rm -f /var/run/docker.pid; nohup dockerd --tls=false -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2375 >/tmp/dockerd.log 2>&1 &'
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to start dockerd in WSL' }
-
-          $ready = $false
-          for ($i = 0; $i -lt 90; $i++) {
-            wsl -d $distro -u root -- bash -lc 'curl -fsS http://127.0.0.1:2375/_ping >/dev/null 2>&1'
-            if ($LASTEXITCODE -eq 0) { $ready = $true; break }
-            Start-Sleep -Seconds 1
-          }
-          if (-not $ready) {
-            Write-Host '=== dockerd log ==='
-            wsl -d $distro -u root -- bash -lc 'cat /tmp/dockerd.log || true'
-            Write-Host '=== listening sockets ==='
-            wsl -d $distro -u root -- bash -lc 'ss -ltnp || true'
-            throw 'Docker TCP endpoint in WSL did not become ready'
-          }
+          wsl -d $distro -u root -- bash -lc 'export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq docker.io ca-certificates curl python3; if ! docker compose version >/dev/null 2>&1; then apt-get install -y -qq docker-compose-v2; fi; systemctl enable --now docker; systemctl restart docker; systemctl --no-pager --full status docker | head -n 25; docker info --format "OSType={{.OSType}} Architecture={{.Architecture}} ServerVersion={{.ServerVersion}}"; docker compose version'
+          if ($LASTEXITCODE -ne 0) { throw 'WSL Linux Docker runtime setup failed' }
 
           $addresses = ((wsl -d $distro -u root -- hostname -I) -replace "`0", '').Trim() -split '\s+'
           $wslIp = $addresses[0]
           if (-not $wslIp) { throw 'Unable to resolve WSL IP address' }
-
-          $dockerHost = $null
-          foreach ($candidate in @('tcp://127.0.0.1:2375', "tcp://${wslIp}:2375")) {
-            Write-Host "Trying Docker endpoint $candidate"
-            docker -H $candidate version
-            if ($LASTEXITCODE -eq 0) {
-              $dockerHost = $candidate
-              break
-            }
-          }
-          if (-not $dockerHost) {
-            Write-Host '=== dockerd log ==='
-            wsl -d $distro -u root -- bash -lc 'tail -n 200 /tmp/dockerd.log || true'
-            throw 'Windows docker.exe cannot reach WSL dockerd over TCP'
-          }
-
           "wsl_ip=$wslIp" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
-          "docker_host=$dockerHost" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          $workspaceLinux = ((wsl -d $distro -u root -- wslpath -a $env:GITHUB_WORKSPACE) -replace "`0", '').Trim()
+          if (-not $workspaceLinux) { throw 'Unable to translate GITHUB_WORKSPACE to WSL path' }
+          "workspace_linux=$workspaceLinux" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
           Write-Host "WSL IP: $wslIp"
-          Write-Host "Selected Docker host: $dockerHost"
-          docker -H $dockerHost info --format 'OSType={{.OSType}} Architecture={{.Architecture}} ServerVersion={{.ServerVersion}}'
+          Write-Host "Workspace in WSL: $workspaceLinux"
 
-      - name: Run Linux container from Windows Docker CLI
+      - name: Run Linux container through WSL Docker
         shell: pwsh
-        env:
-          DOCKER_HOST: ${{ steps.docker_wsl.outputs.docker_host }}
         run: |
           $ErrorActionPreference = 'Stop'
-          docker run --rm hello-world
-          if ($LASTEXITCODE -ne 0) { throw 'hello-world failed' }
-          $os = (docker run --rm alpine:3.20 uname -s).Trim()
-          if ($LASTEXITCODE -ne 0 -or $os -ne 'Linux') { throw "Expected Linux; got '$os'" }
-          Write-Host "Container kernel: $os"
+          wsl -d Ubuntu-24.04 -u root -- docker run --rm hello-world
+          if ($LASTEXITCODE -ne 0) { throw 'Linux hello-world container failed' }
+          $kernel = ((wsl -d Ubuntu-24.04 -u root -- docker run --rm alpine:3.20 uname -s) -replace "`0", '').Trim()
+          if ($LASTEXITCODE -ne 0 -or $kernel -ne 'Linux') { throw "Expected Linux container; got '$kernel'" }
+          Write-Host "Container kernel: $kernel"
 
-      - name: Probe Windows workspace bind mount
+      - name: Probe Windows workspace bind mount into Linux container
         shell: pwsh
         env:
-          DOCKER_HOST: ${{ steps.docker_wsl.outputs.docker_host }}
+          WORKSPACE_LINUX: ${{ steps.linux_runtime.outputs.workspace_linux }}
         run: |
           $ErrorActionPreference = 'Stop'
-          Set-Content probe-marker.txt 'windows-workspace-visible-from-linux-container' -Encoding ascii
-          $workspaceLinux = ((wsl -d Ubuntu-24.04 -u root -- wslpath -a $env:GITHUB_WORKSPACE) -replace "`0", '').Trim()
-          Write-Host "WSL workspace: $workspaceLinux"
-          $value = (docker run --rm -v "${workspaceLinux}:/workspace:ro" alpine:3.20 cat /workspace/probe-marker.txt).Trim()
-          if ($LASTEXITCODE -ne 0 -or $value -ne 'windows-workspace-visible-from-linux-container') { throw "Bind mount failed: '$value'" }
+          Set-Content -Path probe-marker.txt -Value 'windows-workspace-visible-from-linux-container' -Encoding ascii
+          $mount = "$env:WORKSPACE_LINUX`:/workspace:ro"
+          $value = ((wsl -d Ubuntu-24.04 -u root -- docker run --rm -v $mount alpine:3.20 cat /workspace/probe-marker.txt) -replace "`0", '').Trim()
+          if ($LASTEXITCODE -ne 0 -or $value -ne 'windows-workspace-visible-from-linux-container') {
+            throw "WSL Docker bind mount failed; got '$value'"
+          }
+          Write-Host 'Windows workspace bind mount is visible to Linux containers.'
 
-      - name: Probe Docker Compose with WSL path
+      - name: Probe native Linux process from native Windows
+        id: linux_process
         shell: pwsh
         env:
-          DOCKER_HOST: ${{ steps.docker_wsl.outputs.docker_host }}
+          WSL_IP: ${{ steps.linux_runtime.outputs.wsl_ip }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $workspaceLinux = ((wsl -d Ubuntu-24.04 -u root -- wslpath -a $env:GITHUB_WORKSPACE) -replace "`0", '').Trim()
+          wsl -d Ubuntu-24.04 -u root -- bash -lc 'systemctl stop qa-probe-http.service >/dev/null 2>&1 || true; systemd-run --unit=qa-probe-http --property=Restart=no /usr/bin/python3 -m http.server 18080 --bind 0.0.0.0 >/dev/null; for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080 >/dev/null && exit 0; sleep 1; done; systemctl --no-pager status qa-probe-http.service; exit 1'
+          if ($LASTEXITCODE -ne 0) { throw 'WSL native HTTP service did not start' }
+
+          $selected = $null
+          foreach ($hostAddress in @('127.0.0.1', $env:WSL_IP)) {
+            try {
+              $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 3 -Uri "http://${hostAddress}:18080/"
+              if ($response.StatusCode -eq 200) { $selected = $hostAddress; break }
+            } catch { Write-Host "HTTP via $hostAddress failed: $($_.Exception.Message)" }
+          }
+          if (-not $selected) { throw 'Native Windows HTTP client cannot reach native Linux WSL service' }
+          "service_host=$selected" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Native Windows reached WSL process via ${selected}:18080"
+
+      - name: Probe Docker Compose inside WSL
+        shell: pwsh
+        env:
+          WSL_IP: ${{ steps.linux_runtime.outputs.wsl_ip }}
+          WORKSPACE_LINUX: ${{ steps.linux_runtime.outputs.workspace_linux }}
+        run: |
+          $ErrorActionPreference = 'Stop'
           @"
           services:
-            probe:
-              image: alpine:3.20
+            web:
+              image: nginx:1.29-alpine
+              ports:
+                - "18081:80"
               volumes:
-                - ${workspaceLinux}:/workspace:ro
-              command: ["sh", "-lc", "test -f /workspace/probe-marker.txt && cat /workspace/probe-marker.txt"]
-          "@ | Set-Content build-compose-probe.yml -Encoding utf8
-          docker compose version
-          docker compose -f build-compose-probe.yml up --abort-on-container-exit --exit-code-from probe
-          if ($LASTEXITCODE -ne 0) { throw 'Docker Compose probe failed' }
-          docker compose -f build-compose-probe.yml down --remove-orphans
+                - $env:WORKSPACE_LINUX/probe-marker.txt:/usr/share/nginx/html/probe-marker.txt:ro
+          "@ | Set-Content -Path probe-compose.yml -Encoding utf8
 
-      - name: Probe PostgreSQL from native Windows psql
+          $composeLinux = "$env:WORKSPACE_LINUX/probe-compose.yml"
+          wsl -d Ubuntu-24.04 -u root -- docker compose -f $composeLinux up -d
+          if ($LASTEXITCODE -ne 0) { throw 'docker compose up failed in WSL' }
+
+          $reachable = $false
+          foreach ($hostAddress in @('127.0.0.1', $env:WSL_IP)) {
+            for ($i = 0; $i -lt 30; $i++) {
+              try {
+                $value = (Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://${hostAddress}:18081/probe-marker.txt").Content.Trim()
+                if ($value -eq 'windows-workspace-visible-from-linux-container') {
+                  Write-Host "Compose service reachable via $hostAddress"
+                  $reachable = $true
+                  break
+                }
+              } catch { Start-Sleep -Seconds 1 }
+            }
+            if ($reachable) { break }
+          }
+          if (-not $reachable) { wsl -d Ubuntu-24.04 -u root -- docker compose -f $composeLinux ps; throw 'Native Windows cannot reach WSL Docker Compose service' }
+
+      - name: Probe PostgreSQL Linux container from native Windows psql
+        id: postgres_probe
         shell: pwsh
         env:
-          DOCKER_HOST: ${{ steps.docker_wsl.outputs.docker_host }}
-          WSL_IP: ${{ steps.docker_wsl.outputs.wsl_ip }}
+          WSL_IP: ${{ steps.linux_runtime.outputs.wsl_ip }}
         run: |
           $ErrorActionPreference = 'Stop'
-          docker rm -f qa-postgres 2>$null | Out-Null
-          docker run -d --name qa-postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to start PostgreSQL' }
+          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-postgres 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- docker run -d --name qa-probe-postgres -e POSTGRES_PASSWORD=postgres -p 55432:5432 postgres:17
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to start PostgreSQL Linux container' }
+
           $ready = $false
           for ($i = 0; $i -lt 60; $i++) {
-            docker exec qa-postgres pg_isready -U postgres | Out-Null
+            wsl -d Ubuntu-24.04 -u root -- docker exec qa-probe-postgres pg_isready -U postgres | Out-Null
             if ($LASTEXITCODE -eq 0) { $ready = $true; break }
             Start-Sleep -Seconds 1
           }
-          if (-not $ready) { docker logs qa-postgres; throw 'PostgreSQL not ready' }
+          if (-not $ready) { wsl -d Ubuntu-24.04 -u root -- docker logs qa-probe-postgres; throw 'PostgreSQL did not become ready' }
 
           $psql = 'C:\Program Files\PostgreSQL\17\bin\psql.exe'
-          if (-not (Test-Path $psql)) { throw "Missing native psql: $psql" }
+          if (-not (Test-Path $psql)) { throw "Native Windows psql.exe not found at $psql" }
           $env:PGPASSWORD = 'postgres'
-          $connected = $false
+          $selected = $null
           foreach ($hostAddress in @('127.0.0.1', $env:WSL_IP)) {
-            & $psql -h $hostAddress -p 5432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT current_database(), version();'
-            if ($LASTEXITCODE -eq 0) { Write-Host "Connected via $hostAddress"; $connected = $true; break }
+            & $psql -h $hostAddress -p 55432 -U postgres -d postgres -v ON_ERROR_STOP=1 -c 'SELECT current_database(), version();'
+            if ($LASTEXITCODE -eq 0) { $selected = $hostAddress; break }
           }
-          if (-not $connected) { docker logs qa-postgres; throw 'Native Windows psql could not reach Linux PostgreSQL' }
+          if (-not $selected) { wsl -d Ubuntu-24.04 -u root -- docker logs qa-probe-postgres; throw 'Native Windows psql cannot reach Linux PostgreSQL container' }
+          "service_host=$selected" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Native Windows psql reached PostgreSQL via ${selected}:55432"
 
-      - name: Probe MinIO from native Windows HTTP client
+      - name: Probe MinIO Linux container from native Windows HTTP client
+        id: minio_probe
         shell: pwsh
         env:
-          DOCKER_HOST: ${{ steps.docker_wsl.outputs.docker_host }}
-          WSL_IP: ${{ steps.docker_wsl.outputs.wsl_ip }}
+          WSL_IP: ${{ steps.linux_runtime.outputs.wsl_ip }}
         run: |
           $ErrorActionPreference = 'Stop'
-          docker rm -f qa-minio 2>$null | Out-Null
-          docker run -d --name qa-minio -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 -p 9000:9000 minio/minio server /data
-          if ($LASTEXITCODE -ne 0) { throw 'Unable to start MinIO' }
+          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-minio 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- docker run -d --name qa-probe-minio -e MINIO_ROOT_USER=minio -e MINIO_ROOT_PASSWORD=minio12345 -p 59000:9000 minio/minio server /data
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to start MinIO Linux container' }
 
-          $connected = $false
+          $selected = $null
           foreach ($hostAddress in @('127.0.0.1', $env:WSL_IP)) {
             for ($i = 0; $i -lt 40; $i++) {
               try {
-                $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://${hostAddress}:9000/minio/health/live"
-                if ($response.StatusCode -eq 200) { Write-Host "MinIO reachable via $hostAddress"; $connected = $true; break }
+                $response = Invoke-WebRequest -UseBasicParsing -TimeoutSec 2 -Uri "http://${hostAddress}:59000/minio/health/live"
+                if ($response.StatusCode -eq 200) { $selected = $hostAddress; break }
               } catch { Start-Sleep -Seconds 1 }
             }
-            if ($connected) { break }
+            if ($selected) { break }
           }
-          if (-not $connected) { docker logs qa-minio; throw 'Native Windows HTTP client could not reach Linux MinIO' }
+          if (-not $selected) { wsl -d Ubuntu-24.04 -u root -- docker logs qa-probe-minio; throw 'Native Windows HTTP client cannot reach Linux MinIO container' }
+          "service_host=$selected" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Native Windows reached MinIO via ${selected}:59000"
 
-      - name: Publish probe summary and cleanup
+      - name: Probe WSL to Windows runtime contract file
+        shell: pwsh
+        env:
+          WORKSPACE_LINUX: ${{ steps.linux_runtime.outputs.workspace_linux }}
+          POSTGRES_HOST: ${{ steps.postgres_probe.outputs.service_host }}
+          MINIO_HOST: ${{ steps.minio_probe.outputs.service_host }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $contractLinux = "$env:WORKSPACE_LINUX/service-contract.env"
+          wsl -d Ubuntu-24.04 -u root -- bash -lc "printf 'PGHOST=%s\nPGPORT=55432\nMINIO_HOST=%s\nMINIO_PORT=59000\n' '$env:POSTGRES_HOST' '$env:MINIO_HOST' > '$contractLinux'"
+          if ($LASTEXITCODE -ne 0) { throw 'WSL failed to write service contract into Windows workspace' }
+          $contract = Get-Content service-contract.env
+          $contract | ForEach-Object { Write-Host $_ }
+          if (-not ($contract -contains 'PGPORT=55432') -or -not ($contract -contains 'MINIO_PORT=59000')) {
+            throw 'Windows could not consume WSL-generated service contract'
+          }
+
+      - name: Publish probe summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY '# Windows native test / Linux service probe'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY '- Linux services are managed by Docker/systemd inside WSL2.'
+          Add-Content $env:GITHUB_STEP_SUMMARY '- Windows never needs access to the Linux Docker daemon.'
+          Add-Content $env:GITHUB_STEP_SUMMARY '- Native Windows connectivity, bind mounts, Docker Compose, PostgreSQL, MinIO and a WSL-to-Windows runtime contract are probed independently.'
+
+      - name: Cleanup WSL services
         if: always()
         continue-on-error: true
         shell: pwsh
         env:
-          DOCKER_HOST: ${{ steps.docker_wsl.outputs.docker_host }}
-          WSL_IP: ${{ steps.docker_wsl.outputs.wsl_ip }}
+          WORKSPACE_LINUX: ${{ steps.linux_runtime.outputs.workspace_linux }}
         run: |
-          Add-Content $env:GITHUB_STEP_SUMMARY '# Windows + Linux container probe'
-          Add-Content $env:GITHUB_STEP_SUMMARY ''
-          Add-Content $env:GITHUB_STEP_SUMMARY "- WSL IP: ``$env:WSL_IP``"
-          Add-Content $env:GITHUB_STEP_SUMMARY "- Docker host: ``$env:DOCKER_HOST``"
-          Add-Content $env:GITHUB_STEP_SUMMARY '- Native Windows Docker engine is inspected separately from the Linux Docker daemon in WSL2.'
-          if ($env:DOCKER_HOST) {
-            docker ps -a
-            docker rm -f qa-postgres qa-minio 2>$null | Out-Null
+          wsl -d Ubuntu-24.04 -u root -- docker rm -f qa-probe-postgres qa-probe-minio 2>$null | Out-Null
+          if ($env:WORKSPACE_LINUX) {
+            $composeLinux = "$env:WORKSPACE_LINUX/probe-compose.yml"
+            wsl -d Ubuntu-24.04 -u root -- docker compose -f $composeLinux down --remove-orphans 2>$null | Out-Null
           }
+          wsl -d Ubuntu-24.04 -u root -- systemctl stop qa-probe-http.service 2>$null | Out-Null
