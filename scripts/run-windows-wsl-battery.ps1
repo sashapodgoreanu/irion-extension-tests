@@ -38,6 +38,115 @@ function Convert-ToWslPath {
     return "/mnt/$drive/$tail"
 }
 
+function Start-WslProfileServiceHost {
+    param([Parameter(Mandatory = $true)][string]$ProfileName)
+
+    $workspaceLinux = Convert-ToWslPath $workspace
+    $sourceLinux = Convert-ToWslPath $SourceRoot
+    $configLinux = "$workspaceLinux/build/config/$BatteryName.json"
+    $serviceRoot = Join-Path $workspace "build\windows\service-host\$BatteryName"
+    $runtimeLinux = "$workspaceLinux/build/windows/service-runtime/$BatteryName"
+    $envFile = Join-Path $serviceRoot 'service-env.json'
+    $readyFile = Join-Path $serviceRoot 'ready'
+    $stopFile = Join-Path $serviceRoot 'stop'
+    $stdoutLog = Join-Path $logDir 'service-host.stdout.log'
+    $stderrLog = Join-Path $logDir 'service-host.stderr.log'
+
+    Remove-Item -LiteralPath $serviceRoot -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $serviceRoot | Out-Null
+    Remove-Item -LiteralPath $stdoutLog,$stderrLog -Force -ErrorAction SilentlyContinue
+
+    $envFileLinux = Convert-ToWslPath $envFile
+    $readyFileLinux = Convert-ToWslPath $readyFile
+    $stopFileLinux = Convert-ToWslPath $stopFile
+
+    $arguments = @(
+        '-d', $distro, '-u', 'root', '--', 'env',
+        'QA_SERVICE_HOST_ONLY=1',
+        "QA_SERVICE_PROFILE=$ProfileName",
+        "QA_SERVICE_ENV_FILE=$envFileLinux",
+        "QA_SERVICE_READY_FILE=$readyFileLinux",
+        "QA_SERVICE_STOP_FILE=$stopFileLinux",
+        "RUNNER_TEMP=$runtimeLinux",
+        "RESULT_STARTED_AT_MS=$StartedAtMs",
+        'bash',
+        "$workspaceLinux/scripts/run-test-battery.sh",
+        $configLinux,
+        $sourceLinux
+    )
+
+    Write-QaLog INFO "starting WSL infrastructure host profile=$ProfileName"
+    $process = Start-Process -FilePath 'wsl.exe' -ArgumentList $arguments -PassThru `
+        -RedirectStandardOutput $stdoutLog -RedirectStandardError $stderrLog
+
+    $ready = $false
+    for ($attempt = 1; $attempt -le 120; $attempt++) {
+        if (Test-Path -LiteralPath $readyFile -PathType Leaf) {
+            $ready = $true
+            break
+        }
+        if ($process.HasExited) {
+            $stderr = if (Test-Path $stderrLog) { (Get-Content -LiteralPath $stderrLog -Raw) } else { '' }
+            throw "WSL infrastructure host exited before ready with code $($process.ExitCode): $stderr"
+        }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $ready) {
+        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        throw "WSL infrastructure host did not become ready for profile $ProfileName"
+    }
+    if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
+        throw "WSL infrastructure host did not export environment: $envFile"
+    }
+
+    $previousEnvironment = @{}
+    $serviceEnvironment = Get-Content -LiteralPath $envFile -Raw | ConvertFrom-Json
+    foreach ($property in $serviceEnvironment.PSObject.Properties) {
+        $name = $property.Name
+        $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
+        [Environment]::SetEnvironmentVariable($name, [string]$property.Value, 'Process')
+        Write-QaLog INFO "imported infrastructure variable $name"
+    }
+
+    $markers = @{
+        QA_EXTERNAL_PROFILE_SERVICES = $ProfileName
+        QA_WSL_DISTRO = $distro
+        QA_WSL_DUCKLAKE_RESET_HELPER = "$workspaceLinux/scripts/reset-ducklake-postgres.sh"
+    }
+    foreach ($entry in $markers.GetEnumerator()) {
+        $previousEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
+        [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, 'Process')
+    }
+
+    Write-QaLog INFO "WSL infrastructure host ready profile=$ProfileName pid=$($process.Id)"
+    return [PSCustomObject]@{
+        Process = $process
+        StopFile = $stopFile
+        PreviousEnvironment = $previousEnvironment
+        ProfileName = $ProfileName
+        StdoutLog = $stdoutLog
+        StderrLog = $stderrLog
+    }
+}
+
+function Stop-WslProfileServiceHost {
+    param([Parameter(Mandatory = $true)]$HostState)
+
+    Write-QaLog INFO "stopping WSL infrastructure host profile=$($HostState.ProfileName)"
+    New-Item -ItemType File -Force -Path $HostState.StopFile | Out-Null
+    if (-not $HostState.Process.WaitForExit(60000)) {
+        Write-QaLog ERROR "WSL infrastructure host did not stop within timeout pid=$($HostState.Process.Id)"
+        Stop-Process -Id $HostState.Process.Id -Force -ErrorAction SilentlyContinue
+    }
+    else {
+        Write-QaLog INFO "WSL infrastructure host exit_code=$($HostState.Process.ExitCode)"
+    }
+
+    foreach ($entry in $HostState.PreviousEnvironment.GetEnumerator()) {
+        [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process')
+    }
+}
+
 function Invoke-NativeStandardBattery {
     $artifactDir = Join-Path $workspace 'build\artifact-windows'
     $configFile = Join-Path $workspace "build\config\$BatteryName.json"
@@ -45,6 +154,7 @@ function Invoke-NativeStandardBattery {
     $nativeRuntime = Join-Path $workspace 'build\windows\native-runtime'
     $runner = Join-Path $workspace 'scripts\run-standard-tests.py'
     $preparer = Join-Path $workspace 'scripts\prepare-test-battery.py'
+    $sourceAdapter = Join-Path $workspace 'scripts\prepare-windows-test-source.py'
 
     Remove-Item -LiteralPath $runtimeConfig -Recurse -Force -ErrorAction SilentlyContinue
     New-Item -ItemType Directory -Force -Path $runtimeConfig,$nativeRuntime | Out-Null
@@ -55,16 +165,27 @@ function Invoke-NativeStandardBattery {
         throw "prepare-test-battery.py failed with exit code $LASTEXITCODE"
     }
 
+    Write-QaLog INFO 'applying native Windows source adaptations'
+    & python $sourceAdapter $BatteryName $SourceRoot
+    if ($LASTEXITCODE -ne 0) {
+        throw "Unable to prepare native Windows source adaptations for $BatteryName"
+    }
+
     $previousArtifact = $env:ARTIFACT_DIR
     $previousRuntimeConfig = $env:BATTERY_RUNTIME_CONFIG_DIR
     $previousRunnerTemp = $env:RUNNER_TEMP
     $previousVersion = $env:DUCKDB_VERSION
+    $serviceHost = $null
     try {
         $env:ARTIFACT_DIR = $artifactDir
         $env:BATTERY_RUNTIME_CONFIG_DIR = $runtimeConfig
         $env:RUNNER_TEMP = $nativeRuntime
         $env:DUCKDB_VERSION = $DuckDBVersion
         $env:RESULT_STARTED_AT_MS = $StartedAtMs
+
+        if ($BatteryName -eq 'ducklake') {
+            $serviceHost = Start-WslProfileServiceHost -ProfileName 'postgres'
+        }
 
         $duckdb = Join-Path $artifactDir 'bin\duckdb.exe'
         $unittest = Join-Path $artifactDir 'bin\unittest.exe'
@@ -75,6 +196,9 @@ function Invoke-NativeStandardBattery {
         if (-not (Test-Path -LiteralPath $unittest -PathType Leaf)) {
             throw "Native unittest executable is missing: $unittest"
         }
+        if ($null -ne $serviceHost -and $serviceHost.Process.HasExited) {
+            throw "WSL infrastructure host exited before native test execution with code $($serviceHost.Process.ExitCode)"
+        }
 
         & python $runner $BatteryName $SourceRoot
         $exitCode = $LASTEXITCODE
@@ -84,6 +208,9 @@ function Invoke-NativeStandardBattery {
         }
     }
     finally {
+        if ($null -ne $serviceHost) {
+            Stop-WslProfileServiceHost -HostState $serviceHost
+        }
         $env:ARTIFACT_DIR = $previousArtifact
         $env:BATTERY_RUNTIME_CONFIG_DIR = $previousRuntimeConfig
         $env:RUNNER_TEMP = $previousRunnerTemp
@@ -93,13 +220,17 @@ function Invoke-NativeStandardBattery {
 
 Write-QaLog INFO "Windows battery entry source=$SourceRoot duckdb_version=$DuckDBVersion"
 
-# Migration is deliberately incremental. These batteries have no WSL-hosted
-# infrastructure or profile-scoped services, so they are the first proof that
-# DuckDB/unittest can execute entirely on the Windows host. Additional batteries
-# move to this path as their infrastructure preparation is detached from Bash.
-$nativeStandardBatteries = @('irion', 'bigquery')
+# Migration is deliberately incremental. DuckLake joins the native path with
+# PostgreSQL hosted in WSL as infrastructure only; DuckDB and unittest never run
+# through the WSL proxy for this battery.
+$nativeStandardBatteries = @('irion', 'bigquery', 'ducklake')
 if ($nativeStandardBatteries -contains $BatteryName) {
-    Write-QaLog INFO 'execution_mode=native-windows-standard wsl_used_for_tests=false'
+    if ($BatteryName -eq 'ducklake') {
+        Write-QaLog INFO 'execution_mode=native-windows-standard wsl_role=infrastructure-only'
+    }
+    else {
+        Write-QaLog INFO 'execution_mode=native-windows-standard wsl_used_for_tests=false'
+    }
     Invoke-NativeStandardBattery
     Write-QaLog INFO 'battery completed successfully'
     exit 0
