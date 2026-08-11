@@ -42,7 +42,8 @@ To add a new Irion scenario:
 1. Create a `.test` file under `test/sql/irion/`.
 2. Add reusable initialization SQL under `test/scripts/irion/` when needed.
 3. Update `test/configs/irion.json` when the scenario needs initialization or test-specific settings.
-4. Update the Irion baseline in `config/result-policy.yml` when the number of expected tests changes.
+
+No numeric test-count baseline needs to be updated when the suite grows. New tests are discovered by the configured test paths/globs.
 
 Current layout:
 
@@ -148,12 +149,14 @@ Do not commit the service-account JSON file to this repository.
 
 ## Test results
 
-Each battery uploads a structured result artifact. The final aggregation reports:
+Each battery uploads a structured result artifact. The final aggregation reports, per profile:
 
-- executed and non-executed tests;
-- explicit ignored tests;
+- OK tests;
+- KO tests;
+- skipped/non-executed tests;
 - missing external prerequisites;
-- unexpected skips or failures;
 - the final compatibility verdict.
 
-`config/extensions.yml` and `config/result-policy.yml` are the authoritative configuration files.
+Skipped/non-executed counts are informational only. They are deliberately not compared with hard-coded expected counts and do not make a passing battery fail. This allows pinned upstream suites to grow without manual baseline maintenance.
+
+`config/extensions.yml` is the authoritative test-battery configuration file. See [`docs/results.md`](docs/results.md) for the aggregate-result semantics.
