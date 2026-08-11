@@ -123,10 +123,12 @@ def patch_ducklake(upstream_root: Path) -> None:
     # Windows SQLLogicTest can retain unrelated database files in the shared
     # temp directory. The test's contract is that *its* metadata DB survives,
     # so probe that exact path rather than counting every .db in the directory.
+    # The SQLite profile represents that file as a DuckLake connection URI
+    # (sqlite:<path>); GLOB needs the filesystem path, not the catalog prefix.
     replace_exact(
         test,
         "SELECT count(*) FROM GLOB('${DATA_PATH}/*.db')",
-        "SELECT count(*) FROM GLOB('${DUCKLAKE_CONNECTION}')",
+        "SELECT count(*) FROM GLOB(regexp_replace('${DUCKLAKE_CONNECTION}', '^sqlite:', ''))",
         expected=2,
     )
 
@@ -138,8 +140,19 @@ def patch_azure(upstream_root: Path) -> None:
     # names after the first one. Materialize the list before uploading.
     replace_exact(
         script,
-        """while read filepath; do\n  remote_filepath=\"$(echo \"${filepath}\" | cut -c 8-)\"\n  copy_file \"${filepath}\" \"${remote_filepath}\"\ndone < <(find ./data -type f)""",
-        """mapfile -d '' -t fixture_files < <(find ./data -type f -print0 | sort -z)\nif [[ \"${#fixture_files[@]}\" -eq 0 ]]; then\n  echo \"No Azure fixture files were found under ./data\" >&2\n  exit 1\nfi\nfor filepath in \"${fixture_files[@]}\"; do\n  remote_filepath=\"${filepath#./data/}\"\n  copy_file \"${filepath}\" \"${remote_filepath}\"\ndone""",
+        """while read filepath; do
+  remote_filepath="$(echo "${filepath}" | cut -c 8-)"
+  copy_file "${filepath}" "${remote_filepath}"
+done < <(find ./data -type f)""",
+        """mapfile -d '' -t fixture_files < <(find ./data -type f -print0 | sort -z)
+if [[ "${#fixture_files[@]}" -eq 0 ]]; then
+  echo "No Azure fixture files were found under ./data" >&2
+  exit 1
+fi
+for filepath in "${fixture_files[@]}"; do
+  remote_filepath="${filepath#./data/}"
+  copy_file "${filepath}" "${remote_filepath}"
+done""",
     )
 
 
@@ -147,8 +160,14 @@ def patch_postgres_scanner(upstream_root: Path) -> None:
     fixture = upstream_root / "create-postgres-tables.sh"
     replace_exact(
         fixture,
-        """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql\npsql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
-        """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql\n# The native Windows DuckDB proxy translates EXPORT DATABASE to a drive path.\n# PostgreSQL runs in WSL/Docker and must receive the mounted WSL path instead.\nWINDOWS_ABS_DIR_PREFIX=\"$(wslpath -m \"${ABS_DIR_PREFIX}\")\"\nsed -i \"s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g\" \"${ABS_DIR_PREFIX}/postgresscannertmp/load.sql\"\npsql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
+        """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
+psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
+        """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
+# The native Windows DuckDB proxy translates EXPORT DATABASE to a drive path.
+# PostgreSQL runs in WSL/Docker and must receive the mounted WSL path instead.
+WINDOWS_ABS_DIR_PREFIX="$(wslpath -m "${ABS_DIR_PREFIX}")"
+sed -i "s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g" "${ABS_DIR_PREFIX}/postgresscannertmp/load.sql"
+psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
     )
 
     # The test writes pg_binary.bin with native Windows unittest, so
@@ -178,13 +197,22 @@ def patch_delta(upstream_root: Path) -> None:
     makefile = upstream_root / "Makefile"
     replace_exact(
         makefile,
-        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py\n\t# avoid footguns -- make outputs read only\n\tfind data/generated -mindepth 1 -print0 | xargs -0 -n 1000 chmod a-w""",
-        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py\n\t# Native Windows copy_dir must be able to populate copied fixture directories.\n\tfind data/generated -mindepth 1 -print0 | xargs -0 -r -n 1000 chmod u+w\n\t# WSL can create Linux symlinks on DrvFS that native Windows cannot follow.\n\tfind build/release/rust/src/delta_kernel/acceptance/tests/dat -type l -exec sh -c 'for link; do target=\"$$(readlink -f \"$$link\")\"; rm \"$$link\"; cp -aL \"$$target\" \"$$link\"; done' sh {} +""",
+        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
+\t# avoid footguns -- make outputs read only
+\tfind data/generated -mindepth 1 -print0 | xargs -0 -n 1000 chmod a-w""",
+        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
+\t# Native Windows copy_dir must be able to populate copied fixture directories.
+\tfind data/generated -mindepth 1 -print0 | xargs -0 -r -n 1000 chmod u+w
+\t# WSL can create Linux symlinks on DrvFS that native Windows cannot follow.
+\tfind build/release/rust/src/delta_kernel/acceptance/tests/dat -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
     )
     replace_exact(
         makefile,
-        """unpack-golden-tables-release:\n\t./scripts/unwrap_golden_tables.sh""",
-        """unpack-golden-tables-release:\n\t./scripts/unwrap_golden_tables.sh\n\tfind data/unpacked_golden_tables -type l -exec sh -c 'for link; do target=\"$$(readlink -f \"$$link\")\"; rm \"$$link\"; cp -aL \"$$target\" \"$$link\"; done' sh {} +""",
+        """unpack-golden-tables-release:
+\t./scripts/unwrap_golden_tables.sh""",
+        """unpack-golden-tables-release:
+\t./scripts/unwrap_golden_tables.sh
+\tfind data/unpacked_golden_tables -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
     )
 
 
@@ -207,7 +235,13 @@ def patch_mssql_runner() -> None:
     runner = REPOSITORY_ROOT / "scripts/run-mssql-tests-base.sh"
     start_marker = "# Prepare a SQLLogicTest init profile that loads every compatibility extension"
     end_marker = 'MSSQL_TEST_CONNECTION_SQL="$(sed \'/^[[:space:]]*--/d\' "${MSSQL_TEST_INIT_SCRIPT}" | tr \'\\n\' \' \')"'
-    replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree\n# module. The exact signed repository binary was verified above; preload it on\n# init and on every connection, while the Windows source adapter removes only\n# the redundant require directive from all current/future upstream test files.\ncp \"${INIT_SCRIPT}\" \"${MSSQL_TEST_INIT_SCRIPT}\"\ncp \"${MSSQL_TEST_INIT_SCRIPT}\" \"${LOG_DIR}/init-extensions-with-mssql.sql\"\nMSSQL_TEST_CONNECTION_SQL=\"$(sed '/^[[:space:]]*--/d' \"${MSSQL_TEST_INIT_SCRIPT}\" | tr '\\n' ' ')\""""
+    replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree
+# module. The exact signed repository binary was verified above; preload it on
+# init and on every connection, while the Windows source adapter removes only
+# the redundant require directive from all current/future upstream test files.
+cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"
+cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"
+MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')"""
     replace_region(runner, start_marker, end_marker, replacement)
     replace_exact(
         runner,
