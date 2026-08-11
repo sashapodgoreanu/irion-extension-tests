@@ -6,6 +6,7 @@ UPSTREAM_ROOT="${2:?upstream root is required}"
 ARTIFACT_DIR="${ARTIFACT_DIR:-build/artifact}"
 STARTED_AT_MS="${RESULT_STARTED_AT_MS:-$(date +%s%3N)}"
 QA_SERVICE_HOST_ONLY="${QA_SERVICE_HOST_ONLY:-0}"
+QA_SERVICE_PROFILE="${QA_SERVICE_PROFILE:-}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PREPARE_SCRIPT="${SCRIPT_DIR}/prepare-test-battery.py"
@@ -128,6 +129,16 @@ if [[ "${QA_SERVICE_HOST_ONLY}" == "1" ]]; then
   services_manifest="${BATTERY_RUNTIME_CONFIG_DIR}/services.json"
   qa_service_start_file "${services_manifest}"
   qa_log INFO "battery-level services started"
+  if [[ -n "${QA_SERVICE_PROFILE}" ]]; then
+    profile_services_manifest="${BATTERY_RUNTIME_CONFIG_DIR}/profile-services-${QA_SERVICE_PROFILE}.json"
+    if [[ ! -f "${profile_services_manifest}" ]]; then
+      qa_log ERROR "profile service manifest is missing profile=${QA_SERVICE_PROFILE} path=${profile_services_manifest}"
+      exit 1
+    fi
+    qa_log INFO "starting profile services profile=${QA_SERVICE_PROFILE}"
+    qa_service_start_file "${profile_services_manifest}"
+    qa_log INFO "profile services started profile=${QA_SERVICE_PROFILE}"
+  fi
   wait_for_service_host_stop
   exit 0
 fi
