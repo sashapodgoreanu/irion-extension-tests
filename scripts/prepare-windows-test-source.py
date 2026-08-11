@@ -36,6 +36,19 @@ def replace_exact(path: Path, old: str, new: str, *, expected: int = 1) -> None:
     path.write_text(text.replace(old, new), encoding="utf-8")
 
 
+def replace_all_required(path: Path, old: str, new: str) -> int:
+    """Replace every matching construct without assuming how many exist."""
+    text = path.read_text(encoding="utf-8")
+    count = text.count(old)
+    if count == 0:
+        raise PatchError(f"{path}: adaptation anchor was not found")
+    updated = text.replace(old, new)
+    if old in updated:
+        raise PatchError(f"{path}: adaptation anchor remains after replacement")
+    path.write_text(updated, encoding="utf-8")
+    return count
+
+
 def replace_region(path: Path, start_marker: str, end_marker: str, replacement: str) -> None:
     text = path.read_text(encoding="utf-8")
     start = text.find(start_marker)
@@ -138,12 +151,26 @@ def patch_postgres_scanner(upstream_root: Path) -> None:
         """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql\n# The native Windows DuckDB proxy translates EXPORT DATABASE to a drive path.\n# PostgreSQL runs in WSL/Docker and must receive the mounted WSL path instead.\nWINDOWS_ABS_DIR_PREFIX=\"$(wslpath -m \"${ABS_DIR_PREFIX}\")\"\nsed -i \"s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g\" \"${ABS_DIR_PREFIX}/postgresscannertmp/load.sql\"\npsql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
     )
 
+    # The test writes pg_binary.bin with native Windows unittest, so
+    # __TEST_DIR__ contains Windows separators. PostgreSQL itself runs in the
+    # WSL/Docker service host and reads the file server-side. Embed the actual
+    # mounted WSL checkout root and normalize the expanded test directory before
+    # handing the path to postgres_execute. Linux never invokes this adapter and
+    # therefore keeps the upstream __WORKING_DIRECTORY__/__TEST_DIR__ behavior.
     binary_test = upstream_root / "test/sql/misc/postgres_binary.test"
-    replace_exact(
-        binary_test,
-        "__WORKING_DIRECTORY__/__TEST_DIR__",
-        "${PGSCANNER_SERVER_WORKING_DIRECTORY}/__TEST_DIR__",
-        expected=2,
+    server_root = upstream_root.as_posix().rstrip("/").replace("'", "''")
+    old = (
+        "'COPY binary_copy_test FROM "
+        "''__WORKING_DIRECTORY__/__TEST_DIR__/pg_binary.bin'' (FORMAT binary)'"
+    )
+    new = (
+        "'COPY binary_copy_test FROM ''' || "
+        f"replace('{server_root}/__TEST_DIR__/pg_binary.bin', chr(92), '/') || "
+        "''' (FORMAT binary)'"
+    )
+    count = replace_all_required(binary_test, old, new)
+    print(
+        f"Postgres scanner Windows adapter normalized {count} server-side COPY path expression(s)"
     )
 
 
