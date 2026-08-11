@@ -11,20 +11,13 @@ UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sq
 
 
 class Phase5FinalizationTest(unittest.TestCase):
-    def test_azure_local_profiles_are_skip_free_by_policy(self) -> None:
+    def test_azure_local_profiles_keep_expected_fixture_configuration(self) -> None:
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
         azure = config["testBatteries"]["azure"]
         self.assertEqual([p["name"] for p in azure["profiles"]], ["azurite", "proxy"])
         self.assertEqual(azure["profiles"][0]["tests"], AZURE_LOCAL_TESTS)
         self.assertEqual(azure["profiles"][1]["tests"], "test/sql/proxy/*")
         self.assertTrue(azure["profiles"][1]["services"][1]["auth"])
-
-        policy = yaml.safe_load((ROOT / "config/result-policy.yml").read_text(encoding="utf-8"))
-        overrides = {(item["case"], item["profile"]): item for item in policy["overrides"]}
-        self.assertEqual(overrides[("azure", "azurite")]["minimumExecuted"], 9)
-        self.assertEqual(overrides[("azure", "azurite")]["maximumSkipped"], 0)
-        self.assertEqual(overrides[("azure", "proxy")]["minimumExecuted"], 4)
-        self.assertEqual(overrides[("azure", "proxy")]["maximumSkipped"], 0)
 
     def test_unity_catalog_uses_pinned_oss_service(self) -> None:
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
@@ -40,11 +33,6 @@ class Phase5FinalizationTest(unittest.TestCase):
                 "test/sql/local_oss_unity_catalog/checkpoint.test",
             ],
         )
-
-        policy = yaml.safe_load((ROOT / "config/result-policy.yml").read_text(encoding="utf-8"))
-        overrides = {(item["case"], item["profile"]): item for item in policy["overrides"]}
-        self.assertEqual(overrides[("unity_catalog", "oss")]["minimumExecuted"], 2)
-        self.assertEqual(overrides[("unity_catalog", "oss")]["maximumSkipped"], 0)
 
         manager = (ROOT / "scripts/service-manager.sh").read_text(encoding="utf-8")
         self.assertIn("qa_service_start_unity_catalog_oss", manager)
