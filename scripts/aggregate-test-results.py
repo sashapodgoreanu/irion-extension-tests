@@ -37,6 +37,44 @@ def load_yaml_object(path: Path) -> dict:
     return value
 
 
+def select_runtime_plan(plan_path: Path, base_plan: dict, results: list[dict]) -> dict:
+    """Select the generated runner plan matching the structured results runtime."""
+    operating_systems = {
+        str((result.get("runtime") or {}).get("operatingSystem", "")).strip()
+        for result in results
+        if str((result.get("runtime") or {}).get("operatingSystem", "")).strip()
+    }
+    if not operating_systems:
+        return base_plan
+    if len(operating_systems) != 1:
+        raise ValueError(
+            "Cannot aggregate results from multiple operating systems: "
+            + ", ".join(sorted(operating_systems))
+        )
+
+    operating_system = next(iter(operating_systems))
+    candidates = sorted(
+        plan_path.parent.glob(f"{plan_path.stem}-*{plan_path.suffix}")
+    )
+    for candidate in candidates:
+        candidate_plan = load_json(candidate)
+        candidate_runtime = candidate_plan.get("runtime") or {}
+        if candidate_runtime.get("operatingSystem") == operating_system:
+            print(
+                f"Using runtime-specific execution plan {candidate} "
+                f"for operatingSystem={operating_system}"
+            )
+            return candidate_plan
+
+    base_runtime = base_plan.get("runtime") or {}
+    if base_runtime.get("operatingSystem") != operating_system:
+        raise ValueError(
+            f"No execution plan found for operatingSystem={operating_system}; "
+            f"base plan runtime is {base_runtime.get('operatingSystem')!r}"
+        )
+    return base_plan
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--plan", type=Path, required=True)
@@ -49,11 +87,15 @@ def main() -> int:
     parser.add_argument("--output-markdown", type=Path, required=True)
     args = parser.parse_args()
 
-    plan = load_json(args.plan)
+    base_plan = load_json(args.plan)
     policy = load_yaml_object(args.policy)
     validate(policy, args.policy_schema, "result policy")
 
     result_files = find_result_files(args.results_root)
+    print(
+        f"Discovered {len(result_files)} structured result file(s) "
+        f"under {args.results_root}"
+    )
     results: list[dict] = []
     invalid_files: list[str] = []
     for path in result_files:
@@ -62,8 +104,11 @@ def main() -> int:
             validate(result, args.result_schema, str(path))
             results.append(result)
         except (ValueError, json.JSONDecodeError) as exc:
-            invalid_files.append(f"{path}: {exc}")
+            message = f"{path}: {exc}"
+            invalid_files.append(message)
+            print(f"Invalid structured result: {message}", file=sys.stderr)
 
+    plan = select_runtime_plan(args.plan, base_plan, results)
     summary = aggregate_results(plan, results, policy)
     if invalid_files:
         summary["status"] = "failed"
