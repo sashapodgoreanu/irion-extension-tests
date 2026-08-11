@@ -177,9 +177,6 @@ $environment.Add("GITHUB_RUN_ATTEMPT=$env:GITHUB_RUN_ATTEMPT")
 if ($BatteryName -in @('postgres_scanner', 'mssql')) {
     $environment.Add('QA_DUCKDB_TRANSLATE_STDIN=1')
 }
-if ($BatteryName -eq 'postgres_scanner') {
-    $environment.Add("PGSCANNER_SERVER_WORKING_DIRECTORY=$sourceLinux")
-}
 
 foreach ($name in @('BQ_TEST_PROJECT', 'BQ_TEST_DATASET', 'BQ_TEST_EXPORT_URI')) {
     $value = [Environment]::GetEnvironmentVariable($name)
