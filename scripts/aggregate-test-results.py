@@ -73,6 +73,10 @@ def main() -> int:
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--result-schema", type=Path, required=True)
     parser.add_argument("--summary-schema", type=Path, required=True)
+    # Deprecated compatibility options. They are intentionally ignored:
+    # numeric test-count/skip policies no longer influence the verdict.
+    parser.add_argument("--policy", type=Path)
+    parser.add_argument("--policy-schema", type=Path)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-markdown", type=Path, required=True)
     args = parser.parse_args()
