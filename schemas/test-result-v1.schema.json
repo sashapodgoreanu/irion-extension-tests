@@ -133,7 +133,7 @@
       "properties": {
         "duckdbVersion": {"type": ["string", "null"]},
         "ciToolsVersion": {"type": ["string", "null"]},
-        "operatingSystem": {"const": "linux"},
+        "operatingSystem": {"enum": ["linux", "windows"]},
         "architecture": {"const": "x86_64"},
         "githubRunner": {"type": "string", "minLength": 1}
       }
