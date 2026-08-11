@@ -44,7 +44,12 @@ export PGSCANNERTMP_ABS_DIR_PREFIX="${RUNTIME_ROOT}/tmp"
 
 pg_log INFO "runner started native_windows=${QA_NATIVE_WINDOWS:-0} source=${UPSTREAM_ROOT} runtime=${RUNTIME_ROOT}"
 pg_log INFO "postgres host=${PGHOST} port=${PGPORT} user=${PGUSER} database=${PGDATABASE}"
-pg_log INFO "fixture_prefix=${PGSCANNERTMP_ABS_DIR_PREFIX} server_working_directory=${PGSCANNER_SERVER_WORKING_DIRECTORY:-<unset>}"
+pg_log INFO "fixture_prefix=${PGSCANNERTMP_ABS_DIR_PREFIX}"
+if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+  pg_log INFO "path_mode=windows-native server-side COPY paths prepared by Windows source adapter"
+else
+  pg_log INFO "path_mode=linux-upstream server-side COPY paths use upstream SQLLogicTest behavior"
+fi
 
 for required in \
   "${DUCKDB_BIN}" \
@@ -95,7 +100,11 @@ INIT_SQL="$(sql_from_file "${INIT_SCRIPT}")"
   echo "postgres_user=${PGUSER}"
   echo "native_windows=${QA_NATIVE_WINDOWS:-0}"
   echo "fixture_prefix=${PGSCANNERTMP_ABS_DIR_PREFIX}"
-  echo "server_working_directory=${PGSCANNER_SERVER_WORKING_DIRECTORY:-}"
+  if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+    echo "path_mode=windows-native"
+  else
+    echo "path_mode=linux-upstream"
+  fi
 } >"${LOG_DIR}/postgres-scanner-info.txt"
 
 pg_log INFO "probing installed extension set"
@@ -136,49 +145,6 @@ pg_log INFO "preparing PostgreSQL fixtures from upstream contract"
   psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
 ) 2>&1 | tee "${LOG_DIR}/services/postgres-fixtures.log"
 pg_log INFO "PostgreSQL fixtures prepared successfully"
-
-prepare_windows_server_copy_paths() {
-  [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]] || return 0
-
-  local binary_test="${UPSTREAM_ROOT}/test/sql/misc/postgres_binary.test"
-  if [[ ! -f "${binary_test}" ]]; then
-    pg_log ERROR "Windows server-side COPY test is missing: ${binary_test}"
-    return 1
-  fi
-  if [[ -z "${PGSCANNER_SERVER_WORKING_DIRECTORY:-}" ]]; then
-    pg_log ERROR "PGSCANNER_SERVER_WORKING_DIRECTORY is required for native Windows server-side COPY tests"
-    return 1
-  fi
-
-  # SQLLogicTest expands __TEST_DIR__ using native Windows separators. The
-  # PostgreSQL server runs in Linux, where a backslash is a normal filename
-  # character rather than a directory separator. Normalize the final expanded
-  # path inside DuckDB SQL before passing it to postgres_execute. Apply this to
-  # every matching COPY statement in the file; do not assume a fixed count.
-  python3 - "${binary_test}" <<'PY'
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-text = path.read_text(encoding="utf-8")
-old = "'COPY binary_copy_test FROM ''${PGSCANNER_SERVER_WORKING_DIRECTORY}/__TEST_DIR__/pg_binary.bin'' (FORMAT binary)'"
-new = "'COPY binary_copy_test FROM ''' || replace('${PGSCANNER_SERVER_WORKING_DIRECTORY}/__TEST_DIR__/pg_binary.bin', chr(92), '/') || ''' (FORMAT binary)'"
-count = text.count(old)
-if count == 0:
-    raise SystemExit(
-        f"{path}: Windows PostgreSQL server-side COPY adaptation anchor was not found"
-    )
-text = text.replace(old, new)
-if old in text:
-    raise SystemExit(f"{path}: an unnormalized PostgreSQL server-side COPY path remains")
-path.write_text(text, encoding="utf-8")
-print(f"Normalized {count} PostgreSQL server-side COPY path expression(s) for Windows")
-PY
-
-  pg_log INFO "Windows server-side COPY path bridge prepared file=${binary_test} server_root=${PGSCANNER_SERVER_WORKING_DIRECTORY}"
-}
-
-prepare_windows_server_copy_paths
 
 status=0
 pg_log INFO "starting SQLLogicTest filter=${TEST_FILTER}"
