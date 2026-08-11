@@ -8,7 +8,6 @@ import json
 import sys
 from pathlib import Path
 
-import yaml
 from jsonschema import Draft202012Validator
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -28,13 +27,6 @@ def validate(instance: dict, schema_path: Path, label: str) -> None:
     if errors:
         details = "; ".join(error.message for error in errors[:10])
         raise ValueError(f"Invalid {label}: {details}")
-
-
-def load_yaml_object(path: Path) -> dict:
-    value = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise ValueError(f"{path} must contain a YAML object")
-    return value
 
 
 def select_runtime_plan(plan_path: Path, base_plan: dict, results: list[dict]) -> dict:
@@ -81,15 +73,11 @@ def main() -> int:
     parser.add_argument("--results-root", type=Path, required=True)
     parser.add_argument("--result-schema", type=Path, required=True)
     parser.add_argument("--summary-schema", type=Path, required=True)
-    parser.add_argument("--policy", type=Path, required=True)
-    parser.add_argument("--policy-schema", type=Path, required=True)
     parser.add_argument("--output-json", type=Path, required=True)
     parser.add_argument("--output-markdown", type=Path, required=True)
     args = parser.parse_args()
 
     base_plan = load_json(args.plan)
-    policy = load_yaml_object(args.policy)
-    validate(policy, args.policy_schema, "result policy")
 
     result_files = find_result_files(args.results_root)
     print(
@@ -109,7 +97,7 @@ def main() -> int:
             print(f"Invalid structured result: {message}", file=sys.stderr)
 
     plan = select_runtime_plan(args.plan, base_plan, results)
-    summary = aggregate_results(plan, results, policy)
+    summary = aggregate_results(plan, results)
     if invalid_files:
         summary["status"] = "failed"
         summary["invalidResultFiles"] = invalid_files
@@ -120,9 +108,7 @@ def main() -> int:
     args.output_json.write_text(
         json.dumps(summary, indent=2) + "\n", encoding="utf-8"
     )
-    args.output_markdown.write_text(
-        summary_markdown(summary), encoding="utf-8"
-    )
+    args.output_markdown.write_text(summary_markdown(summary), encoding="utf-8")
     print(args.output_markdown.read_text(encoding="utf-8"))
     return 0 if summary["status"] == "passed" else 1
 
