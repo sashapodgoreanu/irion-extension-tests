@@ -13,6 +13,7 @@ still be validated when an adapter must rewrite that exact upstream construct.
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -23,6 +24,16 @@ class PatchError(ValueError):
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 SQLLOGIC_TEST_SUFFIXES = {".test", ".test_slow"}
+DELTA_COPY_DIR_CALL = re.compile(r"\bcopy_dir\s*\(", re.IGNORECASE)
+DELTA_WINDOWS_COPY_DIR_MARKER = "# QA Windows Delta copy_dir compatibility"
+DELTA_WINDOWS_COPY_DIR_SETUP = """# QA Windows Delta copy_dir compatibility
+# Delta's internal write_blob helper derives parent directories using '/', while
+# native Windows paths returned by SQLLogicTest/read_blob contain '\\'. Normalize
+# the complete destination path before write_blob creates parent directories.
+statement ok
+CREATE OR REPLACE MACRO copy_dir(src_dir, dst_dir) AS TABLE SELECT write_blob(replace(dst_dir || filename[length(src_dir)+1:], chr(92), '/'), content) FROM read_blob(src_dir || '/**');
+
+"""
 
 
 def replace_exact(path: Path, old: str, new: str, *, expected: int = 1) -> None:
@@ -104,6 +115,65 @@ def remove_test_directive(root: Path, directive: str) -> tuple[int, int]:
         )
 
     return changed_files, removed_directives
+
+
+def patch_delta_copy_dir_tests(upstream_root: Path) -> tuple[int, int]:
+    """Override Delta's POSIX-only fixture copy helper in every test that uses it."""
+    test_root = upstream_root / "test/sql"
+    changed_files = 0
+    covered_files = 0
+
+    for test in iter_sqllogic_tests(test_root):
+        text = test.read_text(encoding="utf-8")
+        active_copy_dir = any(
+            DELTA_COPY_DIR_CALL.search(line)
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("#", "--"))
+        )
+        if not active_copy_dir:
+            continue
+
+        covered_files += 1
+        if DELTA_WINDOWS_COPY_DIR_MARKER in text:
+            continue
+
+        lines = text.splitlines(keepends=True)
+        insertion_index = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if line.strip().lower().startswith(("statement ", "query "))
+            ),
+            None,
+        )
+        if insertion_index is None:
+            raise PatchError(
+                f"{test}: copy_dir is used but no SQLLogicTest statement/query directive was found"
+            )
+        lines.insert(insertion_index, DELTA_WINDOWS_COPY_DIR_SETUP)
+        test.write_text("".join(lines), encoding="utf-8")
+        changed_files += 1
+
+    if covered_files == 0:
+        raise PatchError("Delta source contains no SQLLogicTest copy_dir calls to adapt")
+
+    missing_marker = []
+    for test in iter_sqllogic_tests(test_root):
+        text = test.read_text(encoding="utf-8")
+        active_copy_dir = any(
+            DELTA_COPY_DIR_CALL.search(line)
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("#", "--"))
+        )
+        if active_copy_dir and DELTA_WINDOWS_COPY_DIR_MARKER not in text:
+            missing_marker.append(test)
+    if missing_marker:
+        preview = ", ".join(str(path) for path in missing_marker[:5])
+        raise PatchError(
+            f"Delta Windows copy_dir override is missing from {len(missing_marker)} test file(s): {preview}"
+        )
+
+    return changed_files, covered_files
 
 
 def patch_httpfs(upstream_root: Path) -> None:
@@ -213,6 +283,11 @@ def patch_delta(upstream_root: Path) -> None:
         """unpack-golden-tables-release:
 \t./scripts/unwrap_golden_tables.sh
 \tfind data/unpacked_golden_tables -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
+    )
+    changed_files, covered_files = patch_delta_copy_dir_tests(upstream_root)
+    print(
+        f"Delta Windows adapter prepared copy_dir override for {covered_files} SQLLogicTest file(s); "
+        f"changed={changed_files}"
     )
 
 
