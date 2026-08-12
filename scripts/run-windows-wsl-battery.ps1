@@ -292,6 +292,27 @@ if ($LASTEXITCODE -ne 0) {
     throw "Unable to prepare native Windows source adaptations for $BatteryName"
 }
 
+# Delta fixtures include paths that exceed the legacy Windows MAX_PATH limit
+# when rooted under the full GitHub Actions checkout. Keep fixture generation in
+# the same NTFS checkout, but expose that checkout through a short drive-root
+# junction for the WSL battery and native unittest.exe process.
+$batterySourceLinux = $sourceLinux
+$deltaSourceAlias = $null
+if ($BatteryName -eq 'delta') {
+    $sourceDriveRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($SourceRoot))
+    $deltaSourceAlias = Join-Path $sourceDriveRoot 'qa-delta-src'
+    if (Test-Path -LiteralPath $deltaSourceAlias) {
+        $existingAlias = Get-Item -LiteralPath $deltaSourceAlias -Force
+        if (($existingAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+            throw "Refusing to replace non-junction Delta short path: $deltaSourceAlias"
+        }
+        Remove-Item -LiteralPath $deltaSourceAlias -Force
+    }
+    New-Item -ItemType Junction -Path $deltaSourceAlias -Target ([System.IO.Path]::GetFullPath($SourceRoot)) | Out-Null
+    $batterySourceLinux = Convert-ToWslPath $deltaSourceAlias
+    Write-QaLog INFO "Delta short source alias windows=$deltaSourceAlias linux=$batterySourceLinux target=$SourceRoot"
+}
+
 $environment = [System.Collections.Generic.List[string]]::new()
 $environment.Add("ARTIFACT_DIR=$proxyArtifactLinux")
 $environment.Add("RUNNER_TEMP=$runtimeLinux")
@@ -327,11 +348,30 @@ $environment | ForEach-Object { $arguments.Add($_) }
 $arguments.Add('bash')
 $arguments.Add("$workspaceLinux/scripts/run-test-battery.sh")
 $arguments.Add($configLinux)
-$arguments.Add($sourceLinux)
+$arguments.Add($batterySourceLinux)
 
-Write-QaLog INFO 'starting legacy WSL battery path'
-& wsl @arguments
-$exitCode = $LASTEXITCODE
+Write-QaLog INFO "starting legacy WSL battery path source=$batterySourceLinux"
+try {
+    & wsl @arguments
+    $exitCode = $LASTEXITCODE
+}
+finally {
+    if ($null -ne $deltaSourceAlias -and (Test-Path -LiteralPath $deltaSourceAlias)) {
+        try {
+            $aliasItem = Get-Item -LiteralPath $deltaSourceAlias -Force
+            if (($aliasItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                Write-QaLog ERROR "Delta short source path is no longer a junction; leaving it untouched: $deltaSourceAlias"
+            }
+            else {
+                Remove-Item -LiteralPath $deltaSourceAlias -Force
+                Write-QaLog INFO "removed Delta short source alias $deltaSourceAlias"
+            }
+        }
+        catch {
+            Write-QaLog ERROR "unable to remove Delta short source alias $deltaSourceAlias`: $($_.Exception.Message)"
+        }
+    }
+}
 Write-QaLog INFO "legacy WSL battery exit_code=$exitCode"
 if ($exitCode -ne 0) {
     throw "Shared QA battery $BatteryName failed with exit code $exitCode"
