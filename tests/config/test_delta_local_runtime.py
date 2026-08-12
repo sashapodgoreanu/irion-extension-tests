@@ -99,7 +99,7 @@ from copy_dir('data/generated/future', '__TEST_DIR__/future');
                 check=False,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertIn("covered copy_dir override for 2 SQLLogicTest file(s)", completed.stdout)
+            self.assertIn("copy_dir override for 2 SQLLogicTest file(s)", completed.stdout)
 
             for relative in test_bodies:
                 patched = (upstream / relative).read_text(encoding="utf-8")
