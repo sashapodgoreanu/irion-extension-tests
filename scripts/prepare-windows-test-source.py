@@ -241,7 +241,7 @@ def patch_mssql_runner() -> None:
 # the redundant require directive from all current/future upstream test files.
 cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"
 cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"
-MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')"""
+MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')""" + '"'
     replace_region(runner, start_marker, end_marker, replacement)
     replace_exact(
         runner,
