@@ -277,9 +277,19 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Windows and Linux test batteries intentionally do not overlap. They use the
+  # same external cloud accounts and resources, regardless of the target OS, and
+  # concurrent execution can cause cross-platform interference or collisions.
+  # Runtime builds remain parallel; Windows batteries get first access to shared
+  # cloud resources and Linux starts only after the Windows matrix has settled.
+  # A Windows test failure must not suppress Linux coverage, so this dependency
+  # controls ordering rather than propagating the Windows verdict.
   test-linux:
     name: ${{ matrix.name }}
-    needs: build-linux
+    needs:
+      - build-linux
+      - test-windows
+    if: ${{ always() && needs.build-linux.result == 'success' && needs.test-windows.result != 'cancelled' }}
     runs-on: ${{ needs.build-linux.outputs.github_runner }}
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
@@ -604,6 +614,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  # Aggregation reads artifacts only and does not touch the shared cloud test
+  # accounts. Both summaries are therefore final parallel nodes after the Linux
+  # matrix has completed (and, transitively, after the Windows matrix).
   aggregate-linux:
     name: Aggregate Linux results
     needs: test-linux
@@ -670,7 +683,9 @@ jobs:
 
   aggregate-windows:
     name: Aggregate Windows results
-    needs: test-windows
+    needs:
+      - test-windows
+      - test-linux
     if: always()
     runs-on: ubuntu-24.04
 
