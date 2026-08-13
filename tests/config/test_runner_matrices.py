@@ -83,13 +83,18 @@ class RunnerMatricesTestCase(unittest.TestCase):
         )
         self.assertIn("same external cloud accounts and resources", workflow)
 
-        # Aggregation is artifact-only, so both final summaries may run in
-        # parallel once the Linux matrix (and transitively Windows) has settled.
+        # Aggregation is artifact-only. Each platform summary starts as soon as
+        # that platform's own battery has completed; Windows aggregation may run
+        # concurrently with the Linux battery because it does not touch cloud state.
         self.assertIn(
             "  aggregate-linux:\n    name: Aggregate Linux results\n    needs: test-linux",
             workflow,
         )
         self.assertIn(
+            "  aggregate-windows:\n    name: Aggregate Windows results\n    needs: test-windows",
+            workflow,
+        )
+        self.assertNotIn(
             "  aggregate-windows:\n    name: Aggregate Windows results\n    needs:\n      - test-windows\n      - test-linux",
             workflow,
         )
