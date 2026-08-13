@@ -615,8 +615,8 @@ jobs:
           retention-days: 7
 
   # Aggregation reads artifacts only and does not touch the shared cloud test
-  # accounts. Both summaries are therefore final parallel nodes after the Linux
-  # matrix has completed (and, transitively, after the Windows matrix).
+  # accounts. Each aggregate node starts as soon as its own platform battery has
+  # finished, so Windows aggregation may run in parallel with the Linux battery.
   aggregate-linux:
     name: Aggregate Linux results
     needs: test-linux
@@ -683,9 +683,7 @@ jobs:
 
   aggregate-windows:
     name: Aggregate Windows results
-    needs:
-      - test-windows
-      - test-linux
+    needs: test-windows
     if: always()
     runs-on: ubuntu-24.04
 
