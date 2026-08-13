@@ -15,18 +15,11 @@ WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
 WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
 WSL_HELPER = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
 WINDOWS_DUCKDB_PROXY = REPOSITORY_ROOT / "scripts" / "windows-duckdb-proxy.sh"
-EXPECTED = [
-    "httpfs",
-    "ducklake",
-    "postgres_scanner",
-    "delta",
-    "iceberg",
-    "azure",
-    "unity_catalog",
-    "bigquery",
-    "mssql",
-    "irion",
-]
+
+# Temporary Azure-only validation. This must mirror FOCUSED_BATTERY in
+# scripts/prepare-runner-matrices.py. Restore the complete battery list when the
+# focused Azure cloud validation is finished.
+EXPECTED = ["azure"]
 
 
 class RunnerMatricesTestCase(unittest.TestCase):
@@ -48,6 +41,7 @@ class RunnerMatricesTestCase(unittest.TestCase):
 
         self.assertEqual([item["name"] for item in linux], EXPECTED)
         self.assertEqual([item["name"] for item in windows], EXPECTED)
+        self.assertEqual(outputs["enabled_batteries"].split(","), EXPECTED)
         self.assertEqual(
             [item["name"] for item in linux],
             [item["name"] for item in windows],
