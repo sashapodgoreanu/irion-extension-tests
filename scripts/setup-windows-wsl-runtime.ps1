@@ -123,6 +123,33 @@ if (Test-Path $upstreamPath) {
     }
 }
 
+# Spark's Iceberg add_files fixture persists local files as file:/mnt/<drive>/...
+# URIs. Native Windows DuckDB receives those locations as relative mnt/<drive>/...
+# paths. Mirror that relative WSL namespace at both plausible native working
+# directories so the real file is resolved without changing Iceberg metadata or
+# skipping the upstream test.
+if ($BatteryName -eq 'iceberg') {
+    $workspaceRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($workspace))
+    $relativeAliasRoots = @($workspace, $upstreamPath) | Select-Object -Unique
+    foreach ($relativeAliasRoot in $relativeAliasRoots) {
+        if (-not (Test-Path -LiteralPath $relativeAliasRoot -PathType Container)) {
+            continue
+        }
+        $relativeAliasParent = Join-Path $relativeAliasRoot 'mnt'
+        $relativeDriveAlias = Join-Path $relativeAliasParent $drive
+        if (Test-Path -LiteralPath $relativeDriveAlias) {
+            $existingAlias = Get-Item -LiteralPath $relativeDriveAlias -Force
+            if (($existingAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                throw "Refusing to replace non-junction Iceberg path bridge: $relativeDriveAlias"
+            }
+            Remove-Item -LiteralPath $relativeDriveAlias -Force
+        }
+        New-Item -ItemType Directory -Path $relativeAliasParent -Force | Out-Null
+        New-Item -ItemType Junction -Path $relativeDriveAlias -Target $workspaceRoot | Out-Null
+        Write-Host "Iceberg relative WSL path alias $relativeDriveAlias -> $workspaceRoot"
+    }
+}
+
 $capabilities = @()
 if ($CapabilitiesJson) {
     $parsed = ConvertFrom-Json -InputObject $CapabilitiesJson
