@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,9 @@ from qa.plan import ExecutionPlan, ExecutionRuntime  # noqa: E402
 # complete so its structural contract tests remain valid. Remove this focus to
 # restore every battery enabled by config/extensions.yml.
 FOCUSED_BATTERY = "azure"
+AZURE_CLOUD_PROFILE_DESCRIPTION = (
+    "Azure cloud compatibility using the upstream Service Principal test account"
+)
 
 
 class RunnerConfigError(ValueError):
@@ -99,11 +103,57 @@ def focused_plan(plan: ExecutionPlan) -> ExecutionPlan:
     )
 
 
+def load_extensions_with_focus_overlay(path: Path):
+    """Add Azure cloud coverage only while the temporary Azure focus is active.
+
+    The permanent configuration remains unchanged during this focused validation,
+    so the existing full-suite configuration contracts keep describing the normal
+    repository state. The overlay is schema-validated through the normal loader.
+    """
+    if FOCUSED_BATTERY != "azure":
+        return load_config(path)
+
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise RunnerConfigError("extension configuration must be a mapping")
+    batteries = raw.get("testBatteries")
+    if not isinstance(batteries, dict) or not isinstance(batteries.get("azure"), dict):
+        raise RunnerConfigError("Azure battery is missing from extension configuration")
+    profiles = batteries["azure"].get("profiles")
+    if not isinstance(profiles, list):
+        raise RunnerConfigError("Azure profiles must be a list")
+
+    if not any(isinstance(item, dict) and item.get("name") == "cloud" for item in profiles):
+        profiles.append(
+            {
+                "name": "cloud",
+                "tests": "test/sql/cloud/*",
+                "services": [],
+                "testConfig": {
+                    "kind": "generated",
+                    "description": AZURE_CLOUD_PROFILE_DESCRIPTION,
+                    "excludedExtensions": [],
+                    "staticallyLoadedExtensions": ["core_functions", "parquet"],
+                },
+            }
+        )
+
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        suffix=".yml",
+        delete=True,
+    ) as handle:
+        yaml.safe_dump(raw, handle, sort_keys=False)
+        handle.flush()
+        return load_config(Path(handle.name))
+
+
 def resolve_runner_matrices(
     extensions_config: Path,
     runners_config: Path,
 ) -> tuple[ExecutionPlan, dict[str, dict[str, Any]]]:
-    plan = focused_plan(resolve_config(load_config(extensions_config)))
+    plan = focused_plan(resolve_config(load_extensions_with_focus_overlay(extensions_config)))
     runners = load_runners(runners_config)
     resolved: dict[str, dict[str, Any]] = {}
 
