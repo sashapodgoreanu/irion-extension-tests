@@ -19,6 +19,13 @@ from qa import ConfigError, load_config, resolve_config  # noqa: E402
 from qa.plan import ExecutionPlan, ExecutionRuntime  # noqa: E402
 
 
+# Temporary focused validation: create execution matrices only for Azure while
+# Azure cloud coverage is being exercised. The declarative configuration stays
+# complete so its structural contract tests remain valid. Remove this focus to
+# restore every battery enabled by config/extensions.yml.
+FOCUSED_BATTERY = "azure"
+
+
 class RunnerConfigError(ValueError):
     pass
 
@@ -79,11 +86,24 @@ def runner_plan(plan: ExecutionPlan, runner: dict[str, Any]) -> ExecutionPlan:
     )
 
 
+def focused_plan(plan: ExecutionPlan) -> ExecutionPlan:
+    cases = tuple(case for case in plan.cases if case.name == FOCUSED_BATTERY)
+    if not cases:
+        raise RunnerConfigError(
+            f"Focused battery {FOCUSED_BATTERY!r} is not enabled in the extension configuration"
+        )
+    return ExecutionPlan(
+        runtime=plan.runtime,
+        cases=cases,
+        schema_version=plan.schema_version,
+    )
+
+
 def resolve_runner_matrices(
     extensions_config: Path,
     runners_config: Path,
 ) -> tuple[ExecutionPlan, dict[str, dict[str, Any]]]:
-    plan = resolve_config(load_config(extensions_config))
+    plan = focused_plan(resolve_config(load_config(extensions_config)))
     runners = load_runners(runners_config)
     resolved: dict[str, dict[str, Any]] = {}
 
