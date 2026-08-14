@@ -159,7 +159,7 @@ Repository → Settings → Secrets and variables → Actions
 
 ### Repository secrets
 
-Create or keep these values under **Secrets → Repository secrets**:
+Create or keep these **3** values under **Secrets → Repository secrets**:
 
 | Secret | Value |
 |---|---|
@@ -171,17 +171,27 @@ All three Azure identity values are intentionally read from the GitHub Actions `
 
 ### Repository variables
 
-Create these values under **Variables → Repository variables** exactly as shown:
+Create these **6** values under **Variables → Repository variables** exactly as shown:
 
 | Variable | Value |
 |---|---|
 | `AZ_STORAGE_ACCOUNT` | `irionctstorageaccount` |
 | `AZ_DATA_DIR` | `irionctstorageaccount-duckdb-tests-data/fixtures` |
 | `AZ_TEMP_DIR` | `irionctstorageaccount-duckdb-tests-write/runs` |
+| `ABFSS_STORAGE_ACCOUNT` | `irionctstorageaccount` |
+| `ABFSS_DATA_DIR` | `irionctstorageaccount-duckdb-tests-data/fixtures` |
+| `ABFSS_TEMP_DIR` | `irionctstorageaccount-duckdb-tests-write/runs` |
 
-`AZ_DATA_DIR` and `AZ_TEMP_DIR` use the format `container/path`; do not include `az://`, `azure://` or the storage-account hostname.
+`AZ_DATA_DIR`, `AZ_TEMP_DIR`, `ABFSS_DATA_DIR` and `ABFSS_TEMP_DIR` use the format `container/path`; do not include `az://`, `azure://`, `abfs://`, `abfss://` or the storage-account hostname.
 
-At runtime the repository derives:
+Both `AZ_TEMP_DIR` and `ABFSS_TEMP_DIR` are configured as stable roots. **Do not put a literal `<run-id>` in the GitHub variable.** The initializer automatically appends a unique execution suffix to both values:
+
+```text
+AZ_TEMP_DIR=irionctstorageaccount-duckdb-tests-write/runs/<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>-<RUNNER_OS>
+ABFSS_TEMP_DIR=irionctstorageaccount-duckdb-tests-write/runs/<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>-<RUNNER_OS>
+```
+
+At runtime the repository also sets:
 
 ```text
 AZURE_AUTH_ENV=1
@@ -189,47 +199,58 @@ AZURE_PROVIDER=cloud
 AZURE_PROTOCOL=az
 AZURE_STORAGE_ACCOUNT=${AZ_STORAGE_ACCOUNT}
 DATA_DIR=${AZ_DATA_DIR}
-TEMP_DIR=${AZ_TEMP_DIR}/<run-suffix>
+TEMP_DIR=${AZ_TEMP_DIR}
 ```
 
-`AZ_TEMP_DIR` is configured as a stable root. The initializer automatically expands it for every execution to:
+This keeps Windows and Linux write tests isolated without adding per-run GitHub variables.
+
+### ADLS Gen2 / ABFSS requirement
+
+The account configured by `ABFSS_STORAGE_ACCOUNT` must have **Hierarchical Namespace (HNS)** enabled and expose a DFS endpoint. For the current test account this means:
 
 ```text
-irionctstorageaccount-duckdb-tests-write/runs/<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>-<RUNNER_OS>
+ABFSS_STORAGE_ACCOUNT=irionctstorageaccount
+DFS endpoint=https://irionctstorageaccount.dfs.core.windows.net/
+HNS enabled=true
 ```
 
-This keeps Windows and Linux write tests isolated without adding a per-run GitHub variable.
+The configured data and write containers are also the ADLS Gen2 filesystems used by the `abfs://` / `abfss://` upstream tests.
 
 ### Azure fixture bootstrap
 
 Before the cloud tests start, `scripts/bootstrap-azure-test-data.py`:
 
 1. authenticates Azure CLI with `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`;
-2. creates the configured data and write containers if they do not already exist;
+2. creates the configured Blob/ADLS data and write containers if they do not already exist;
 3. reads the `data/` directory from the exact pinned `duckdb/duckdb-azure` checkout;
-4. uploads those fixtures under `AZ_DATA_DIR` using Entra authentication (`--auth-mode login`);
-5. leaves write-test objects isolated below the per-run `AZ_TEMP_DIR` prefix.
+4. uploads those fixtures under both the configured `AZ_DATA_DIR` and `ABFSS_DATA_DIR` targets, deduplicating the upload when they resolve to the same account/container/path;
+5. leaves write-test objects isolated below the per-run `AZ_TEMP_DIR` and `ABFSS_TEMP_DIR` prefixes;
+6. obtains a short-lived Azure Storage access token and exposes it only for the current workflow run;
+7. sets the runtime `AZ_CLI_LOGGED_IN=1` marker after the Service Principal login.
 
-With the values above, the containers owned by this test environment are:
+`AZURE_ACCESS_TOKEN` and `AZ_CLI_LOGGED_IN` are **not** repository variables or secrets. They are generated at runtime so the pinned upstream `access_token_auth` and `cli_auth` scenarios can run without additional manual configuration.
+
+With the values above, the containers/filesystems owned by this test environment are:
 
 ```text
 irionctstorageaccount-duckdb-tests-data
 irionctstorageaccount-duckdb-tests-write
 ```
 
-The read fixture `data/l.parquet`, for example, is uploaded to:
+The read fixture `data/l.parquet`, for example, is uploaded once and is addressable through both storage protocols:
 
 ```text
 az://irionctstorageaccount-duckdb-tests-data/fixtures/l.parquet
+abfss://irionctstorageaccount-duckdb-tests-data@irionctstorageaccount.dfs.core.windows.net/fixtures/l.parquet
 ```
 
 Do **not** create or configure `duckdblabs-data` or `duckdblabs-write-testing`; those names belong to DuckDB Labs' own test infrastructure and are not part of this repository's Azure configuration.
 
-The Service Principal must have Azure Blob data-plane permissions that allow reading the data container and creating, reading, overwriting and deleting objects in the write container. The current bootstrap also needs permission to create the containers when they are missing.
+The Service Principal must have Azure Blob data-plane permissions that allow reading the data filesystem and creating, reading, overwriting and deleting objects in the write filesystem. The current bootstrap also needs permission to create the containers/filesystems when they are missing.
 
 The storage account network configuration must allow the GitHub Actions runner to reach the public storage endpoint, or the workflow must run on a runner inside an explicitly allowed network.
 
-Some upstream Azure tests remain gated by additional optional environment variables such as `AZURE_ACCESS_TOKEN`, `AZ_CLI_LOGGED_IN`, `ABFSS_*` or public-container settings. Those are separate test scenarios and are not required for the Service Principal `az://` cloud path documented above.
+The upstream unauthenticated/public-container scenario remains optional. It requires public anonymous Blob access and is intentionally skipped when the storage account has public Blob access disabled.
 
 ## Test results
 
