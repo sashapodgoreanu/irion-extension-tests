@@ -40,6 +40,19 @@ class AzureEnvironmentTestCase(unittest.TestCase):
         )
         self.assertEqual(values["DATA_DIR"], values["AZ_DATA_DIR"])
         self.assertEqual(values["TEMP_DIR"], values["AZ_TEMP_DIR"])
+        forwarded = values["WSLENV"].split(":")
+        self.assertIn("AZURE_CLIENT_SECRET", forwarded)
+        self.assertIn("AZ_STORAGE_ACCOUNT", forwarded)
+        self.assertIn("AZ_TEMP_DIR", forwarded)
+
+    def test_existing_wslenv_is_preserved(self) -> None:
+        environment = self.base_environment()
+        environment["WSLENV"] = "EXISTING/path"
+
+        values = azure_env.resolve_environment(environment)
+
+        self.assertTrue(values["WSLENV"].startswith("EXISTING/path:"))
+        self.assertIn("AZURE_TENANT_ID", values["WSLENV"].split(":"))
 
     def test_missing_external_input_fails_fast(self) -> None:
         environment = self.base_environment()
@@ -64,6 +77,7 @@ class AzureEnvironmentTestCase(unittest.TestCase):
         self.assertIn("AZ_STORAGE_ACCOUNT=irionctstorageaccount\n", text)
         self.assertIn("AZURE_PROVIDER=cloud\n", text)
         self.assertIn("AZ_TEMP_DIR=duckdblabs-write-testing/extension/azure/12345-2-Windows\n", text)
+        self.assertIn("WSLENV=", text)
 
 
 if __name__ == "__main__":
