@@ -104,11 +104,13 @@ def focused_plan(plan: ExecutionPlan) -> ExecutionPlan:
 
 
 def load_extensions_with_focus_overlay(path: Path):
-    """Add Azure cloud coverage only while the temporary Azure focus is active.
+    """Add isolated Azure cloud coverage while the temporary focus is active.
 
     The permanent configuration remains unchanged during this focused validation,
     so the existing full-suite configuration contracts keep describing the normal
-    repository state. The overlay is schema-validated through the normal loader.
+    repository state. Azurite is moved from battery scope into the local profiles
+    that actually require it, preventing its exported local-storage environment
+    from overriding the real Azure environment used by the cloud profile.
     """
     if FOCUSED_BATTERY != "azure":
         return load_config(path)
@@ -119,11 +121,46 @@ def load_extensions_with_focus_overlay(path: Path):
     batteries = raw.get("testBatteries")
     if not isinstance(batteries, dict) or not isinstance(batteries.get("azure"), dict):
         raise RunnerConfigError("Azure battery is missing from extension configuration")
-    profiles = batteries["azure"].get("profiles")
+
+    azure = batteries["azure"]
+    profiles = azure.get("profiles")
     if not isinstance(profiles, list):
         raise RunnerConfigError("Azure profiles must be a list")
+    battery_services = azure.get("services")
+    if not isinstance(battery_services, list):
+        raise RunnerConfigError("Azure battery services must be a list")
 
-    if not any(isinstance(item, dict) and item.get("name") == "cloud" for item in profiles):
+    azurite_services = [
+        service
+        for service in battery_services
+        if isinstance(service, dict) and service.get("type") == "azurite"
+    ]
+    if len(azurite_services) != 1:
+        raise RunnerConfigError(
+            "Focused Azure validation requires exactly one battery-level Azurite service"
+        )
+    azurite_service = dict(azurite_services[0])
+    azure["services"] = [service for service in battery_services if service is not azurite_services[0]]
+
+    profiles_by_name = {
+        item.get("name"): item
+        for item in profiles
+        if isinstance(item, dict) and isinstance(item.get("name"), str)
+    }
+    for profile_name in ("azurite", "proxy"):
+        profile = profiles_by_name.get(profile_name)
+        if profile is None:
+            raise RunnerConfigError(f"Azure {profile_name} profile is missing")
+        services = profile.get("services")
+        if not isinstance(services, list):
+            raise RunnerConfigError(f"Azure {profile_name} profile services must be a list")
+        if not any(
+            isinstance(service, dict) and service.get("name") == azurite_service["name"]
+            for service in services
+        ):
+            services.insert(0, dict(azurite_service))
+
+    if "cloud" not in profiles_by_name:
         profiles.append(
             {
                 "name": "cloud",
