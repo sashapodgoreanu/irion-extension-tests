@@ -304,10 +304,17 @@ jobs:
       - name: Prepare battery configuration
         env:
           BATTERY_CONFIG_JSON: ${{ toJSON(matrix) }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZ_STORAGE_ACCOUNT: ${{ vars.AZ_STORAGE_ACCOUNT }}
         run: |
           mkdir -p build/config build/results/${{ matrix.name }}
           printf '%s\n' "${BATTERY_CONFIG_JSON}" >"build/config/${{ matrix.name }}.json"
           echo "RESULT_STARTED_AT_MS=$(date +%s%3N)" >>"${GITHUB_ENV}"
+          if [[ '${{ matrix.name }}' == 'azure' ]]; then
+            python3 scripts/init-azure-test-env.py --github-env "${GITHUB_ENV}"
+          fi
 
       - name: Checkout remote test source
         if: matrix.sourceType == 'remote'
@@ -480,6 +487,10 @@ jobs:
         shell: pwsh
         env:
           BATTERY_CONFIG_JSON: ${{ toJSON(matrix) }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZ_STORAGE_ACCOUNT: ${{ vars.AZ_STORAGE_ACCOUNT }}
         run: |
           New-Item -ItemType Directory -Force -Path 'build/config','build/results/${{ matrix.name }}' | Out-Null
           $utf8 = [System.Text.UTF8Encoding]::new($false)
@@ -490,6 +501,10 @@ jobs:
           )
           $started = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
           "RESULT_STARTED_AT_MS=$started" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          if ('${{ matrix.name }}' -eq 'azure') {
+            python scripts/init-azure-test-env.py --github-env $env:GITHUB_ENV
+            if ($LASTEXITCODE -ne 0) { throw 'Azure test environment initialization failed' }
+          }
 
       - name: Checkout remote test source
         if: matrix.sourceType == 'remote'
