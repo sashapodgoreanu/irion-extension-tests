@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 """Initialize the Azure environment used by the DuckDB Azure test battery.
 
-Only the externally managed Azure identity/storage inputs are required:
-
-- AZURE_TENANT_ID
-- AZURE_CLIENT_ID
-- AZURE_CLIENT_SECRET
-- AZ_STORAGE_ACCOUNT
-
-All remaining values are derived here so GitHub repository configuration stays
-small and the Linux/Windows runners use the same cloud-test contract.
+GitHub Actions supplies the Azure identity as secrets and the storage target as
+repository variables. This script validates that contract and derives only the
+runtime values that belong to an individual execution.
 """
 
 from __future__ import annotations
@@ -26,10 +20,10 @@ REQUIRED_INPUTS = (
     "AZURE_CLIENT_ID",
     "AZURE_CLIENT_SECRET",
     "AZ_STORAGE_ACCOUNT",
+    "AZ_DATA_DIR",
+    "AZ_TEMP_DIR",
 )
 
-FIXTURE_ROOT = "duckdblabs-data/common/azure_data"
-WRITE_ROOT = "duckdblabs-write-testing/extension/azure"
 WSL_FORWARD_VARIABLES = (
     "AZURE_TENANT_ID",
     "AZURE_CLIENT_ID",
@@ -61,6 +55,17 @@ def required_inputs(environment: dict[str, str]) -> dict[str, str]:
     return {name: environment[name].strip() for name in REQUIRED_INPUTS}
 
 
+def storage_root(value: str, name: str) -> str:
+    normalized = value.strip().strip("/")
+    if not normalized:
+        raise AzureEnvironmentError(f"{name} must not be empty")
+    if "://" in normalized:
+        raise AzureEnvironmentError(
+            f"{name} must be a container/path, not a URI: {value}"
+        )
+    return normalized
+
+
 def execution_suffix(environment: dict[str, str]) -> str:
     parts = [
         environment.get("GITHUB_RUN_ID", ""),
@@ -89,7 +94,9 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
     inputs = required_inputs(environment)
     suffix = execution_suffix(environment)
     storage_account = inputs["AZ_STORAGE_ACCOUNT"]
-    temp_dir = f"{WRITE_ROOT}/{suffix}"
+    data_dir = storage_root(inputs["AZ_DATA_DIR"], "AZ_DATA_DIR")
+    temp_root = storage_root(inputs["AZ_TEMP_DIR"], "AZ_TEMP_DIR")
+    temp_dir = f"{temp_root}/{suffix}"
 
     values = {
         **inputs,
@@ -97,9 +104,9 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
         "AZURE_PROVIDER": "cloud",
         "AZURE_PROTOCOL": "az",
         "AZURE_STORAGE_ACCOUNT": storage_account,
-        "AZ_DATA_DIR": FIXTURE_ROOT,
+        "AZ_DATA_DIR": data_dir,
         "AZ_TEMP_DIR": temp_dir,
-        "DATA_DIR": FIXTURE_ROOT,
+        "DATA_DIR": data_dir,
         "TEMP_DIR": temp_dir,
     }
     if environment.get("RUNNER_OS", "").strip().lower() == "windows":
@@ -142,6 +149,7 @@ def main() -> int:
                 "Azure test environment initialized "
                 f"account={values['AZ_STORAGE_ACCOUNT']} "
                 f"provider={values['AZURE_PROVIDER']} "
+                f"data_dir={values['AZ_DATA_DIR']} "
                 f"temp_dir={values['AZ_TEMP_DIR']}"
             )
         return 0
