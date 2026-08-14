@@ -30,6 +30,20 @@ REQUIRED_INPUTS = (
 
 FIXTURE_ROOT = "duckdblabs-data/common/azure_data"
 WRITE_ROOT = "duckdblabs-write-testing/extension/azure"
+WSL_FORWARD_VARIABLES = (
+    "AZURE_TENANT_ID",
+    "AZURE_CLIENT_ID",
+    "AZURE_CLIENT_SECRET",
+    "AZ_STORAGE_ACCOUNT",
+    "AZURE_AUTH_ENV",
+    "AZURE_PROVIDER",
+    "AZURE_PROTOCOL",
+    "AZURE_STORAGE_ACCOUNT",
+    "AZ_DATA_DIR",
+    "AZ_TEMP_DIR",
+    "DATA_DIR",
+    "TEMP_DIR",
+)
 
 _SAFE_SUFFIX = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -61,13 +75,23 @@ def execution_suffix(environment: dict[str, str]) -> str:
     return _SAFE_SUFFIX.sub("-", raw).strip("-")
 
 
+def wsl_environment(existing: str) -> str:
+    entries = [entry for entry in existing.split(":") if entry]
+    seen = set(entries)
+    for name in WSL_FORWARD_VARIABLES:
+        if name not in seen:
+            entries.append(name)
+            seen.add(name)
+    return ":".join(entries)
+
+
 def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
     inputs = required_inputs(environment)
     suffix = execution_suffix(environment)
     storage_account = inputs["AZ_STORAGE_ACCOUNT"]
     temp_dir = f"{WRITE_ROOT}/{suffix}"
 
-    return {
+    values = {
         **inputs,
         "AZURE_AUTH_ENV": "1",
         "AZURE_PROVIDER": "cloud",
@@ -78,6 +102,9 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
         "DATA_DIR": FIXTURE_ROOT,
         "TEMP_DIR": temp_dir,
     }
+    if environment.get("RUNNER_OS", "").strip().lower() == "windows":
+        values["WSLENV"] = wsl_environment(environment.get("WSLENV", ""))
+    return values
 
 
 def append_github_environment(path: Path, values: dict[str, str]) -> None:
