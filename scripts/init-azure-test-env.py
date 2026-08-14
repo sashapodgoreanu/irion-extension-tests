@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Initialize the Azure environment used by the DuckDB Azure test battery.
 
-GitHub Actions supplies the Azure identity as secrets and the storage target as
-repository variables. This script validates that contract and derives only the
-runtime values that belong to an individual execution.
+GitHub Actions supplies the Azure identity as secrets and both Blob/ADLS storage
+targets as repository variables. This script validates that contract and derives
+only the runtime values that belong to an individual execution.
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ REQUIRED_INPUTS = (
     "AZ_STORAGE_ACCOUNT",
     "AZ_DATA_DIR",
     "AZ_TEMP_DIR",
+    "ABFSS_STORAGE_ACCOUNT",
+    "ABFSS_DATA_DIR",
+    "ABFSS_TEMP_DIR",
 )
 
 WSL_FORWARD_VARIABLES = (
@@ -29,12 +32,15 @@ WSL_FORWARD_VARIABLES = (
     "AZURE_CLIENT_ID",
     "AZURE_CLIENT_SECRET",
     "AZ_STORAGE_ACCOUNT",
+    "ABFSS_STORAGE_ACCOUNT",
     "AZURE_AUTH_ENV",
     "AZURE_PROVIDER",
     "AZURE_PROTOCOL",
     "AZURE_STORAGE_ACCOUNT",
     "AZ_DATA_DIR",
     "AZ_TEMP_DIR",
+    "ABFSS_DATA_DIR",
+    "ABFSS_TEMP_DIR",
     "DATA_DIR",
     "TEMP_DIR",
 )
@@ -97,6 +103,9 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
     data_dir = storage_root(inputs["AZ_DATA_DIR"], "AZ_DATA_DIR")
     temp_root = storage_root(inputs["AZ_TEMP_DIR"], "AZ_TEMP_DIR")
     temp_dir = f"{temp_root}/{suffix}"
+    abfss_data_dir = storage_root(inputs["ABFSS_DATA_DIR"], "ABFSS_DATA_DIR")
+    abfss_temp_root = storage_root(inputs["ABFSS_TEMP_DIR"], "ABFSS_TEMP_DIR")
+    abfss_temp_dir = f"{abfss_temp_root}/{suffix}"
 
     values = {
         **inputs,
@@ -106,6 +115,8 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
         "AZURE_STORAGE_ACCOUNT": storage_account,
         "AZ_DATA_DIR": data_dir,
         "AZ_TEMP_DIR": temp_dir,
+        "ABFSS_DATA_DIR": abfss_data_dir,
+        "ABFSS_TEMP_DIR": abfss_temp_dir,
         "DATA_DIR": data_dir,
         "TEMP_DIR": temp_dir,
     }
@@ -148,9 +159,12 @@ def main() -> int:
             print(
                 "Azure test environment initialized "
                 f"account={values['AZ_STORAGE_ACCOUNT']} "
+                f"abfss_account={values['ABFSS_STORAGE_ACCOUNT']} "
                 f"provider={values['AZURE_PROVIDER']} "
                 f"data_dir={values['AZ_DATA_DIR']} "
-                f"temp_dir={values['AZ_TEMP_DIR']}"
+                f"temp_dir={values['AZ_TEMP_DIR']} "
+                f"abfss_data_dir={values['ABFSS_DATA_DIR']} "
+                f"abfss_temp_dir={values['ABFSS_TEMP_DIR']}"
             )
         return 0
     except AzureEnvironmentError as exc:
