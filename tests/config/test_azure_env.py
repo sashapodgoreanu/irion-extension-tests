@@ -60,6 +60,7 @@ class AzureEnvironmentTestCase(unittest.TestCase):
         self.assertEqual(values["TEMP_DIR"], values["AZ_TEMP_DIR"])
         forwarded = values["WSLENV"].split(":")
         self.assertIn("AZURE_CLIENT_SECRET", forwarded)
+        self.assertIn("AZURE_CONFIG_DIR", forwarded)
         self.assertIn("AZ_STORAGE_ACCOUNT", forwarded)
         self.assertIn("AZ_DATA_DIR", forwarded)
         self.assertIn("AZ_TEMP_DIR", forwarded)
