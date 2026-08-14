@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Create Azure test containers and upload the pinned upstream fixtures.
+"""Create Azure test containers/filesystems and upload pinned upstream fixtures.
 
-The script authenticates with the Service Principal already supplied to the job,
-creates the configured data/write containers if needed, and uploads every file
-from the pinned duckdb-azure ``data/`` directory below the configured data path.
+The script authenticates with the Service Principal supplied to the job, creates
+configured Blob/ADLS targets if needed, uploads every file from the pinned
+``duckdb-azure/data`` directory, and prepares the optional upstream CLI/access-
+token authentication scenarios for subsequent test steps.
 """
 
 from __future__ import annotations
@@ -23,6 +24,9 @@ _REQUIRED_ENV = (
     "AZ_STORAGE_ACCOUNT",
     "AZ_DATA_DIR",
     "AZ_TEMP_DIR",
+    "ABFSS_STORAGE_ACCOUNT",
+    "ABFSS_DATA_DIR",
+    "ABFSS_TEMP_DIR",
 )
 _CONTAINER = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$")
 
@@ -54,13 +58,17 @@ def split_storage_path(value: str, name: str) -> tuple[str, str]:
     return container, prefix
 
 
-def run_az(arguments: list[str]) -> None:
+def az_executable() -> str:
     executable = shutil.which("az")
     if executable is None:
         raise AzureBootstrapError("Azure CLI 'az' is not installed on this runner")
+    return executable
+
+
+def run_az(arguments: list[str], *, capture: bool = False) -> str:
     process = subprocess.run(
-        [executable, *arguments],
-        stdout=subprocess.DEVNULL,
+        [az_executable(), *arguments],
+        stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
         stderr=subprocess.PIPE,
         text=True,
         encoding="utf-8",
@@ -70,6 +78,7 @@ def run_az(arguments: list[str]) -> None:
     if process.returncode != 0:
         detail = process.stderr.strip() or f"exit code {process.returncode}"
         raise AzureBootstrapError(f"Azure CLI command failed: {detail}")
+    return process.stdout.strip() if capture else ""
 
 
 def login(inputs: dict[str, str]) -> None:
@@ -89,6 +98,26 @@ def login(inputs: dict[str, str]) -> None:
             "none",
         ]
     )
+
+
+def storage_access_token() -> str:
+    token = run_az(
+        [
+            "account",
+            "get-access-token",
+            "--resource",
+            "https://storage.azure.com/",
+            "--query",
+            "accessToken",
+            "--output",
+            "tsv",
+            "--only-show-errors",
+        ],
+        capture=True,
+    )
+    if not token:
+        raise AzureBootstrapError("Azure CLI returned an empty Storage access token")
+    return token
 
 
 def ensure_container(account: str, container: str) -> None:
@@ -147,10 +176,50 @@ def upload_fixture(
     )
 
 
+def append_runtime_auth_environment(path: Path, access_token: str) -> None:
+    if "\n" in access_token or "\r" in access_token:
+        raise AzureBootstrapError("Azure Storage access token contains an unsupported newline")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # Mask before adding the token to GITHUB_ENV because later Actions steps may
+    # display inherited environment values in their diagnostic preamble.
+    print(f"::add-mask::{access_token}")
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
+        handle.write("AZ_CLI_LOGGED_IN=1\n")
+        handle.write(f"AZURE_ACCESS_TOKEN={access_token}\n")
+
+
+def storage_targets(inputs: dict[str, str]) -> list[tuple[str, str, str]]:
+    """Return unique (account, container, prefix) fixture upload targets."""
+    targets: list[tuple[str, str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for account_name, path_name in (
+        ("AZ_STORAGE_ACCOUNT", "AZ_DATA_DIR"),
+        ("ABFSS_STORAGE_ACCOUNT", "ABFSS_DATA_DIR"),
+    ):
+        account = inputs[account_name]
+        container, prefix = split_storage_path(inputs[path_name], path_name)
+        key = (account, container, prefix)
+        if key not in seen:
+            seen.add(key)
+            targets.append(key)
+    return targets
+
+
+def writable_containers(inputs: dict[str, str]) -> set[tuple[str, str]]:
+    targets: set[tuple[str, str]] = set()
+    for account_name, path_name in (
+        ("AZ_STORAGE_ACCOUNT", "AZ_DATA_DIR"),
+        ("AZ_STORAGE_ACCOUNT", "AZ_TEMP_DIR"),
+        ("ABFSS_STORAGE_ACCOUNT", "ABFSS_DATA_DIR"),
+        ("ABFSS_STORAGE_ACCOUNT", "ABFSS_TEMP_DIR"),
+    ):
+        container, _ = split_storage_path(inputs[path_name], path_name)
+        targets.add((inputs[account_name], container))
+    return targets
+
+
 def bootstrap(source_root: Path, environment: dict[str, str]) -> int:
     inputs = required_environment(environment)
-    data_container, data_prefix = split_storage_path(inputs["AZ_DATA_DIR"], "AZ_DATA_DIR")
-    temp_container, _ = split_storage_path(inputs["AZ_TEMP_DIR"], "AZ_TEMP_DIR")
     fixture_root = source_root / "data"
     if not fixture_root.is_dir():
         raise AzureBootstrapError(
@@ -164,17 +233,28 @@ def bootstrap(source_root: Path, environment: dict[str, str]) -> int:
         raise AzureBootstrapError("required upstream fixture data/l.parquet is missing")
 
     login(inputs)
-    account = inputs["AZ_STORAGE_ACCOUNT"]
-    for container in sorted({data_container, temp_container}):
+
+    for account, container in sorted(writable_containers(inputs)):
         ensure_container(account, container)
 
-    for file_path in files:
-        upload_fixture(account, data_container, data_prefix, fixture_root, file_path)
+    targets = storage_targets(inputs)
+    for account, container, prefix in targets:
+        for file_path in files:
+            upload_fixture(account, container, prefix, fixture_root, file_path)
+
+    token = storage_access_token()
+    github_env = environment.get("GITHUB_ENV", "").strip()
+    if github_env:
+        append_runtime_auth_environment(Path(github_env), token)
 
     print(
         "Azure cloud fixtures ready "
-        f"account={account} data={inputs['AZ_DATA_DIR']} "
-        f"temp={inputs['AZ_TEMP_DIR']} files={len(files)}"
+        f"az_account={inputs['AZ_STORAGE_ACCOUNT']} az_data={inputs['AZ_DATA_DIR']} "
+        f"az_temp={inputs['AZ_TEMP_DIR']} "
+        f"abfss_account={inputs['ABFSS_STORAGE_ACCOUNT']} "
+        f"abfss_data={inputs['ABFSS_DATA_DIR']} "
+        f"abfss_temp={inputs['ABFSS_TEMP_DIR']} "
+        f"upload_targets={len(targets)} files={len(files)}"
     )
     return len(files)
 
