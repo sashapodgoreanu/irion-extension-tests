@@ -149,55 +149,87 @@ Do not commit the service-account JSON file to this repository.
 
 ## Azure cloud test configuration
 
-The pinned `duckdb/duckdb-azure` upstream suite contains real Azure Storage tests under `test/sql/cloud/`. The upstream cloud bootstrap authenticates with an Azure Service Principal.
+The Azure cloud profile runs the pinned `duckdb/duckdb-azure` cloud tests against an Irion-owned Azure Storage account. It does **not** use the DuckDB Labs containers or storage-account names from upstream CI.
 
-The external credentials that must be supplied to the test environment are:
-
-| Environment variable | Purpose | Sensitive |
-|---|---|---|
-| `AZURE_TENANT_ID` | Microsoft Entra tenant containing the test Service Principal | No |
-| `AZURE_CLIENT_ID` | Application/client ID of the test Service Principal | No |
-| `AZURE_CLIENT_SECRET` | Client secret used by the Service Principal | Yes |
-
-For GitHub Actions, configure these values under:
+Configure Azure under:
 
 ```text
 Repository → Settings → Secrets and variables → Actions
 ```
 
-`AZURE_CLIENT_SECRET` must be stored as a repository secret. `AZURE_TENANT_ID` and `AZURE_CLIENT_ID` are identifiers rather than passwords, but they may also be stored as secrets if the workflow uses the `secrets` context for all three values. The workflow that enables the cloud profile must expose them to the test process with the same environment-variable names.
+### Repository secrets
 
-The pinned upstream `scripts/env_azure` bootstrap derives the remaining cloud-test environment. These values should normally be created by the test bootstrap rather than maintained as credentials in GitHub:
+Create or keep these values under **Secrets → Repository secrets**:
 
-| Environment variable | Upstream value / purpose |
+| Secret | Value |
 |---|---|
-| `AZURE_AUTH_ENV` | `1`; enables the environment-authenticated cloud test contract |
-| `AZURE_PROVIDER` | `cloud` |
-| `AZ_STORAGE_ACCOUNT` | `duckdblabstestdatablob`; Azure Blob Storage account used by `az://` tests |
-| `AZ_DATA_DIR` | `duckdblabs-data/common/azure_data`; read-only fixture path |
-| `AZ_TEMP_DIR` | `duckdblabs-write-testing/extension/azure/<unique-suffix>`; isolated write-test path |
-| `ABFSS_STORAGE_ACCOUNT` | `duckdblabstestdata`; ADLS Gen2 account used by `abfs://`/`abfss://` tests |
-| `ABFSS_DATA_DIR` | `duckdblabs-data/common/azure_data`; ADLS fixture path |
-| `ABFSS_TEMP_DIR` | `duckdblabs-write-testing/extension/azure/<unique-suffix>`; isolated ADLS write-test path |
+| `AZURE_TENANT_ID` | Microsoft Entra tenant ID containing the test Service Principal |
+| `AZURE_CLIENT_ID` | Application/client ID of the test Service Principal |
+| `AZURE_CLIENT_SECRET` | Client secret of the test Service Principal |
 
-The unique temporary suffix is generated for each test execution to reduce collisions. The Windows and Linux test batteries are intentionally serialized because both operating systems use the same external cloud accounts and shared fixture roots.
+All three Azure identity values are intentionally read from the GitHub Actions `secrets` context.
 
-The Service Principal must be able to read the fixture data and must have sufficient Blob/ADLS permissions to create, read, overwrite and delete objects in the write-testing location. ADLS Gen2 tests may additionally require filesystem ACLs appropriate to the Service Principal.
+### Repository variables
 
-Some upstream Azure tests have additional, test-specific environment gates. They are not primary repository credentials:
+Create these values under **Variables → Repository variables** exactly as shown:
 
-| Environment variable | Used for |
+| Variable | Value |
 |---|---|
-| `AZURE_ACCESS_TOKEN` | `access_token_auth.test`; generated at runtime, normally with Azure CLI |
-| `AZ_CLI_LOGGED_IN` | `cli_auth.test`; marker used only after a successful `az login` |
-| `DUCKDB_AZURE_PUBLIC_CONTAINER_AVAILABLE` | Enables the unauthenticated/public-container test |
-| `PUBLIC_AZ_STORAGE_ACCOUNT` | Public account used by that test; upstream uses `duckdbtesting` |
-| `ENABLE_DATA_INTEGRITY` | Enables the separate persistent test-data integrity check |
-| `DUCKDB_AZURE_PERSISTENT_SECRET_AVAILABLE` | Indicates that the persistent Azure secret required by the integrity check was created |
+| `AZ_STORAGE_ACCOUNT` | `irionctstorageaccount` |
+| `AZ_DATA_DIR` | `irionctstorageaccount-duckdb-tests-data/fixtures` |
+| `AZ_TEMP_DIR` | `irionctstorageaccount-duckdb-tests-write/runs` |
 
-Do not store `AZURE_ACCESS_TOKEN` as a long-lived repository secret. It is short-lived and should be generated during the job when that authentication scenario is tested.
+`AZ_DATA_DIR` and `AZ_TEMP_DIR` use the format `container/path`; do not include `az://`, `azure://` or the storage-account hostname.
 
-**Current repository status:** the Azure battery in `config/extensions.yml` currently executes the local `azurite` and `proxy` profiles only. `test/sql/cloud/*` is not yet part of the configured Azure battery. Adding the three Service Principal credentials alone therefore does not enable cloud execution; a dedicated cloud profile/bootstrap must also be added to the battery configuration.
+At runtime the repository derives:
+
+```text
+AZURE_AUTH_ENV=1
+AZURE_PROVIDER=cloud
+AZURE_PROTOCOL=az
+AZURE_STORAGE_ACCOUNT=${AZ_STORAGE_ACCOUNT}
+DATA_DIR=${AZ_DATA_DIR}
+TEMP_DIR=${AZ_TEMP_DIR}/<run-suffix>
+```
+
+`AZ_TEMP_DIR` is configured as a stable root. The initializer automatically expands it for every execution to:
+
+```text
+irionctstorageaccount-duckdb-tests-write/runs/<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>-<RUNNER_OS>
+```
+
+This keeps Windows and Linux write tests isolated without adding a per-run GitHub variable.
+
+### Azure fixture bootstrap
+
+Before the cloud tests start, `scripts/bootstrap-azure-test-data.py`:
+
+1. authenticates Azure CLI with `AZURE_TENANT_ID`, `AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET`;
+2. creates the configured data and write containers if they do not already exist;
+3. reads the `data/` directory from the exact pinned `duckdb/duckdb-azure` checkout;
+4. uploads those fixtures under `AZ_DATA_DIR` using Entra authentication (`--auth-mode login`);
+5. leaves write-test objects isolated below the per-run `AZ_TEMP_DIR` prefix.
+
+With the values above, the containers owned by this test environment are:
+
+```text
+irionctstorageaccount-duckdb-tests-data
+irionctstorageaccount-duckdb-tests-write
+```
+
+The read fixture `data/l.parquet`, for example, is uploaded to:
+
+```text
+az://irionctstorageaccount-duckdb-tests-data/fixtures/l.parquet
+```
+
+Do **not** create or configure `duckdblabs-data` or `duckdblabs-write-testing`; those names belong to DuckDB Labs' own test infrastructure and are not part of this repository's Azure configuration.
+
+The Service Principal must have Azure Blob data-plane permissions that allow reading the data container and creating, reading, overwriting and deleting objects in the write container. The current bootstrap also needs permission to create the containers when they are missing.
+
+The storage account network configuration must allow the GitHub Actions runner to reach the public storage endpoint, or the workflow must run on a runner inside an explicitly allowed network.
+
+Some upstream Azure tests remain gated by additional optional environment variables such as `AZURE_ACCESS_TOKEN`, `AZ_CLI_LOGGED_IN`, `ABFSS_*` or public-container settings. Those are separate test scenarios and are not required for the Service Principal `az://` cloud path documented above.
 
 ## Test results
 
