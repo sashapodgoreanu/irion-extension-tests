@@ -27,9 +27,10 @@ class AzureBootstrapTestCase(unittest.TestCase):
             "ABFSS_STORAGE_ACCOUNT": "irionctstorageaccount",
             "ABFSS_DATA_DIR": "irionctstorageaccount-duckdb-tests-data/fixtures",
             "ABFSS_TEMP_DIR": "irionctstorageaccount-duckdb-tests-write/runs/123-Windows",
+            "AZURE_CONFIG_DIR": r"C:\Users\runneradmin\.azure",
         }
 
-    def test_blob_and_abfss_fixture_target_is_deduplicated(self) -> None:
+    def test_blob_and_abfss_fixture_targets_are_deduplicated(self) -> None:
         inputs = bootstrap.required_environment(self.base_environment())
         self.assertEqual(
             bootstrap.storage_targets(inputs),
@@ -38,7 +39,12 @@ class AzureBootstrapTestCase(unittest.TestCase):
                     "irionctstorageaccount",
                     "irionctstorageaccount-duckdb-tests-data",
                     "fixtures",
-                )
+                ),
+                (
+                    "irionctstorageaccount",
+                    "duckdblabs-data",
+                    "common/azure_data",
+                ),
             ],
         )
         self.assertEqual(
@@ -46,6 +52,8 @@ class AzureBootstrapTestCase(unittest.TestCase):
             {
                 ("irionctstorageaccount", "irionctstorageaccount-duckdb-tests-data"),
                 ("irionctstorageaccount", "irionctstorageaccount-duckdb-tests-write"),
+                ("irionctstorageaccount", "duckdblabs-data"),
+                ("irionctstorageaccount", "duckdblabs-write-testing"),
             },
         )
 
@@ -58,14 +66,18 @@ class AzureBootstrapTestCase(unittest.TestCase):
     def test_runtime_auth_environment_is_written(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "github-env"
-            bootstrap.append_runtime_auth_environment(path, "token-value")
+            bootstrap.append_runtime_auth_environment(
+                path, "token-value", r"C:\Users\runneradmin\.azure"
+            )
             text = path.read_text(encoding="utf-8")
         self.assertEqual(
             text,
-            "AZ_CLI_LOGGED_IN=1\nAZURE_ACCESS_TOKEN=token-value\n",
+            "AZ_CLI_LOGGED_IN=1\n"
+            "AZURE_ACCESS_TOKEN=token-value\n"
+            "AZURE_CONFIG_DIR=C:\\Users\\runneradmin\\.azure\n",
         )
 
-    def test_bootstrap_uploads_fixture_once_when_targets_match(self) -> None:
+    def test_bootstrap_uploads_configured_and_upstream_fixture_namespaces(self) -> None:
         environment = self.base_environment()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -99,8 +111,8 @@ class AzureBootstrapTestCase(unittest.TestCase):
 
             login.assert_called_once()
             self.assertEqual(count, 2)
-            self.assertEqual(len(ensured), 2)
-            self.assertEqual(len(uploaded), 2)
+            self.assertEqual(len(ensured), 4)
+            self.assertEqual(len(uploaded), 4)
             self.assertIn(
                 (
                     "irionctstorageaccount",
@@ -109,7 +121,20 @@ class AzureBootstrapTestCase(unittest.TestCase):
                 ),
                 uploaded,
             )
-            self.assertIn("AZ_CLI_LOGGED_IN=1", github_env.read_text(encoding="utf-8"))
+            self.assertIn(
+                (
+                    "irionctstorageaccount",
+                    "duckdblabs-data",
+                    "common/azure_data/l.parquet",
+                ),
+                uploaded,
+            )
+            runtime_environment = github_env.read_text(encoding="utf-8")
+            self.assertIn("AZ_CLI_LOGGED_IN=1", runtime_environment)
+            self.assertIn(
+                "AZURE_CONFIG_DIR=C:\\Users\\runneradmin\\.azure",
+                runtime_environment,
+            )
 
 
 if __name__ == "__main__":
