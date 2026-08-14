@@ -310,6 +310,9 @@ jobs:
           AZ_STORAGE_ACCOUNT: ${{ vars.AZ_STORAGE_ACCOUNT }}
           AZ_DATA_DIR: ${{ vars.AZ_DATA_DIR }}
           AZ_TEMP_DIR: ${{ vars.AZ_TEMP_DIR }}
+          ABFSS_STORAGE_ACCOUNT: ${{ vars.ABFSS_STORAGE_ACCOUNT }}
+          ABFSS_DATA_DIR: ${{ vars.ABFSS_DATA_DIR }}
+          ABFSS_TEMP_DIR: ${{ vars.ABFSS_TEMP_DIR }}
         run: |
           mkdir -p build/config build/results/${{ matrix.name }}
           printf '%s\n' "${BATTERY_CONFIG_JSON}" >"build/config/${{ matrix.name }}.json"
@@ -503,6 +506,9 @@ jobs:
           AZ_STORAGE_ACCOUNT: ${{ vars.AZ_STORAGE_ACCOUNT }}
           AZ_DATA_DIR: ${{ vars.AZ_DATA_DIR }}
           AZ_TEMP_DIR: ${{ vars.AZ_TEMP_DIR }}
+          ABFSS_STORAGE_ACCOUNT: ${{ vars.ABFSS_STORAGE_ACCOUNT }}
+          ABFSS_DATA_DIR: ${{ vars.ABFSS_DATA_DIR }}
+          ABFSS_TEMP_DIR: ${{ vars.ABFSS_TEMP_DIR }}
         run: |
           New-Item -ItemType Directory -Force -Path 'build/config','build/results/${{ matrix.name }}' | Out-Null
           $utf8 = [System.Text.UTF8Encoding]::new($false)
