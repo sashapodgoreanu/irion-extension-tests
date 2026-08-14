@@ -23,6 +23,9 @@ class AzureEnvironmentTestCase(unittest.TestCase):
             "AZ_STORAGE_ACCOUNT": "irionctstorageaccount",
             "AZ_DATA_DIR": "irionctstorageaccount-duckdb-tests-data/fixtures",
             "AZ_TEMP_DIR": "irionctstorageaccount-duckdb-tests-write/runs",
+            "ABFSS_STORAGE_ACCOUNT": "irionctstorageaccount",
+            "ABFSS_DATA_DIR": "irionctstorageaccount-duckdb-tests-data/fixtures",
+            "ABFSS_TEMP_DIR": "irionctstorageaccount-duckdb-tests-write/runs",
             "GITHUB_RUN_ID": "12345",
             "GITHUB_RUN_ATTEMPT": "2",
             "RUNNER_OS": "Windows",
@@ -35,12 +38,22 @@ class AzureEnvironmentTestCase(unittest.TestCase):
         self.assertEqual(values["AZURE_PROVIDER"], "cloud")
         self.assertEqual(values["AZURE_PROTOCOL"], "az")
         self.assertEqual(values["AZURE_STORAGE_ACCOUNT"], "irionctstorageaccount")
+        self.assertEqual(values["AZ_STORAGE_ACCOUNT"], "irionctstorageaccount")
+        self.assertEqual(values["ABFSS_STORAGE_ACCOUNT"], "irionctstorageaccount")
         self.assertEqual(
             values["AZ_DATA_DIR"],
             "irionctstorageaccount-duckdb-tests-data/fixtures",
         )
         self.assertEqual(
             values["AZ_TEMP_DIR"],
+            "irionctstorageaccount-duckdb-tests-write/runs/12345-2-Windows",
+        )
+        self.assertEqual(
+            values["ABFSS_DATA_DIR"],
+            "irionctstorageaccount-duckdb-tests-data/fixtures",
+        )
+        self.assertEqual(
+            values["ABFSS_TEMP_DIR"],
             "irionctstorageaccount-duckdb-tests-write/runs/12345-2-Windows",
         )
         self.assertEqual(values["DATA_DIR"], values["AZ_DATA_DIR"])
@@ -50,6 +63,9 @@ class AzureEnvironmentTestCase(unittest.TestCase):
         self.assertIn("AZ_STORAGE_ACCOUNT", forwarded)
         self.assertIn("AZ_DATA_DIR", forwarded)
         self.assertIn("AZ_TEMP_DIR", forwarded)
+        self.assertIn("ABFSS_STORAGE_ACCOUNT", forwarded)
+        self.assertIn("ABFSS_DATA_DIR", forwarded)
+        self.assertIn("ABFSS_TEMP_DIR", forwarded)
 
     def test_existing_wslenv_is_preserved(self) -> None:
         environment = self.base_environment()
@@ -62,17 +78,17 @@ class AzureEnvironmentTestCase(unittest.TestCase):
 
     def test_missing_actions_variable_fails_fast(self) -> None:
         environment = self.base_environment()
-        del environment["AZ_DATA_DIR"]
+        del environment["ABFSS_DATA_DIR"]
 
         with self.assertRaisesRegex(
             azure_env.AzureEnvironmentError,
-            "AZ_DATA_DIR",
+            "ABFSS_DATA_DIR",
         ):
             azure_env.resolve_environment(environment)
 
     def test_storage_roots_reject_full_uris(self) -> None:
         environment = self.base_environment()
-        environment["AZ_TEMP_DIR"] = "az://container/runs"
+        environment["ABFSS_TEMP_DIR"] = "abfss://container/runs"
 
         with self.assertRaisesRegex(
             azure_env.AzureEnvironmentError,
@@ -91,12 +107,21 @@ class AzureEnvironmentTestCase(unittest.TestCase):
         self.assertIn("AZURE_CLIENT_ID=client\n", text)
         self.assertIn("AZURE_CLIENT_SECRET=secret\n", text)
         self.assertIn("AZ_STORAGE_ACCOUNT=irionctstorageaccount\n", text)
+        self.assertIn("ABFSS_STORAGE_ACCOUNT=irionctstorageaccount\n", text)
         self.assertIn(
             "AZ_DATA_DIR=irionctstorageaccount-duckdb-tests-data/fixtures\n",
             text,
         )
         self.assertIn(
             "AZ_TEMP_DIR=irionctstorageaccount-duckdb-tests-write/runs/12345-2-Windows\n",
+            text,
+        )
+        self.assertIn(
+            "ABFSS_DATA_DIR=irionctstorageaccount-duckdb-tests-data/fixtures\n",
+            text,
+        )
+        self.assertIn(
+            "ABFSS_TEMP_DIR=irionctstorageaccount-duckdb-tests-write/runs/12345-2-Windows\n",
             text,
         )
         self.assertIn("AZURE_PROVIDER=cloud\n", text)
