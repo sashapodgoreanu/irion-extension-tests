@@ -3,8 +3,9 @@
 
 The script authenticates with the Service Principal supplied to the job, creates
 configured Blob/ADLS targets if needed, uploads every file from the pinned
-``duckdb-azure/data`` directory, and prepares the optional upstream CLI/access-
-token authentication scenarios for subsequent test steps.
+``duckdb-azure/data`` directory, mirrors the fixed container paths still used by
+some upstream SQLLogicTests, and prepares the optional upstream CLI/access-token
+authentication scenarios for subsequent test steps.
 """
 
 from __future__ import annotations
@@ -29,6 +30,9 @@ _REQUIRED_ENV = (
     "ABFSS_TEMP_DIR",
 )
 _CONTAINER = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,61}[a-z0-9])?$")
+_UPSTREAM_DATA_CONTAINER = "duckdblabs-data"
+_UPSTREAM_DATA_PREFIX = "common/azure_data"
+_UPSTREAM_WRITE_CONTAINER = "duckdblabs-write-testing"
 
 
 class AzureBootstrapError(RuntimeError):
@@ -120,6 +124,16 @@ def storage_access_token() -> str:
     return token
 
 
+def azure_config_directory(environment: dict[str, str]) -> str:
+    configured = environment.get("AZURE_CONFIG_DIR", "").strip()
+    if configured:
+        return configured
+    home = environment.get("USERPROFILE", "").strip() or environment.get("HOME", "").strip()
+    if not home:
+        home = str(Path.home())
+    return str(Path(home) / ".azure")
+
+
 def ensure_container(account: str, container: str) -> None:
     run_az(
         [
@@ -176,9 +190,15 @@ def upload_fixture(
     )
 
 
-def append_runtime_auth_environment(path: Path, access_token: str) -> None:
-    if "\n" in access_token or "\r" in access_token:
-        raise AzureBootstrapError("Azure Storage access token contains an unsupported newline")
+def append_runtime_auth_environment(
+    path: Path, access_token: str, config_dir: str
+) -> None:
+    for name, value in (
+        ("AZURE_ACCESS_TOKEN", access_token),
+        ("AZURE_CONFIG_DIR", config_dir),
+    ):
+        if "\n" in value or "\r" in value:
+            raise AzureBootstrapError(f"{name} contains an unsupported newline")
     path.parent.mkdir(parents=True, exist_ok=True)
     # Mask before adding the token to GITHUB_ENV because later Actions steps may
     # display inherited environment values in their diagnostic preamble.
@@ -186,22 +206,35 @@ def append_runtime_auth_environment(path: Path, access_token: str) -> None:
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write("AZ_CLI_LOGGED_IN=1\n")
         handle.write(f"AZURE_ACCESS_TOKEN={access_token}\n")
+        handle.write(f"AZURE_CONFIG_DIR={config_dir}\n")
 
 
 def storage_targets(inputs: dict[str, str]) -> list[tuple[str, str, str]]:
     """Return unique (account, container, prefix) fixture upload targets."""
     targets: list[tuple[str, str, str]] = []
     seen: set[tuple[str, str, str]] = set()
+
+    def add(account: str, container: str, prefix: str) -> None:
+        key = (account, container, prefix)
+        if key not in seen:
+            seen.add(key)
+            targets.append(key)
+
     for account_name, path_name in (
         ("AZ_STORAGE_ACCOUNT", "AZ_DATA_DIR"),
         ("ABFSS_STORAGE_ACCOUNT", "ABFSS_DATA_DIR"),
     ):
         account = inputs[account_name]
         container, prefix = split_storage_path(inputs[path_name], path_name)
-        key = (account, container, prefix)
-        if key not in seen:
-            seen.add(key)
-            targets.append(key)
+        add(account, container, prefix)
+
+    # A few pinned upstream tests still refer directly to duckdblabs-data even
+    # though the account name itself is supplied through the test secret. Mirror
+    # that fixture namespace in each configured account instead of rewriting the
+    # upstream test checkout.
+    for account_name in ("AZ_STORAGE_ACCOUNT", "ABFSS_STORAGE_ACCOUNT"):
+        add(inputs[account_name], _UPSTREAM_DATA_CONTAINER, _UPSTREAM_DATA_PREFIX)
+
     return targets
 
 
@@ -215,6 +248,13 @@ def writable_containers(inputs: dict[str, str]) -> set[tuple[str, str]]:
     ):
         container, _ = split_storage_path(inputs[path_name], path_name)
         targets.add((inputs[account_name], container))
+
+    # Pinned upstream write/VFS tests still address these containers literally.
+    # The storage account remains configurable through ACCOUNT_NAME.
+    for account_name in ("AZ_STORAGE_ACCOUNT", "ABFSS_STORAGE_ACCOUNT"):
+        account = inputs[account_name]
+        targets.add((account, _UPSTREAM_DATA_CONTAINER))
+        targets.add((account, _UPSTREAM_WRITE_CONTAINER))
     return targets
 
 
@@ -245,7 +285,9 @@ def bootstrap(source_root: Path, environment: dict[str, str]) -> int:
     token = storage_access_token()
     github_env = environment.get("GITHUB_ENV", "").strip()
     if github_env:
-        append_runtime_auth_environment(Path(github_env), token)
+        append_runtime_auth_environment(
+            Path(github_env), token, azure_config_directory(environment)
+        )
 
     print(
         "Azure cloud fixtures ready "
