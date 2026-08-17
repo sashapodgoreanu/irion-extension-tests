@@ -16,10 +16,18 @@ WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
 WSL_HELPER = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
 WINDOWS_DUCKDB_PROXY = REPOSITORY_ROOT / "scripts" / "windows-duckdb-proxy.sh"
 
-# Temporary Azure-only validation. This must mirror FOCUSED_BATTERY in
-# scripts/prepare-runner-matrices.py. Restore the complete battery list when the
-# focused Azure cloud validation is finished.
-EXPECTED = ["azure"]
+EXPECTED = [
+    "httpfs",
+    "ducklake",
+    "postgres_scanner",
+    "delta",
+    "iceberg",
+    "azure",
+    "unity_catalog",
+    "bigquery",
+    "mssql",
+    "irion",
+]
 
 
 class RunnerMatricesTestCase(unittest.TestCase):
