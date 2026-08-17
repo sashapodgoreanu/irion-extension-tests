@@ -295,6 +295,7 @@ jobs:
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.build-linux.outputs.matrix) }}
 
     steps:
@@ -485,6 +486,7 @@ jobs:
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
 
     steps:
@@ -724,7 +726,7 @@ jobs:
   aggregate-windows:
     name: Aggregate Windows results
     needs: test-windows
-    if: always()
+    if: ${{ always() && needs.test-windows.result != 'skipped' }}
     runs-on: ubuntu-24.04
 
     steps:
