@@ -174,7 +174,10 @@ def main() -> int:
         test_config = profile.get("testConfig")
         if not isinstance(test_config, dict):
             raise ProfileError(f"profile {profile_name} has no testConfig")
-        if test_config.get("description") == HTTPFS_PROFILE_DESCRIPTION:
+        if (
+            test_config.get("description") == HTTPFS_PROFILE_DESCRIPTION
+            and (upstream_root / HTTPFS_PAGING_TEST).is_file()
+        ):
             align_httpfs_request_count_test(upstream_root)
         init_script = runtime_config_dir / profile["initScript"]
         if not init_script.is_file():
