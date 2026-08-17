@@ -35,7 +35,6 @@ class WindowsWslRuntimeTestCase(unittest.TestCase):
             )
             script = f'''source "{WINDOWS_WSL_RUNTIME}"
 qa_sync_azure_cli_profile_to_windows_home
-printf 'profile=%s\n' "$USERPROFILE"
 '''
 
             result = subprocess.run(
