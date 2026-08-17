@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Initialize the Azure environment used by the DuckDB Azure test battery.
 
-GitHub Actions supplies the Azure identity as secrets and both Blob/ADLS storage
-targets as repository variables. This script validates that contract and derives
-only the runtime values that belong to an individual execution.
+GitHub Actions supplies the Azure identity and Blob storage target. ADLS/ABFSS
+coverage is optional: when all ABFSS variables are absent, upstream tests guarded
+by require-env ABFSS_* are expected to skip naturally.
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ REQUIRED_INPUTS = (
     "AZ_STORAGE_ACCOUNT",
     "AZ_DATA_DIR",
     "AZ_TEMP_DIR",
+)
+
+OPTIONAL_ABFSS_INPUTS = (
     "ABFSS_STORAGE_ACCOUNT",
     "ABFSS_DATA_DIR",
     "ABFSS_TEMP_DIR",
@@ -61,7 +64,24 @@ def required_inputs(environment: dict[str, str]) -> dict[str, str]:
         raise AzureEnvironmentError(
             "missing required Azure test environment variable(s): " + ", ".join(missing)
         )
-    return {name: environment[name].strip() for name in REQUIRED_INPUTS}
+
+    values = {name: environment[name].strip() for name in REQUIRED_INPUTS}
+    optional = {
+        name: environment.get(name, "").strip()
+        for name in OPTIONAL_ABFSS_INPUTS
+    }
+    configured = [name for name, value in optional.items() if value]
+    if configured and len(configured) != len(OPTIONAL_ABFSS_INPUTS):
+        missing_optional = [name for name, value in optional.items() if not value]
+        raise AzureEnvironmentError(
+            "ABFSS test configuration must provide all or none of: "
+            + ", ".join(OPTIONAL_ABFSS_INPUTS)
+            + "; missing: "
+            + ", ".join(missing_optional)
+        )
+    if configured:
+        values.update(optional)
+    return values
 
 
 def storage_root(value: str, name: str) -> str:
@@ -106,9 +126,6 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
     data_dir = storage_root(inputs["AZ_DATA_DIR"], "AZ_DATA_DIR")
     temp_root = storage_root(inputs["AZ_TEMP_DIR"], "AZ_TEMP_DIR")
     temp_dir = f"{temp_root}/{suffix}"
-    abfss_data_dir = storage_root(inputs["ABFSS_DATA_DIR"], "ABFSS_DATA_DIR")
-    abfss_temp_root = storage_root(inputs["ABFSS_TEMP_DIR"], "ABFSS_TEMP_DIR")
-    abfss_temp_dir = f"{abfss_temp_root}/{suffix}"
 
     values = {
         **inputs,
@@ -118,11 +135,16 @@ def resolve_environment(environment: dict[str, str]) -> dict[str, str]:
         "AZURE_STORAGE_ACCOUNT": storage_account,
         "AZ_DATA_DIR": data_dir,
         "AZ_TEMP_DIR": temp_dir,
-        "ABFSS_DATA_DIR": abfss_data_dir,
-        "ABFSS_TEMP_DIR": abfss_temp_dir,
         "DATA_DIR": data_dir,
         "TEMP_DIR": temp_dir,
     }
+
+    if "ABFSS_STORAGE_ACCOUNT" in inputs:
+        abfss_data_dir = storage_root(inputs["ABFSS_DATA_DIR"], "ABFSS_DATA_DIR")
+        abfss_temp_root = storage_root(inputs["ABFSS_TEMP_DIR"], "ABFSS_TEMP_DIR")
+        values["ABFSS_DATA_DIR"] = abfss_data_dir
+        values["ABFSS_TEMP_DIR"] = f"{abfss_temp_root}/{suffix}"
+
     if environment.get("RUNNER_OS", "").strip().lower() == "windows":
         values["WSLENV"] = wsl_environment(environment.get("WSLENV", ""))
     return values
@@ -159,16 +181,22 @@ def main() -> int:
                 print(f"{name}={value}")
         else:
             append_github_environment(args.github_env, values)
-            print(
+            abfss_enabled = "ABFSS_STORAGE_ACCOUNT" in values
+            message = (
                 "Azure test environment initialized "
                 f"account={values['AZ_STORAGE_ACCOUNT']} "
-                f"abfss_account={values['ABFSS_STORAGE_ACCOUNT']} "
                 f"provider={values['AZURE_PROVIDER']} "
                 f"data_dir={values['AZ_DATA_DIR']} "
                 f"temp_dir={values['AZ_TEMP_DIR']} "
-                f"abfss_data_dir={values['ABFSS_DATA_DIR']} "
-                f"abfss_temp_dir={values['ABFSS_TEMP_DIR']}"
+                f"abfss_enabled={str(abfss_enabled).lower()}"
             )
+            if abfss_enabled:
+                message += (
+                    f" abfss_account={values['ABFSS_STORAGE_ACCOUNT']}"
+                    f" abfss_data_dir={values['ABFSS_DATA_DIR']}"
+                    f" abfss_temp_dir={values['ABFSS_TEMP_DIR']}"
+                )
+            print(message)
         return 0
     except AzureEnvironmentError as exc:
         print(f"Azure test environment initialization failed: {exc}", file=sys.stderr)
