@@ -34,11 +34,17 @@ if [[ "${QA_DUCKDB_TRANSLATE_STDIN:-0}" == "1" && "${has_inline_command}" == "0"
     "${QA_WINDOWS_DUCKDB_EXE}" "${translated[@]}" <"${translated_input}"
     status=$?
   fi
-else
+elif [[ "${has_inline_command}" == "1" ]]; then
   # Inline commands must not inherit the orchestration stdin. Service startup
   # loops feed manifests through stdin, and native Windows processes can consume
   # pending rows when invoked through WSL interop.
   "${QA_WINDOWS_DUCKDB_EXE}" "${translated[@]}" </dev/null
+  status=$?
+else
+  # Preserve explicit redirected stdin for upstream fixture generators such as
+  # `duckdb attach.db < generate_storage_version.sql`. These calls are not
+  # orchestration commands and the SQL stream is part of their contract.
+  "${QA_WINDOWS_DUCKDB_EXE}" "${translated[@]}"
   status=$?
 fi
 set -e
