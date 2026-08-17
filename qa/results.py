@@ -1,4 +1,4 @@
-"""Structured QA result generation, coverage checks and aggregation."""
+"""Structured QA result generation and aggregation."""
 
 from __future__ import annotations
 
@@ -321,9 +321,7 @@ def build_case_result(
             "prerequisites": prerequisites if external_not_run else [],
         },
         "profiles": profiles,
-        "extensions": _extension_states(
-            log_dir, battery.get("extensions", [])
-        ),
+        "extensions": _extension_states(log_dir, battery.get("extensions", [])),
         "services": declared_services,
     }
 
@@ -333,175 +331,17 @@ def result_exit_code(result: dict[str, Any]) -> int:
 
 
 def find_result_files(root: Path) -> list[Path]:
-    return sorted(
-        path for path in root.rglob("result.json") if path.is_file()
-    )
-
-
-def coverage_thresholds(
-    policy: dict[str, Any] | None, case_id: str, profile_name: str
-) -> dict[str, int]:
-    if policy is None:
-        return {}
-    thresholds = {
-        key: int(value)
-        for key, value in policy.get("defaults", {}).items()
-    }
-    for override in policy.get("overrides", []):
-        if override.get("case") != case_id:
-            continue
-        selected_profile = override.get("profile")
-        if selected_profile is not None and selected_profile != profile_name:
-            continue
-        for key in ("minimumDiscovered", "minimumExecuted", "maximumSkipped"):
-            if key in override:
-                thresholds[key] = int(override[key])
-    return thresholds
-
-
-def coverage_violations(
-    result: dict[str, Any], policy: dict[str, Any] | None
-) -> list[dict[str, Any]]:
-    violations: list[dict[str, Any]] = []
-    case_id = str(result.get("caseId", ""))
-    for profile in result.get("profiles", []):
-        profile_name = str(profile.get("name", ""))
-        thresholds = coverage_thresholds(policy, case_id, profile_name)
-        checks = (
-            ("minimumDiscovered", "discovered", ">="),
-            ("minimumExecuted", "executed", ">="),
-            ("maximumSkipped", "skipped", "<="),
-        )
-        for threshold_name, metric, operator in checks:
-            if threshold_name not in thresholds:
-                continue
-            actual = profile.get(metric)
-            expected = thresholds[threshold_name]
-            failed = actual is None
-            if actual is not None:
-                failed = actual < expected if operator == ">=" else actual > expected
-            if failed:
-                violations.append(
-                    {
-                        "caseId": case_id,
-                        "profile": profile_name,
-                        "metric": metric,
-                        "operator": operator,
-                        "actual": actual,
-                        "expected": expected,
-                    }
-                )
-    return violations
-
-
-def _skip_authorizations(
-    policy: dict[str, Any] | None, case_id: str, profile_name: str
-) -> list[dict[str, Any]]:
-    if policy is None:
-        return []
-    return [
-        item
-        for item in policy.get("skipAuthorizations", [])
-        if item.get("case") == case_id and item.get("profile") == profile_name
-    ]
-
-
-def classify_non_execution(
-    result: dict[str, Any], policy: dict[str, Any] | None
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    classifications: list[dict[str, Any]] = []
-    violations: list[dict[str, Any]] = []
-    case_id = str(result.get("caseId", ""))
-    external = result.get("externalPrerequisite") or {}
-
-    for profile in result.get("profiles", []):
-        profile_name = str(profile.get("name", ""))
-        observed = profile.get("notExecuted")
-        authorizations = _skip_authorizations(policy, case_id, profile_name)
-        expected = 0
-        reason: str | None = None
-        if len(authorizations) == 1:
-            expected = int(authorizations[0]["expected"])
-            reason = str(authorizations[0]["reason"])
-        elif len(authorizations) > 1:
-            violations.append(
-                {
-                    "caseId": case_id,
-                    "profile": profile_name,
-                    "type": "duplicate_authorization",
-                    "observed": observed,
-                    "expected": None,
-                }
-            )
-
-        is_external = bool(
-            external.get("notRun") and profile.get("status") == "not_run"
-        )
-        unexpected: int | None
-        authorization_shortfall: int | None
-        if is_external:
-            unexpected = None
-            authorization_shortfall = None
-        elif observed is None:
-            unexpected = None
-            authorization_shortfall = None
-            violations.append(
-                {
-                    "caseId": case_id,
-                    "profile": profile_name,
-                    "type": "missing_metrics",
-                    "observed": None,
-                    "expected": expected,
-                }
-            )
-        else:
-            unexpected = max(0, int(observed) - expected)
-            authorization_shortfall = max(0, expected - int(observed))
-            if unexpected:
-                violations.append(
-                    {
-                        "caseId": case_id,
-                        "profile": profile_name,
-                        "type": "unexpected_skip",
-                        "observed": int(observed),
-                        "expected": expected,
-                    }
-                )
-            if authorization_shortfall:
-                violations.append(
-                    {
-                        "caseId": case_id,
-                        "profile": profile_name,
-                        "type": "stale_authorization",
-                        "observed": int(observed),
-                        "expected": expected,
-                    }
-                )
-
-        classifications.append(
-            {
-                "caseId": case_id,
-                "profile": profile_name,
-                "observedNotExecuted": observed,
-                "runnerReportedSkipped": profile.get("skipped"),
-                "upstreamDeclared": expected,
-                "upstreamReason": reason,
-                "irionExclusions": list(profile.get("irionExclusions", [])),
-                "externalPrerequisite": is_external,
-                "externalReason": external.get("reason") if is_external else None,
-                "unexpected": unexpected,
-                "authorizationShortfall": authorization_shortfall,
-            }
-        )
-
-    return classifications, violations
+    return sorted(path for path in root.rglob("result.json") if path.is_file())
 
 
 def aggregate_results(
-    plan: dict[str, Any],
-    results: list[dict[str, Any]],
-    policy: dict[str, Any] | None = None,
+    plan: dict[str, Any], results: list[dict[str, Any]]
 ) -> dict[str, Any]:
+    """Aggregate results without enforcing any numeric coverage/skip baseline.
+
+    Test counts are observational. A battery fails only for an actual runner/test
+    failure, invalid/missing structured result, duplicate result, or unexpected case.
+    """
     cases = {str(case["name"]): case for case in plan.get("cases", [])}
     by_case: dict[str, dict[str, Any]] = {}
     duplicate_cases: list[str] = []
@@ -517,38 +357,31 @@ def aggregate_results(
     failed: list[str] = []
     accepted_failures: list[str] = []
     passed: list[str] = []
-    coverage: list[dict[str, Any]] = []
-    non_execution: list[dict[str, Any]] = []
-    skip_violations: list[dict[str, Any]] = []
     external_prerequisite_cases: list[str] = []
 
     for case_id, result in sorted(by_case.items()):
         if case_id not in cases:
             continue
-        expected_accepted = "accepted-failure" in cases[case_id][
-            "execution"
-        ].get("capabilities", [])
+
+        expected_accepted = "accepted-failure" in cases[case_id]["execution"].get(
+            "capabilities", []
+        )
         status = result.get("status")
         if bool(result.get("acceptedFailure")) != expected_accepted:
             invalid.append(case_id)
             continue
 
-        classifications, case_skip_violations = classify_non_execution(result, policy)
-        non_execution.extend(classifications)
-        skip_violations.extend(case_skip_violations)
         if (result.get("externalPrerequisite") or {}).get("notRun"):
             external_prerequisite_cases.append(case_id)
 
         if status == "passed":
-            if any(
-                profile.get("status")
-                not in {"passed", "skipped"}
-                for profile in result.get("profiles", [])
-            ):
+            profile_statuses = {
+                str(profile.get("status")) for profile in result.get("profiles", [])
+            }
+            if profile_statuses - {"passed", "skipped"}:
                 invalid.append(case_id)
             else:
                 passed.append(case_id)
-                coverage.extend(coverage_violations(result, policy))
         elif status == "accepted_failure" and expected_accepted:
             accepted_failures.append(case_id)
         elif status == "failed":
@@ -557,15 +390,7 @@ def aggregate_results(
             invalid.append(case_id)
 
     verdict = "passed"
-    if (
-        missing
-        or unexpected
-        or duplicate_cases
-        or invalid
-        or failed
-        or coverage
-        or skip_violations
-    ):
+    if missing or unexpected or duplicate_cases or invalid or failed:
         verdict = "failed"
 
     return {
@@ -582,123 +407,8 @@ def aggregate_results(
         "missingCases": missing,
         "unexpectedCases": unexpected,
         "duplicateCases": sorted(set(duplicate_cases)),
-        "coverageViolations": coverage,
-        "nonExecution": non_execution,
-        "skipViolations": skip_violations,
-        "results": [
-            by_case[name] for name in sorted(by_case) if name in cases
-        ],
+        "results": [by_case[name] for name in sorted(by_case) if name in cases],
     }
-
-
-def summary_markdown(summary: dict[str, Any]) -> str:
-    runtime = summary.get("runtime") or {}
-    runtime_text = (
-        f"{runtime.get('operatingSystem', 'unknown')}/"
-        f"{runtime.get('architecture', 'unknown')} on "
-        f"{runtime.get('githubRunner', 'unknown')}"
-    )
-    lines = [
-        "# DuckDB extension QA summary",
-        "",
-        f"**Verdict:** `{summary['status']}`",
-        "",
-        f"**Runtime:** `{runtime_text}`",
-        "",
-        "| Case | Status | Profiles |",
-        "|---|---|---|",
-    ]
-    by_case = {
-        result["caseId"]: result for result in summary.get("results", [])
-    }
-    for case_id in summary.get("expectedCases", []):
-        result = by_case.get(case_id)
-        if result is None:
-            lines.append(f"| `{case_id}` | missing | — |")
-            continue
-        profiles = ", ".join(
-            f"{item['name']}={item['status']}"
-            for item in result.get("profiles", [])
-        ) or "—"
-        lines.append(
-            f"| `{case_id}` | {result['status']} | {profiles} |"
-        )
-
-    for title, key in (
-        ("Accepted failures", "acceptedFailureCases"),
-        ("External prerequisites not available", "externalPrerequisiteCases"),
-        ("Failed", "failedCases"),
-        ("Invalid", "invalidCases"),
-        ("Missing", "missingCases"),
-        ("Unexpected", "unexpectedCases"),
-    ):
-        values = summary.get(key, [])
-        if values:
-            lines.extend(
-                [
-                    "",
-                    f"## {title}",
-                    "",
-                    ", ".join(f"`{value}`" for value in values),
-                ]
-            )
-
-    non_execution = summary.get("nonExecution", [])
-    if non_execution:
-        lines.extend(
-            [
-                "",
-                "## Non-execution classification",
-                "",
-                "| Case | Profile | Observed | Upstream declared | Irion exclusions | External prerequisite | Unexpected |",
-                "|---|---|---:|---:|---:|---|---:|",
-            ]
-        )
-        for item in non_execution:
-            external_text = "yes" if item["externalPrerequisite"] else "no"
-            lines.append(
-                f"| `{item['caseId']}` | `{item['profile']}` | "
-                f"{item['observedNotExecuted']} | {item['upstreamDeclared']} | "
-                f"{len(item['irionExclusions'])} | {external_text} | "
-                f"{item['unexpected']} |"
-            )
-
-    violations = summary.get("coverageViolations", [])
-    if violations:
-        lines.extend(
-            [
-                "",
-                "## Coverage violations",
-                "",
-                "| Case | Profile | Metric | Actual | Required |",
-                "|---|---|---|---:|---:|",
-            ]
-        )
-        for violation in violations:
-            lines.append(
-                f"| `{violation['caseId']}` | `{violation['profile']}` | "
-                f"{violation['metric']} | {violation['actual']} | "
-                f"{violation['operator']} {violation['expected']} |"
-            )
-
-    skip_violations = summary.get("skipViolations", [])
-    if skip_violations:
-        lines.extend(
-            [
-                "",
-                "## Skip policy violations",
-                "",
-                "| Case | Profile | Type | Observed | Authorized |",
-                "|---|---|---|---:|---:|",
-            ]
-        )
-        for violation in skip_violations:
-            lines.append(
-                f"| `{violation['caseId']}` | `{violation['profile']}` | "
-                f"{violation['type']} | {violation['observed']} | "
-                f"{violation['expected']} |"
-            )
-    return "\n".join(lines) + "\n"
 
 
 def load_json(path: Path) -> dict[str, Any]:

@@ -113,6 +113,7 @@ qa_service_start_squid() {
   qa_service_wait_for_port "${port}" "Squid service ${name}"
   export HTTP_PROXY_PUBLIC="127.0.0.1:${port}"
   export HTTP_PROXY_RUNNING=1
+  echo "[qa-services] squid-env name=${name} HTTP_PROXY_PUBLIC=${HTTP_PROXY_PUBLIC} HTTP_PROXY_RUNNING=${HTTP_PROXY_RUNNING}" >&2
 }
 
 qa_service_start_httpfs_minio() {
@@ -381,8 +382,19 @@ qa_service_start_file() {
     echo "Services manifest is missing: ${services_file}" >&2
     return 1
   fi
-  while IFS='|' read -r name service_type port version database username auth; do
+
+  # Materialize the manifest before starting any service. Service startup can
+  # invoke arbitrary child processes; none of them must be able to consume the
+  # stream that contains the remaining service definitions.
+  local -a service_rows=()
+  mapfile -t service_rows < <(qa_service_rows "${services_file}")
+  echo "[qa-services] manifest=${services_file} count=${#service_rows[@]}" >&2
+
+  local row name service_type port version database username auth
+  for row in "${service_rows[@]}"; do
+    IFS='|' read -r name service_type port version database username auth <<<"${row}"
     [[ -n "${name}" ]] || continue
+    echo "[qa-services] start name=${name} type=${service_type} port=${port}" >&2
     case "${service_type}" in
       python-http)
         qa_service_start_python_http "${name}" "${port}"
@@ -412,7 +424,8 @@ qa_service_start_file() {
         return 2
         ;;
     esac
-  done < <(qa_service_rows "${services_file}")
+    echo "[qa-services] ready name=${name} type=${service_type}" >&2
+  done
 }
 
 qa_prerequisite_check_file() {

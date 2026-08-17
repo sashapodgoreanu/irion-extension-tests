@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -97,6 +98,19 @@ def main() -> int:
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_text("\n".join(output) + "\n", encoding="utf-8")
         destination.chmod(0o755)
+
+        syntax_check = subprocess.run(
+            ["bash", "-n", str(destination)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if syntax_check.returncode != 0:
+            detail = syntax_check.stderr.strip() or syntax_check.stdout.strip()
+            raise PatchError(
+                "generated MSSQL runner failed bash -n"
+                + (f": {detail}" if detail else "")
+            )
         return 0
     except (OSError, PatchError) as exc:
         print(f"Unable to prepare configured MSSQL runner: {exc}", file=sys.stderr)

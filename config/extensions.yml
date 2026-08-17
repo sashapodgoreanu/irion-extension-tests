@@ -365,7 +365,7 @@ testBatteries:
     runner: mssql-release
     source: remote
     repository: hugr-lab/mssql-extension
-    pin: v0.2.2
+    pin: v0.2.3
     submodules: false
     services:
     - name: sqlserver
@@ -399,11 +399,11 @@ testBatteries:
     - path: test/sql/azure/azure_device_code.test
       reason: Requires Azure credential-chain parameters not supported by the DuckDB v1.5.5 Azure binary
     - path: test/sql/ctas/ctas_auto_tablock.test
-      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB v1.5.5 runtime
+      reason: Known MSSQL CTAS compatibility failure under the pinned DuckDB v1.5.5 runtime
     - path: test/sql/ctas/ctas_if_not_exists.test
-      reason: Known MSSQL v0.2.2 CTAS compatibility failure under the pinned DuckDB v1.5.5 runtime
+      reason: Known MSSQL CTAS compatibility failure under the pinned DuckDB v1.5.5 runtime
     - path: test/sql/catalog/ddl_if_not_exists.test
-      reason: MSSQL v0.2.2 returns a different SQL Server object-exists error message
+      reason: MSSQL returns a different SQL Server object-exists error message for this compatibility case
   irion:
     isEnabled: true
     runner: standard

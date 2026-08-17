@@ -24,10 +24,12 @@ def summary_markdown(summary: dict[str, Any]) -> str:
         "",
         f"**Runtime:** `{runtime_text}`",
         "",
+        "Skipped/non-executed counts are informational and do not affect the verdict.",
+        "",
         "## Test results",
         "",
-        "| Case | Profile | Total tests | OK tests | KO tests | Skipped tests |",
-        "|---|---|---:|---:|---:|---:|",
+        "| Case | Profile | OK tests | KO tests | Skipped / not executed |",
+        "|---|---|---:|---:|---:|",
     ]
 
     by_case = {
@@ -36,29 +38,24 @@ def summary_markdown(summary: dict[str, Any]) -> str:
     for case_id in summary.get("expectedCases", []):
         result = by_case.get(case_id)
         if result is None:
-            lines.append(f"| `{case_id}` | — | — | — | — | — |")
+            lines.append(f"| `{case_id}` | — | — | — | — |")
             continue
 
         profiles = result.get("profiles", [])
         if not profiles:
-            lines.append(f"| `{case_id}` | — | — | — | — | — |")
+            lines.append(f"| `{case_id}` | — | — | — | — |")
             continue
 
         for profile in profiles:
+            skipped = profile.get("skipped")
+            if skipped is None:
+                skipped = profile.get("notExecuted")
             lines.append(
                 f"| `{case_id}` | `{profile['name']}` | "
-                f"{_metric(profile.get('discovered'))} | "
                 f"{_metric(profile.get('passed'))} | "
                 f"{_metric(profile.get('failed'))} | "
-                f"{_metric(profile.get('skipped'))} |"
+                f"{_metric(skipped)} |"
             )
-
-    lines.extend(
-        [
-            "",
-            "Skipped test details are available in the logs and structured result of each battery.",
-        ]
-    )
 
     for title, key in (
         ("Accepted failures", "acceptedFailureCases"),
@@ -67,6 +64,7 @@ def summary_markdown(summary: dict[str, Any]) -> str:
         ("Invalid", "invalidCases"),
         ("Missing", "missingCases"),
         ("Unexpected cases", "unexpectedCases"),
+        ("Duplicate results", "duplicateCases"),
     ):
         values = summary.get(key, [])
         if values:
@@ -77,42 +75,6 @@ def summary_markdown(summary: dict[str, Any]) -> str:
                     "",
                     ", ".join(f"`{value}`" for value in values),
                 ]
-            )
-
-    coverage_violations = summary.get("coverageViolations", [])
-    if coverage_violations:
-        lines.extend(
-            [
-                "",
-                "## Coverage violations",
-                "",
-                "| Case | Profile | Metric | Actual | Required |",
-                "|---|---|---|---:|---:|",
-            ]
-        )
-        for violation in coverage_violations:
-            lines.append(
-                f"| `{violation['caseId']}` | `{violation['profile']}` | "
-                f"{violation['metric']} | {_metric(violation['actual'])} | "
-                f"{violation['operator']} {violation['expected']} |"
-            )
-
-    skip_violations = summary.get("skipViolations", [])
-    if skip_violations:
-        lines.extend(
-            [
-                "",
-                "## Skip policy violations",
-                "",
-                "| Case | Profile | Type | Skipped tests | Authorized skips |",
-                "|---|---|---|---:|---:|",
-            ]
-        )
-        for violation in skip_violations:
-            lines.append(
-                f"| `{violation['caseId']}` | `{violation['profile']}` | "
-                f"{violation['type']} | {_metric(violation['observed'])} | "
-                f"{_metric(violation['expected'])} |"
             )
 
     return "\n".join(lines) + "\n"

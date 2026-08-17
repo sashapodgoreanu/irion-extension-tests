@@ -18,11 +18,20 @@ INIT_SCRIPT="${BATTERY_RUNTIME_CONFIG_DIR}/init-extensions.sql"
 EXTENSIONS_JSON="${BATTERY_RUNTIME_CONFIG_DIR}/extensions.json"
 PROBE_VALIDATOR="${SCRIPT_DIR}/validate-extension-probe.py"
 UNITTEST_LOG="${LOG_DIR}/unittest-all.log"
+RUNNER_LOG="${LOG_DIR}/postgres-scanner-runner.log"
 
 mkdir -p "${RUNTIME_ROOT}/home" "${RUNTIME_ROOT}/tmp" "${LOG_DIR}/services"
 export HOME="${RUNTIME_ROOT}/home"
 export TMPDIR="${RUNTIME_ROOT}/tmp"
 export PATH="$(cd "$(dirname "${DUCKDB_BIN}")" && pwd):${PATH}"
+
+pg_log() {
+  local level=$1
+  shift
+  local timestamp
+  timestamp="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  printf '%s [%s] [postgres_scanner] %s\n' "${timestamp}" "${level}" "$*" | tee -a "${RUNNER_LOG}" >&2
+}
 
 export PGHOST="${PGHOST:-localhost}"
 export PGPORT="${PGPORT:-5432}"
@@ -33,6 +42,15 @@ export POSTGRES_TEST_DATABASE_AVAILABLE=1
 export POSTGRES_TEST_SLOW=1
 export PGSCANNERTMP_ABS_DIR_PREFIX="${RUNTIME_ROOT}/tmp"
 
+pg_log INFO "runner started native_windows=${QA_NATIVE_WINDOWS:-0} source=${UPSTREAM_ROOT} runtime=${RUNTIME_ROOT}"
+pg_log INFO "postgres host=${PGHOST} port=${PGPORT} user=${PGUSER} database=${PGDATABASE}"
+pg_log INFO "fixture_prefix=${PGSCANNERTMP_ABS_DIR_PREFIX}"
+if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+  pg_log INFO "path_mode=windows-native server-side COPY paths prepared by Windows source adapter"
+else
+  pg_log INFO "path_mode=linux-upstream server-side COPY paths use upstream SQLLogicTest behavior"
+fi
+
 for required in \
   "${DUCKDB_BIN}" \
   "${STANDARD_RUNNER}" \
@@ -42,26 +60,28 @@ for required in \
   "${EXTENSIONS_JSON}" \
   "${PROBE_VALIDATOR}"; do
   if [[ ! -e "${required}" ]]; then
-    echo "Required Postgres scanner test input is missing: ${required}" >&2
+    pg_log ERROR "required test input is missing: ${required}"
     exit 1
   fi
 done
 
 ACTUAL_COMMIT="$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
+pg_log INFO "upstream commit expected=${EXPECTED_COMMIT} actual=${ACTUAL_COMMIT}"
 if [[ "${ACTUAL_COMMIT}" != "${EXPECTED_COMMIT}" ]]; then
-  echo "Postgres scanner checkout must be ${EXPECTED_COMMIT}; found ${ACTUAL_COMMIT}" >&2
+  pg_log ERROR "Postgres scanner checkout must be ${EXPECTED_COMMIT}; found ${ACTUAL_COMMIT}"
   exit 1
 fi
 
-for _ in $(seq 1 60); do
+for attempt in $(seq 1 60); do
   if pg_isready -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" >/dev/null 2>&1; then
+    pg_log INFO "PostgreSQL became ready attempt=${attempt}"
     break
   fi
   sleep 1
 done
 
 if ! pg_isready -h "${PGHOST}" -p "${PGPORT}" -U "${PGUSER}" >/dev/null 2>&1; then
-  echo "PostgreSQL test service did not become ready" >&2
+  pg_log ERROR "PostgreSQL test service did not become ready"
   exit 1
 fi
 
@@ -78,8 +98,16 @@ INIT_SQL="$(sql_from_file "${INIT_SCRIPT}")"
   echo "postgres_host=${PGHOST}"
   echo "postgres_port=${PGPORT}"
   echo "postgres_user=${PGUSER}"
+  echo "native_windows=${QA_NATIVE_WINDOWS:-0}"
+  echo "fixture_prefix=${PGSCANNERTMP_ABS_DIR_PREFIX}"
+  if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+    echo "path_mode=windows-native"
+  else
+    echo "path_mode=linux-upstream"
+  fi
 } >"${LOG_DIR}/postgres-scanner-info.txt"
 
+pg_log INFO "probing installed extension set"
 "${DUCKDB_BIN}" -csv -header -c "${INSTALL_SQL} ${INIT_SQL}
   SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
   FROM duckdb_extensions()
@@ -109,24 +137,34 @@ if len(reported_commit) < 7 or not expected_commit.startswith(reported_commit):
 print(f"Postgres scanner release alignment verified: {expected_commit} -> {reported_commit}")
 PY
 
+pg_log INFO "preparing PostgreSQL fixtures from upstream contract"
 (
   cd "${UPSTREAM_ROOT}"
   source ./create-postgres-tables.sh
   psql -d postgresscanner -c "SELECT 42"
   psql -d postgresscanner -c "SELECT * FROM pg_stat_ssl WHERE pid = pg_backend_pid()"
 ) 2>&1 | tee "${LOG_DIR}/services/postgres-fixtures.log"
+pg_log INFO "PostgreSQL fixtures prepared successfully"
 
 status=0
+pg_log INFO "starting SQLLogicTest filter=${TEST_FILTER}"
 # The composable service manager owns PostgreSQL 17. The specialized runner
 # prepares fixtures and delegates only declarative profile execution.
 bash "${STANDARD_RUNNER}" \
   postgres_scanner \
   "${UPSTREAM_ROOT}" || status=$?
+pg_log INFO "SQLLogicTest finished exit_code=${status}"
 
 if [[ -f "${UNITTEST_LOG}" ]] && grep -Eq '^require-env (POSTGRES_TEST_DATABASE_AVAILABLE|POSTGRES_TEST_SLOW): [1-9][0-9]*$' "${UNITTEST_LOG}"; then
-  echo "Mandatory Postgres scanner integration tests were skipped" >&2
+  pg_log ERROR "mandatory Postgres scanner integration tests were skipped"
   grep -E '^require-env POSTGRES_TEST' "${UNITTEST_LOG}" >&2 || true
   status=1
 fi
 
+if [[ -f "${UNITTEST_LOG}" ]]; then
+  summary="$(grep -E 'test cases?:' "${UNITTEST_LOG}" | tail -n 1 || true)"
+  [[ -z "${summary}" ]] || pg_log INFO "summary=${summary}"
+fi
+
+pg_log INFO "runner completed exit_code=${status}"
 exit "${status}"

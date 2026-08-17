@@ -6,13 +6,13 @@ from qa.summary import summary_markdown
 
 
 class SummaryMarkdownTestCase(unittest.TestCase):
-    def test_summary_uses_simple_test_metrics_table(self) -> None:
+    def test_summary_uses_human_quality_metrics_without_skip_policy(self) -> None:
         summary = {
             "status": "passed",
             "runtime": {
-                "operatingSystem": "linux",
+                "operatingSystem": "windows",
                 "architecture": "x86_64",
-                "githubRunner": "ubuntu-24.04",
+                "githubRunner": "windows-2025",
             },
             "expectedCases": ["mssql", "bigquery"],
             "results": [
@@ -21,7 +21,6 @@ class SummaryMarkdownTestCase(unittest.TestCase):
                     "profiles": [
                         {
                             "name": "all",
-                            "discovered": 142,
                             "passed": 129,
                             "failed": 0,
                             "skipped": 13,
@@ -33,7 +32,6 @@ class SummaryMarkdownTestCase(unittest.TestCase):
                     "profiles": [
                         {
                             "name": "all",
-                            "discovered": None,
                             "passed": None,
                             "failed": None,
                             "skipped": None,
@@ -47,22 +45,24 @@ class SummaryMarkdownTestCase(unittest.TestCase):
             "invalidCases": [],
             "missingCases": [],
             "unexpectedCases": [],
-            "coverageViolations": [],
-            "skipViolations": [],
+            "duplicateCases": [],
         }
 
         markdown = summary_markdown(summary)
 
         self.assertIn(
-            "| Case | Profile | Total tests | OK tests | KO tests | Skipped tests |",
+            "| Case | Profile | OK tests | KO tests | Skipped / not executed |",
             markdown,
         )
-        self.assertIn("| `mssql` | `all` | 142 | 129 | 0 | 13 |", markdown)
-        self.assertIn("| `bigquery` | `all` | — | — | — | — |", markdown)
-        self.assertNotIn("Irion exclusions", markdown)
-        self.assertNotIn("External prerequisite |", markdown)
-        self.assertNotIn("Unexpected |", markdown)
-        self.assertNotIn("Observed |", markdown)
+        self.assertIn("| `mssql` | `all` | 129 | 0 | 13 |", markdown)
+        self.assertIn("| `bigquery` | `all` | — | — | — |", markdown)
+        self.assertIn(
+            "Skipped/non-executed counts are informational and do not affect the verdict.",
+            markdown,
+        )
+        self.assertNotIn("Coverage violations", markdown)
+        self.assertNotIn("Skip policy violations", markdown)
+        self.assertNotIn("Authorized skips", markdown)
 
 
 if __name__ == "__main__":

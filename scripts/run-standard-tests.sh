@@ -328,53 +328,72 @@ run_case_specific_verification() {
   fi
 }
 
-while IFS=$'\t' read -r profile_name test_filter; do
+# Materialize the complete profile plan before launching any profile. Commands
+# inside a profile may inherit stdin; they must never be able to consume the
+# remaining profile definitions. This keeps profile isolation compatible with
+# runners that bridge Linux orchestration to native Windows processes.
+mapfile -t profile_rows <"${PROFILES_TSV}"
+echo "[qa-profiles] manifest=${PROFILES_TSV} count=${#profile_rows[@]}" >&2
+
+for profile_row in "${profile_rows[@]}"; do
+  IFS=$'\t' read -r profile_name test_filter <<<"${profile_row}"
   [[ -n "${profile_name}" ]] || continue
-  profile_config="${RUNTIME_ROOT}/profiles/${profile_name}.json"
-  profile_services="${BATTERY_RUNTIME_CONFIG_DIR}/profile-services-${profile_name}.json"
-  python3 "${PROFILE_CONFIG_HELPER}" \
-    "${PROFILES_JSON}" \
-    "${profile_name}" \
-    "${UPSTREAM_ROOT}" \
-    "${profile_config}" \
-    "${EXTENSIONS_JSON}" \
-    "${PROFILE_SKIPS_JSON}" \
-    "${BATTERY_RUNTIME_CONFIG_DIR}"
-  cp "${profile_config}" "${LOG_DIR}/profile-${profile_name}.json"
-  cp "${profile_services}" "${LOG_DIR}/profile-services-${profile_name}.json"
+  echo "[qa-profiles] start name=${profile_name} filter=${test_filter}" >&2
 
-  qa_service_manager_init \
-    "${RUNTIME_ROOT}/profile-services/${profile_name}" \
-    "${UPSTREAM_ROOT}" \
-    "${LOG_DIR}/services/${profile_name}"
-  if [[ "${TEST_NAME}" == "delta" && -n "${DELTA_MINIO_CONTAINER:-}" ]]; then
-    QA_SERVICE_CLEANUPS+=("container|delta-minio|${DELTA_MINIO_CONTAINER}")
-  fi
-  qa_service_start_file "${profile_services}"
+  # Profile services may export credentials, endpoints and provider-specific
+  # variables. Run each profile in its own subshell so those mutations disappear
+  # before the next profile starts. This keeps local emulators and real cloud
+  # profiles independent without maintaining a service-specific reset list.
+  (
+    profile_config="${RUNTIME_ROOT}/profiles/${profile_name}.json"
+    profile_services="${BATTERY_RUNTIME_CONFIG_DIR}/profile-services-${profile_name}.json"
+    python3 "${PROFILE_CONFIG_HELPER}" \
+      "${PROFILES_JSON}" \
+      "${profile_name}" \
+      "${UPSTREAM_ROOT}" \
+      "${profile_config}" \
+      "${EXTENSIONS_JSON}" \
+      "${PROFILE_SKIPS_JSON}" \
+      "${BATTERY_RUNTIME_CONFIG_DIR}"
+    cp "${profile_config}" "${LOG_DIR}/profile-${profile_name}.json"
+    cp "${profile_services}" "${LOG_DIR}/profile-services-${profile_name}.json"
 
-  status=0
-  if [[ "${TEST_NAME}" == "ducklake" && "${profile_name}" == "postgres" ]]; then
-    run_ducklake_postgres_isolated "${profile_name}" "${profile_config}" || status=$?
-  elif [[ "${TEST_NAME}" == "iceberg" && "${profile_name}" == "all" ]]; then
-    local_filter="$(iceberg_local_filter)"
-    run_suite "${profile_name}-local" "${profile_config}" "${local_filter}" || status=$?
-    if [[ "${status}" -eq 0 ]]; then
-      fixture_config="${RUNTIME_ROOT}/profiles/${profile_name}-fixture-catalog.json"
-      prepare_iceberg_fixture_config "${profile_name}" "${fixture_config}" || status=$?
-      if [[ "${status}" -eq 0 ]]; then
-        cp "${fixture_config}" "${LOG_DIR}/profile-${profile_name}-fixture-catalog.json"
-        run_suite "${profile_name}-fixture-catalog" "${fixture_config}" \
-          "test/sql/local/catalog_test_config_setup/*" || status=$?
-      fi
+    qa_service_manager_init \
+      "${RUNTIME_ROOT}/profile-services/${profile_name}" \
+      "${UPSTREAM_ROOT}" \
+      "${LOG_DIR}/services/${profile_name}"
+    trap 'qa_service_stop_all' EXIT
+    if [[ "${TEST_NAME}" == "delta" && -n "${DELTA_MINIO_CONTAINER:-}" ]]; then
+      QA_SERVICE_CLEANUPS+=("container|delta-minio|${DELTA_MINIO_CONTAINER}")
     fi
-  else
-    run_suite "${profile_name}" "${profile_config}" "${test_filter}" || status=$?
-  fi
-  if [[ "${status}" -eq 0 ]]; then
-    run_case_specific_verification "${profile_name}" || status=$?
-  fi
-  qa_service_stop_all
-  if [[ "${status}" -ne 0 ]]; then
+    qa_service_start_file "${profile_services}"
+
+    status=0
+    if [[ "${TEST_NAME}" == "ducklake" && "${profile_name}" == "postgres" ]]; then
+      run_ducklake_postgres_isolated "${profile_name}" "${profile_config}" || status=$?
+    elif [[ "${TEST_NAME}" == "iceberg" && "${profile_name}" == "all" ]]; then
+      local_filter="$(iceberg_local_filter)"
+      run_suite "${profile_name}-local" "${profile_config}" "${local_filter}" || status=$?
+      if [[ "${status}" -eq 0 ]]; then
+        fixture_config="${RUNTIME_ROOT}/profiles/${profile_name}-fixture-catalog.json"
+        prepare_iceberg_fixture_config "${profile_name}" "${fixture_config}" || status=$?
+        if [[ "${status}" -eq 0 ]]; then
+          cp "${fixture_config}" "${LOG_DIR}/profile-${profile_name}-fixture-catalog.json"
+          run_suite "${profile_name}-fixture-catalog" "${fixture_config}" \
+            "test/sql/local/catalog_test_config_setup/*" || status=$?
+        fi
+      fi
+    else
+      run_suite "${profile_name}" "${profile_config}" "${test_filter}" || status=$?
+    fi
+    if [[ "${status}" -eq 0 ]]; then
+      run_case_specific_verification "${profile_name}" || status=$?
+    fi
+
+    qa_service_stop_all
+    trap - EXIT
     exit "${status}"
-  fi
-done <"${PROFILES_TSV}"
+  ) || exit $?
+
+  echo "[qa-profiles] ready name=${profile_name}" >&2
+done

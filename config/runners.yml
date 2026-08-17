@@ -1,0 +1,12 @@
+schemaVersion: 1
+runners:
+  linux:
+    isEnabled: true
+    operatingSystem: linux
+    architecture: x86_64
+    githubRunner: ubuntu-24.04
+  windows:
+    isEnabled: false
+    operatingSystem: windows
+    architecture: x86_64
+    githubRunner: windows-latest

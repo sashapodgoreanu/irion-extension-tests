@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Validate the master catalog fixture shipped with MSSQL v0.2.2.
+"""Validate the master catalog fixture shipped with the pinned MSSQL release.
 
-MSSQL v0.2.2 already seeds master.dbo.test for catalog_discovery.test. The QA
-preparation step therefore validates the upstream fixture without rewriting it
-and fails closed if a future release changes the required contract.
+The QA preparation step validates the upstream fixture without rewriting it and
+fails closed if a future release changes the required catalog contract.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-CONTRACT = "mssql-v0.2.2-master-catalog-fixture-v1"
+CONTRACT = "mssql-release-master-catalog-fixture-v1"
 
 REQUIRED_FRAGMENTS = (
     "IF OBJECT_ID('master.dbo.test', 'U') IS NOT NULL DROP TABLE master.dbo.test;",
@@ -43,7 +42,7 @@ def main() -> int:
     missing = [fragment for fragment in REQUIRED_FRAGMENTS if fragment not in content]
     if missing:
         raise SystemExit(
-            "MSSQL v0.2.2 fixture contract mismatch; missing: " + ", ".join(missing)
+            "MSSQL release fixture contract mismatch; missing: " + ", ".join(missing)
         )
 
     report_path.parent.mkdir(parents=True, exist_ok=True)

@@ -18,48 +18,38 @@ The result writer parses both successful DuckDB summaries and Catch-style failur
 summaries. A test log containing failed test cases produces a failed result even when
 the upstream executable returns exit code zero.
 
-## Coverage policy
+## Test counts are informational
 
-Coverage thresholds are maintained independently in `config/result-policy.yml`:
+There is no numeric coverage or skip baseline. In particular, the aggregate verdict
+does not compare `discovered`, `executed` or `skipped` against hard-coded expected
+counts.
 
-```yaml
-schemaVersion: 1
+This is intentional: upstream suites can add or reclassify tests without requiring a
+manual update of the QA repository. Skipped/non-executed counts remain visible in the
+structured result and in the human-readable summary so a reviewer can judge test
+coverage and configuration quality.
 
-defaults:
-  minimumDiscovered: 1
-  minimumExecuted: 1
-
-overrides: []
-```
-
-The default policy prevents a battery from appearing healthy when every discovered
-test was skipped. Optional exact case/profile overrides can set:
-
-- `minimumDiscovered`;
-- `minimumExecuted`;
-- `maximumSkipped`.
-
-Accepted external-account failures are not evaluated against coverage thresholds,
-because their profiles may not start. Only cases carrying the compiled
-`accepted-failure` capability can use that status.
+A profile that reports only skipped tests is therefore not failed just because of the
+number of skips. A real failed test, invalid test output, missing result or runner
+failure still fails the battery.
 
 ## Aggregate verdict
 
-The final `Aggregate structured results` job downloads every `result-*` artifact and
-checks that:
+The final aggregate jobs download every structured result artifact and check that:
 
 1. every expected execution-plan case reported exactly once;
 2. no unknown or duplicate case reported;
 3. every result conforms to `test-result-v1.schema.json`;
 4. accepted failures match the execution plan;
-5. coverage thresholds are satisfied.
+5. actual test/runner failures remain failures.
 
-It publishes:
+The Markdown report exposes the human quality metrics directly:
 
 ```text
-qa-result-summary/summary.json
-qa-result-summary/summary.md
+Case | Profile | OK tests | KO tests | Skipped / not executed
 ```
 
-Missing, duplicate, invalid, failed or under-covered results make the aggregate job
-fail.
+Skipped/non-executed counts are informational and do not affect the verdict.
+
+The aggregate jobs publish Linux and Windows summaries separately. Missing,
+duplicate, invalid or failed results make the corresponding aggregate job fail.

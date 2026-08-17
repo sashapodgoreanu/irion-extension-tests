@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Validate the pinned MSSQL v0.2.2 SQLLogicTest checkout.
+"""Validate semantic SQLLogicTest contracts in the pinned MSSQL release.
 
-MSSQL v0.2.2 already contains the deterministic SQLLogicTest fixes that this
-repository previously applied to v0.2.1. The QA preparation step now verifies
-those upstream contracts instead of rewriting the checkout. This keeps the
-runner fail-closed if a future release changes the expected test semantics.
+The QA preparation step verifies behavior that the shared runner depends on
+without rewriting the upstream checkout. The checks are intentionally semantic
+and do not encode the number of test files/cases in the release.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-PATCH_CONTRACT = "mssql-v0.2.2-upstream-sqllogictest-contract-v1"
+PATCH_CONTRACT = "mssql-release-upstream-sqllogictest-contract-v1"
 
 
 def sha256_text(text: str) -> str:
@@ -31,7 +30,7 @@ def read_text(path: Path) -> str:
 
 def require_text(text: str, expected: str, *, label: str) -> None:
     if expected not in text:
-        raise SystemExit(f"MSSQL v0.2.2 contract mismatch: missing {label}")
+        raise SystemExit(f"MSSQL release contract mismatch: missing {label}")
 
 
 def validate_scalar_exec_syntax(test_root: Path) -> int:
@@ -47,12 +46,12 @@ def validate_scalar_exec_syntax(test_root: Path) -> int:
 
     if call_count:
         raise SystemExit(
-            "MSSQL v0.2.2 contract mismatch: "
+            "MSSQL release contract mismatch: "
             f"found {call_count} obsolete CALL mssql_exec statement(s)"
         )
     if select_count == 0:
         raise SystemExit(
-            "MSSQL v0.2.2 contract mismatch: no SELECT mssql_exec statements were found"
+            "MSSQL release contract mismatch: no SELECT mssql_exec statements were found"
         )
     return select_count
 
