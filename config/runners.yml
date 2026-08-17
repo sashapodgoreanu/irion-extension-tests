@@ -6,7 +6,7 @@ runners:
     architecture: x86_64
     githubRunner: ubuntu-24.04
   windows:
-    isEnabled: true
+    isEnabled: false
     operatingSystem: windows
     architecture: x86_64
     githubRunner: windows-latest
