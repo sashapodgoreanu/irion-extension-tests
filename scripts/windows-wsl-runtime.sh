@@ -64,6 +64,45 @@ qa_sync_directory() {
   rsync -a --delete "${source}/" "${destination}/"
 }
 
+qa_windows_path_to_wsl() {
+  local value=$1
+  case "${value}" in
+    [A-Za-z]:\\*|[A-Za-z]:/*)
+      command -v wslpath >/dev/null 2>&1 || {
+        echo "Windows WSL runtime bridge requires wslpath to translate ${value}" >&2
+        return 1
+      }
+      wslpath -u "${value}"
+      ;;
+    *)
+      printf '%s\n' "${value}"
+      ;;
+  esac
+}
+
+qa_sync_azure_cli_profile_to_windows_home() {
+  [[ "${AZ_CLI_LOGGED_IN:-}" == "1" ]] || return 0
+  [[ -n "${AZURE_CONFIG_DIR:-}" ]] || {
+    echo "AZ_CLI_LOGGED_IN=1 but AZURE_CONFIG_DIR is not configured" >&2
+    return 1
+  }
+
+  local source
+  source="$(qa_windows_path_to_wsl "${AZURE_CONFIG_DIR}")"
+  if [[ ! -d "${source}" ]]; then
+    echo "Azure CLI profile directory is missing: ${source}" >&2
+    return 1
+  fi
+
+  # AzureCliCredential on Windows starts `az` with a deliberately restricted
+  # environment containing PATH, SystemRoot and USERPROFILE only. It does not
+  # forward AZURE_CONFIG_DIR. Native DuckDB is intentionally given the isolated
+  # WSL HOME as USERPROFILE, so mirror the authenticated CLI profile into the
+  # default location that the child `az` process will resolve from USERPROFILE.
+  qa_sync_directory "${source}" "${HOME}/.azure"
+  echo "[qa-windows] Azure CLI profile synchronized into isolated USERPROFILE" >&2
+}
+
 qa_extension_home_root() {
   printf '%s/.duckdb/extensions/%s' "${HOME}" "${DUCKDB_VERSION:?DUCKDB_VERSION is required}"
 }
@@ -93,6 +132,7 @@ qa_prepare_native_windows_call() {
     echo "Windows WSL runtime bridge requires rsync" >&2
     return 1
   }
+  qa_sync_azure_cli_profile_to_windows_home
   qa_prepare_windows_environment
   qa_sync_linux_extensions_to_windows
   qa_sync_local_repository_to_windows
