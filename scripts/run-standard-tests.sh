@@ -328,8 +328,17 @@ run_case_specific_verification() {
   fi
 }
 
-while IFS=$'\t' read -r profile_name test_filter; do
+# Materialize the complete profile plan before launching any profile. Commands
+# inside a profile may inherit stdin; they must never be able to consume the
+# remaining profile definitions. This keeps profile isolation compatible with
+# runners that bridge Linux orchestration to native Windows processes.
+mapfile -t profile_rows <"${PROFILES_TSV}"
+echo "[qa-profiles] manifest=${PROFILES_TSV} count=${#profile_rows[@]}" >&2
+
+for profile_row in "${profile_rows[@]}"; do
+  IFS=$'\t' read -r profile_name test_filter <<<"${profile_row}"
   [[ -n "${profile_name}" ]] || continue
+  echo "[qa-profiles] start name=${profile_name} filter=${test_filter}" >&2
 
   # Profile services may export credentials, endpoints and provider-specific
   # variables. Run each profile in its own subshell so those mutations disappear
@@ -385,4 +394,6 @@ while IFS=$'\t' read -r profile_name test_filter; do
     trap - EXIT
     exit "${status}"
   ) || exit $?
-done <"${PROFILES_TSV}"
+
+  echo "[qa-profiles] ready name=${profile_name}" >&2
+done
