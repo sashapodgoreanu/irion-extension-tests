@@ -133,7 +133,14 @@ class ServiceRuntimeTestCase(unittest.TestCase):
         self.assertIn('source "${SERVICE_MANAGER}"', script)
         self.assertIn('qa_service_start_file "${profile_services}"', script)
         self.assertIn('qa_service_stop_all', script)
-        self.assertIn("done <\"${PROFILES_TSV}\"", script)
+        profile_plan = 'mapfile -t profile_rows <"${PROFILES_TSV}"'
+        self.assertIn(profile_plan, script)
+        self.assertIn('for profile_row in "${profile_rows[@]}"; do', script)
+        self.assertNotIn('done <"${PROFILES_TSV}"', script)
+        self.assertLess(
+            script.index(profile_plan),
+            script.index('qa_service_start_file "${profile_services}"'),
+        )
 
     def test_battery_runner_owns_battery_service_and_result_lifecycle(self) -> None:
         script = BATTERY_RUNNER.read_text(encoding="utf-8")
