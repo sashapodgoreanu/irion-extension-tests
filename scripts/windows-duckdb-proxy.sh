@@ -35,7 +35,10 @@ if [[ "${QA_DUCKDB_TRANSLATE_STDIN:-0}" == "1" && "${has_inline_command}" == "0"
     status=$?
   fi
 else
-  "${QA_WINDOWS_DUCKDB_EXE}" "${translated[@]}"
+  # Inline commands must not inherit the orchestration stdin. Service startup
+  # loops feed manifests through stdin, and native Windows processes can consume
+  # pending rows when invoked through WSL interop.
+  "${QA_WINDOWS_DUCKDB_EXE}" "${translated[@]}" </dev/null
   status=$?
 fi
 set -e
