@@ -31,7 +31,7 @@ EXPECTED = [
 
 
 class RunnerMatricesTestCase(unittest.TestCase):
-    def test_linux_and_windows_receive_the_same_batteries(self) -> None:
+    def test_enabled_runners_receive_the_full_battery_matrix(self) -> None:
         result = subprocess.run(
             [sys.executable, str(RESOLVER), str(EXTENSIONS), str(RUNNERS)],
             cwd=REPOSITORY_ROOT,
@@ -47,18 +47,32 @@ class RunnerMatricesTestCase(unittest.TestCase):
         linux = json.loads(outputs["linux_matrix"])["include"]
         windows = json.loads(outputs["windows_matrix"])["include"]
 
-        self.assertEqual([item["name"] for item in linux], EXPECTED)
-        self.assertEqual([item["name"] for item in windows], EXPECTED)
         self.assertEqual(outputs["enabled_batteries"].split(","), EXPECTED)
-        self.assertEqual(
-            [item["name"] for item in linux],
-            [item["name"] for item in windows],
-        )
-        self.assertTrue(all(item["runtime"]["operatingSystem"] == "linux" for item in linux))
-        self.assertTrue(all(item["runtime"]["operatingSystem"] == "windows" for item in windows))
-        self.assertTrue(all(item["runtime"]["architecture"] == "x86_64" for item in windows))
-        self.assertEqual(outputs["linux_enabled"], "true")
-        self.assertEqual(outputs["windows_enabled"], "true")
+
+        matrices = {
+            "linux": linux,
+            "windows": windows,
+        }
+        for runner_name, matrix in matrices.items():
+            enabled = outputs[f"{runner_name}_enabled"] == "true"
+            names = [item["name"] for item in matrix]
+            self.assertEqual(names, EXPECTED if enabled else [])
+            if enabled:
+                self.assertTrue(
+                    all(
+                        item["runtime"]["operatingSystem"] == runner_name
+                        for item in matrix
+                    )
+                )
+                self.assertTrue(
+                    all(item["runtime"]["architecture"] == "x86_64" for item in matrix)
+                )
+
+        if outputs["linux_enabled"] == "true" and outputs["windows_enabled"] == "true":
+            self.assertEqual(
+                [item["name"] for item in linux],
+                [item["name"] for item in windows],
+            )
 
     def test_windows_batteries_finish_before_linux_batteries_start(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
@@ -70,7 +84,8 @@ class RunnerMatricesTestCase(unittest.TestCase):
         self.assertIn("  build-windows:\n    name: Build Windows ${{ needs.configure.outputs.duckdb_version }}\n    needs: configure", workflow)
 
         # Windows gets first access to shared cloud accounts. Linux waits for the
-        # Windows matrix to settle, but still runs when Windows tests fail.
+        # Windows matrix to settle, but still runs when Windows tests fail or when
+        # the Windows runner is disabled and its matrix is therefore skipped.
         self.assertIn(
             "  test-windows:\n    name: ${{ matrix.name }}\n    needs: build-windows",
             workflow,
