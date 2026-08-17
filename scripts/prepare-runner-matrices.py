@@ -20,11 +20,6 @@ from qa import ConfigError, load_config, resolve_config  # noqa: E402
 from qa.plan import ExecutionPlan, ExecutionRuntime  # noqa: E402
 
 
-# Temporary focused validation: create execution matrices only for Azure while
-# Azure cloud coverage is being exercised. The declarative configuration stays
-# complete so its structural contract tests remain valid. Remove this focus to
-# restore every battery enabled by config/extensions.yml.
-FOCUSED_BATTERY = "azure"
 AZURE_CLOUD_PROFILE_DESCRIPTION = (
     "Azure cloud compatibility using the upstream Service Principal test account"
 )
@@ -90,31 +85,14 @@ def runner_plan(plan: ExecutionPlan, runner: dict[str, Any]) -> ExecutionPlan:
     )
 
 
-def focused_plan(plan: ExecutionPlan) -> ExecutionPlan:
-    cases = tuple(case for case in plan.cases if case.name == FOCUSED_BATTERY)
-    if not cases:
-        raise RunnerConfigError(
-            f"Focused battery {FOCUSED_BATTERY!r} is not enabled in the extension configuration"
-        )
-    return ExecutionPlan(
-        runtime=plan.runtime,
-        cases=cases,
-        schema_version=plan.schema_version,
-    )
+def load_extensions_with_azure_cloud_overlay(path: Path):
+    """Add isolated Azure cloud coverage without filtering other batteries.
 
-
-def load_extensions_with_focus_overlay(path: Path):
-    """Add isolated Azure cloud coverage while the temporary focus is active.
-
-    The permanent configuration remains unchanged during this focused validation,
-    so the existing full-suite configuration contracts keep describing the normal
-    repository state. Azurite is moved from battery scope into the local profiles
-    that actually require it, preventing its exported local-storage environment
-    from overriding the real Azure environment used by the cloud profile.
+    Azurite is moved from battery scope into the local Azure profiles that need it,
+    preventing its exported local-storage environment from overriding the real Azure
+    environment used by the cloud profile. All batteries enabled in extensions.yml
+    remain part of the resolved execution plan.
     """
-    if FOCUSED_BATTERY != "azure":
-        return load_config(path)
-
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise RunnerConfigError("extension configuration must be a mapping")
@@ -137,10 +115,12 @@ def load_extensions_with_focus_overlay(path: Path):
     ]
     if len(azurite_services) != 1:
         raise RunnerConfigError(
-            "Focused Azure validation requires exactly one battery-level Azurite service"
+            "Azure cloud overlay requires exactly one battery-level Azurite service"
         )
     azurite_service = dict(azurite_services[0])
-    azure["services"] = [service for service in battery_services if service is not azurite_services[0]]
+    azure["services"] = [
+        service for service in battery_services if service is not azurite_services[0]
+    ]
 
     profiles_by_name = {
         item.get("name"): item
@@ -190,7 +170,7 @@ def resolve_runner_matrices(
     extensions_config: Path,
     runners_config: Path,
 ) -> tuple[ExecutionPlan, dict[str, dict[str, Any]]]:
-    plan = focused_plan(resolve_config(load_extensions_with_focus_overlay(extensions_config)))
+    plan = resolve_config(load_extensions_with_azure_cloud_overlay(extensions_config))
     runners = load_runners(runners_config)
     resolved: dict[str, dict[str, Any]] = {}
 
