@@ -2,10 +2,10 @@
 """Create Azure test containers/filesystems and upload pinned upstream fixtures.
 
 The script authenticates with the Service Principal supplied to the job, creates
-configured Blob/ADLS targets if needed, uploads every file from the pinned
-``duckdb-azure/data`` directory, mirrors the fixed container paths still used by
-some upstream SQLLogicTests, and prepares the optional upstream CLI/access-token
-authentication scenarios for subsequent test steps.
+the configured Blob targets, uploads every file from the pinned ``duckdb-azure/data``
+directory, mirrors fixed upstream namespaces, and prepares CLI/access-token auth.
+ADLS/ABFSS targets are optional; when they are not configured, upstream tests
+protected by require-env ABFSS_* skip naturally.
 """
 
 from __future__ import annotations
@@ -25,6 +25,8 @@ _REQUIRED_ENV = (
     "AZ_STORAGE_ACCOUNT",
     "AZ_DATA_DIR",
     "AZ_TEMP_DIR",
+)
+_OPTIONAL_ABFSS_ENV = (
     "ABFSS_STORAGE_ACCOUNT",
     "ABFSS_DATA_DIR",
     "ABFSS_TEMP_DIR",
@@ -45,7 +47,24 @@ def required_environment(environment: dict[str, str]) -> dict[str, str]:
         raise AzureBootstrapError(
             "missing required Azure bootstrap variable(s): " + ", ".join(missing)
         )
-    return {name: environment[name].strip() for name in _REQUIRED_ENV}
+
+    values = {name: environment[name].strip() for name in _REQUIRED_ENV}
+    optional = {
+        name: environment.get(name, "").strip()
+        for name in _OPTIONAL_ABFSS_ENV
+    }
+    configured = [name for name, value in optional.items() if value]
+    if configured and len(configured) != len(_OPTIONAL_ABFSS_ENV):
+        missing_optional = [name for name, value in optional.items() if not value]
+        raise AzureBootstrapError(
+            "ABFSS bootstrap configuration must provide all or none of: "
+            + ", ".join(_OPTIONAL_ABFSS_ENV)
+            + "; missing: "
+            + ", ".join(missing_optional)
+        )
+    if configured:
+        values.update(optional)
+    return values
 
 
 def split_storage_path(value: str, name: str) -> tuple[str, str]:
@@ -200,13 +219,15 @@ def append_runtime_auth_environment(
         if "\n" in value or "\r" in value:
             raise AzureBootstrapError(f"{name} contains an unsupported newline")
     path.parent.mkdir(parents=True, exist_ok=True)
-    # Mask before adding the token to GITHUB_ENV because later Actions steps may
-    # display inherited environment values in their diagnostic preamble.
     print(f"::add-mask::{access_token}")
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write("AZ_CLI_LOGGED_IN=1\n")
         handle.write(f"AZURE_ACCESS_TOKEN={access_token}\n")
         handle.write(f"AZURE_CONFIG_DIR={config_dir}\n")
+
+
+def abfss_enabled(inputs: dict[str, str]) -> bool:
+    return "ABFSS_STORAGE_ACCOUNT" in inputs
 
 
 def storage_targets(inputs: dict[str, str]) -> list[tuple[str, str, str]]:
@@ -220,41 +241,45 @@ def storage_targets(inputs: dict[str, str]) -> list[tuple[str, str, str]]:
             seen.add(key)
             targets.append(key)
 
-    for account_name, path_name in (
-        ("AZ_STORAGE_ACCOUNT", "AZ_DATA_DIR"),
-        ("ABFSS_STORAGE_ACCOUNT", "ABFSS_DATA_DIR"),
-    ):
-        account = inputs[account_name]
-        container, prefix = split_storage_path(inputs[path_name], path_name)
-        add(account, container, prefix)
+    account = inputs["AZ_STORAGE_ACCOUNT"]
+    container, prefix = split_storage_path(inputs["AZ_DATA_DIR"], "AZ_DATA_DIR")
+    add(account, container, prefix)
 
-    # A few pinned upstream tests still refer directly to duckdblabs-data even
-    # though the account name itself is supplied through the test secret. Mirror
-    # that fixture namespace in each configured account instead of rewriting the
-    # upstream test checkout.
-    for account_name in ("AZ_STORAGE_ACCOUNT", "ABFSS_STORAGE_ACCOUNT"):
-        add(inputs[account_name], _UPSTREAM_DATA_CONTAINER, _UPSTREAM_DATA_PREFIX)
+    if abfss_enabled(inputs):
+        abfss_account = inputs["ABFSS_STORAGE_ACCOUNT"]
+        abfss_container, abfss_prefix = split_storage_path(
+            inputs["ABFSS_DATA_DIR"], "ABFSS_DATA_DIR"
+        )
+        add(abfss_account, abfss_container, abfss_prefix)
+
+    # Some pinned upstream tests still refer directly to duckdblabs-data. Mirror
+    # that namespace only in storage accounts that are actually configured.
+    add(inputs["AZ_STORAGE_ACCOUNT"], _UPSTREAM_DATA_CONTAINER, _UPSTREAM_DATA_PREFIX)
+    if abfss_enabled(inputs):
+        add(inputs["ABFSS_STORAGE_ACCOUNT"], _UPSTREAM_DATA_CONTAINER, _UPSTREAM_DATA_PREFIX)
 
     return targets
 
 
 def writable_containers(inputs: dict[str, str]) -> set[tuple[str, str]]:
     targets: set[tuple[str, str]] = set()
-    for account_name, path_name in (
-        ("AZ_STORAGE_ACCOUNT", "AZ_DATA_DIR"),
-        ("AZ_STORAGE_ACCOUNT", "AZ_TEMP_DIR"),
-        ("ABFSS_STORAGE_ACCOUNT", "ABFSS_DATA_DIR"),
-        ("ABFSS_STORAGE_ACCOUNT", "ABFSS_TEMP_DIR"),
-    ):
+
+    for path_name in ("AZ_DATA_DIR", "AZ_TEMP_DIR"):
         container, _ = split_storage_path(inputs[path_name], path_name)
-        targets.add((inputs[account_name], container))
+        targets.add((inputs["AZ_STORAGE_ACCOUNT"], container))
+
+    if abfss_enabled(inputs):
+        for path_name in ("ABFSS_DATA_DIR", "ABFSS_TEMP_DIR"):
+            container, _ = split_storage_path(inputs[path_name], path_name)
+            targets.add((inputs["ABFSS_STORAGE_ACCOUNT"], container))
 
     # Pinned upstream write/VFS tests still address these containers literally.
-    # The storage account remains configurable through ACCOUNT_NAME.
-    for account_name in ("AZ_STORAGE_ACCOUNT", "ABFSS_STORAGE_ACCOUNT"):
-        account = inputs[account_name]
-        targets.add((account, _UPSTREAM_DATA_CONTAINER))
-        targets.add((account, _UPSTREAM_WRITE_CONTAINER))
+    # Prepare them only in configured accounts.
+    targets.add((inputs["AZ_STORAGE_ACCOUNT"], _UPSTREAM_DATA_CONTAINER))
+    targets.add((inputs["AZ_STORAGE_ACCOUNT"], _UPSTREAM_WRITE_CONTAINER))
+    if abfss_enabled(inputs):
+        targets.add((inputs["ABFSS_STORAGE_ACCOUNT"], _UPSTREAM_DATA_CONTAINER))
+        targets.add((inputs["ABFSS_STORAGE_ACCOUNT"], _UPSTREAM_WRITE_CONTAINER))
     return targets
 
 
@@ -289,15 +314,20 @@ def bootstrap(source_root: Path, environment: dict[str, str]) -> int:
             Path(github_env), token, azure_config_directory(environment)
         )
 
-    print(
+    message = (
         "Azure cloud fixtures ready "
         f"az_account={inputs['AZ_STORAGE_ACCOUNT']} az_data={inputs['AZ_DATA_DIR']} "
         f"az_temp={inputs['AZ_TEMP_DIR']} "
-        f"abfss_account={inputs['ABFSS_STORAGE_ACCOUNT']} "
-        f"abfss_data={inputs['ABFSS_DATA_DIR']} "
-        f"abfss_temp={inputs['ABFSS_TEMP_DIR']} "
+        f"abfss_enabled={str(abfss_enabled(inputs)).lower()} "
         f"upload_targets={len(targets)} files={len(files)}"
     )
+    if abfss_enabled(inputs):
+        message += (
+            f" abfss_account={inputs['ABFSS_STORAGE_ACCOUNT']}"
+            f" abfss_data={inputs['ABFSS_DATA_DIR']}"
+            f" abfss_temp={inputs['ABFSS_TEMP_DIR']}"
+        )
+    print(message)
     return len(files)
 
 
