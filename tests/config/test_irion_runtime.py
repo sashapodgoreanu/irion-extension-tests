@@ -35,22 +35,27 @@ class IrionRuntimeTest(unittest.TestCase):
                 "githubRunner": "ubuntu-24.04",
             },
         )
+        self.assertEqual([profile["name"] for profile in irion["profiles"]], ["baseline"])
+        self.assertEqual(irion["profiles"][0]["tests"], "test/sql/irion/*")
         self.assertEqual(
-            [profile["name"] for profile in irion["profiles"]],
-            ["baseline", "extension_security"],
-        )
-        baseline, security = irion["profiles"]
-        self.assertEqual(baseline["tests"], "test/sql/irion/*")
-        self.assertEqual(
-            baseline["testConfig"],
+            irion["profiles"][0]["testConfig"],
             {"kind": "upstream", "path": "test/configs/irion.json"},
         )
+
+        security = next(
+            case
+            for case in plan.matrix()["include"]
+            if case["name"] == "irion_extension_security"
+        )
+        self.assertEqual(security["runner"], "standard")
+        self.assertEqual(security["sourceType"], "self")
+        self.assertEqual([profile["name"] for profile in security["profiles"]], ["security"])
         self.assertEqual(
-            security["tests"],
+            security["profiles"][0]["tests"],
             "test/sql/irion_security/extension_security.test",
         )
         self.assertEqual(
-            security["testConfig"]["excludedExtensions"],
+            security["profiles"][0]["testConfig"]["excludedExtensions"],
             ["mssql", "bigquery"],
         )
         self.assertEqual(irion["services"], [])
