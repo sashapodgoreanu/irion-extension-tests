@@ -675,7 +675,7 @@ jobs:
   aggregate-linux:
     name: Aggregate Linux results
     needs: test-linux
-    if: always()
+    if: ${{ always() && needs.test-linux.result != 'skipped' }}
     runs-on: ubuntu-24.04
 
     steps:
