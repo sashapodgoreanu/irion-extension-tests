@@ -136,6 +136,36 @@ class RunnerMatricesTestCase(unittest.TestCase):
         )
         self.assertEqual(json.loads(outputs["windows_matrix"])["include"], [])
 
+    def test_platform_filter_can_enable_a_configured_disabled_runner(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(RESOLVER),
+                str(EXTENSIONS),
+                str(RUNNERS),
+                "--batteries",
+                "irion_extension_security",
+                "--platforms",
+                "windows",
+            ],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        outputs = dict(
+            line.split("=", 1)
+            for line in result.stdout.splitlines()
+            if "=" in line
+        )
+        self.assertEqual(outputs["linux_enabled"], "false")
+        self.assertEqual(outputs["windows_enabled"], "true")
+        self.assertEqual(json.loads(outputs["linux_matrix"])["include"], [])
+        self.assertEqual(
+            [item["name"] for item in json.loads(outputs["windows_matrix"])["include"]],
+            ["irion_extension_security"],
+        )
+
     def test_filters_reject_unknown_values(self) -> None:
         for flag, value in (("--batteries", "missing"), ("--platforms", "macos")):
             with self.subTest(flag=flag):
