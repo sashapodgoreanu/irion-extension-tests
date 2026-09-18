@@ -12,6 +12,14 @@ The workflow runs automatically on:
 - pull requests;
 - manual execution through `workflow_dispatch`.
 
+Manual runs accept two optional comma-separated filters:
+
+- `batteries`: test battery names such as `irion,httpfs`;
+- `platforms`: `linux`, `windows`, or both.
+
+When a filter is empty, all enabled values are used. For example, to run only the
+Irion battery on Linux, use `batteries=irion` and `platforms=linux`.
+
 The main configuration file is:
 
 ```text
