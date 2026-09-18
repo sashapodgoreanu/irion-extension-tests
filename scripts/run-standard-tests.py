@@ -232,6 +232,63 @@ def prepare_local_extension_repo(
     return local_repo
 
 
+def prepare_approved_extension_repo(
+    source_dir: Path,
+    runtime_root: Path,
+    duckdb_version: str,
+    extensions_json: Path,
+    logger: Logger,
+) -> Path:
+    extensions = read_json(extensions_json)
+    community_names = {
+        extension["name"]
+        for extension in extensions
+        if extension.get("installFrom") == "community"
+    }
+    approved_repo = runtime_root / "approved-repository"
+    target = approved_repo / duckdb_version / source_dir.name
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True, exist_ok=True)
+
+    copied: list[str] = []
+    excluded: list[str] = []
+    for source in sorted(source_dir.glob("*.duckdb_extension*")):
+        extension_name = source.name.split(".duckdb_extension", 1)[0]
+        if extension_name in community_names:
+            excluded.append(extension_name)
+            continue
+        shutil.copy2(source, target / source.name)
+        copied.append(extension_name)
+
+    logger.info(
+        "approved extension repository "
+        f"target={target} copied={','.join(copied)} excluded_community={','.join(excluded)}"
+    )
+    return approved_repo
+
+
+def copy_extension_fixture(
+    source_dir: Path,
+    runtime_root: Path,
+    extension_name: str,
+    logger: Logger,
+) -> Path:
+    candidates = sorted(source_dir.glob(f"{extension_name}.duckdb_extension*"))
+    if len(candidates) != 1:
+        raise RunnerError(
+            f"expected exactly one installed {extension_name} extension binary; "
+            f"found {[path.name for path in candidates]}"
+        )
+
+    fixture_dir = runtime_root / "extension-fixtures"
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    destination = fixture_dir / candidates[0].name
+    shutil.copy2(candidates[0], destination)
+    logger.info(f"extension fixture copied source={candidates[0]} target={destination}")
+    return destination
+
+
 def validate_probe(
     duckdb: Path,
     install_sql: str,
@@ -520,6 +577,25 @@ def main() -> int:
             extension_dir, runtime_root, duckdb_version, logger
         )
         env["LOCAL_EXTENSION_REPO"] = str(local_repo)
+
+        if test_name == "irion_extension_security":
+            approved_repo = prepare_approved_extension_repo(
+                extension_dir,
+                runtime_root,
+                duckdb_version,
+                extensions_json,
+                logger,
+            )
+            community_fixture = copy_extension_fixture(
+                extension_dir,
+                runtime_root,
+                "mssql",
+                logger,
+            )
+            # Forward-slash paths are accepted by DuckDB on both Linux and Windows
+            # and avoid SQL string escaping issues with native Windows paths.
+            env["IRION_APPROVED_EXTENSION_REPO"] = approved_repo.as_posix()
+            env["IRION_COMMUNITY_EXTENSION_PATH"] = community_fixture.as_posix()
 
         for profile_name, test_filter in profile_rows(runtime_config):
             config = runtime_root / "profiles" / f"{profile_name}.json"
