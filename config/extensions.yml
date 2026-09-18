@@ -418,7 +418,7 @@ testBatteries:
         kind: upstream
         path: test/configs/irion.json
     - name: extension_security
-      tests: test/sql/irion/extension_security.test
+      tests: test/sql/irion_security/extension_security.test
       services: []
       testConfig:
         kind: generated
