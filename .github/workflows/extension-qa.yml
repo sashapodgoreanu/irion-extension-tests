@@ -71,7 +71,7 @@ jobs:
           # Manual workflow dispatches continue to use caller-provided filters.
           if [[ "${CI_EVENT_NAME}" == "pull_request" && "${PR_HEAD_REF}" == "feature/irion-extension-security-filters" ]]; then
             batteries="irion_extension_security"
-            platforms="linux"
+            platforms="linux,windows"
           fi
 
           echo "Requested batteries: ${batteries:-all}"
