@@ -18,6 +18,8 @@ false
 statement error
 INSTALL pivot_table;
 
-# LOAD must also fail after community extensions have been disabled.
+# The Irion battery installs mssql from DuckDB Community during setup, but this
+# profile deliberately excludes it from LOAD. Once community extensions are
+# disabled, loading that already-installed community binary must fail.
 statement error
-LOAD pivot_table;
+LOAD mssql;
