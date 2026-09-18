@@ -74,6 +74,83 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 [item["name"] for item in windows],
             )
 
+    def test_battery_filter_selects_only_requested_batteries(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(RESOLVER),
+                str(EXTENSIONS),
+                str(RUNNERS),
+                "--batteries",
+                "irion,httpfs",
+            ],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        outputs = dict(
+            line.split("=", 1)
+            for line in result.stdout.splitlines()
+            if "=" in line
+        )
+        self.assertEqual(outputs["enabled_batteries"], "httpfs,irion")
+        for runner_name in ("linux", "windows"):
+            matrix = json.loads(outputs[f"{runner_name}_matrix"])["include"]
+            expected = ["httpfs", "irion"] if outputs[f"{runner_name}_enabled"] == "true" else []
+            self.assertEqual([item["name"] for item in matrix], expected)
+
+    def test_platform_filter_disables_unselected_runner(self) -> None:
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(RESOLVER),
+                str(EXTENSIONS),
+                str(RUNNERS),
+                "--batteries",
+                "irion",
+                "--platforms",
+                "linux",
+            ],
+            cwd=REPOSITORY_ROOT,
+            check=True,
+            text=True,
+            capture_output=True,
+        )
+        outputs = dict(
+            line.split("=", 1)
+            for line in result.stdout.splitlines()
+            if "=" in line
+        )
+        self.assertEqual(outputs["enabled_batteries"], "irion")
+        self.assertEqual(outputs["linux_enabled"], "true")
+        self.assertEqual(outputs["windows_enabled"], "false")
+        self.assertEqual(
+            [item["name"] for item in json.loads(outputs["linux_matrix"])["include"]],
+            ["irion"],
+        )
+        self.assertEqual(json.loads(outputs["windows_matrix"])["include"], [])
+
+    def test_filters_reject_unknown_values(self) -> None:
+        for flag, value in (("--batteries", "missing"), ("--platforms", "macos")):
+            with self.subTest(flag=flag):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(RESOLVER),
+                        str(EXTENSIONS),
+                        str(RUNNERS),
+                        flag,
+                        value,
+                    ],
+                    cwd=REPOSITORY_ROOT,
+                    check=False,
+                    text=True,
+                    capture_output=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("unknown", result.stderr.lower())
+
     def test_windows_batteries_finish_before_linux_batteries_start(self) -> None:
         workflow = WORKFLOW.read_text(encoding="utf-8")
 
