@@ -1,8 +1,10 @@
-# Irion hardening: a local extension repository must not fall back to DuckDB
-# Community, and community-signed extensions must not be loadable.
+# Irion hardening: use only the runner-owned local extension repository and
+# reject community-signed extensions for both INSTALL and LOAD.
+
+require-env LOCAL_EXTENSION_REPO
 
 statement ok
-SET custom_extension_repository = 'test/fixtures/empty-extension-repository';
+SET custom_extension_repository = '{LOCAL_EXTENSION_REPO}';
 
 statement ok
 SET allow_community_extensions = false;
@@ -12,14 +14,18 @@ SELECT current_setting('allow_community_extensions')::VARCHAR
 ----
 false
 
-# pivot_table is a DuckDB Community extension. With the custom repository
-# redirected to the repository-owned empty folder, INSTALL must fail instead of
-# reaching the public Community repository.
+# The battery bootstrap has already downloaded mssql from DuckDB Community and
+# copied it into LOCAL_EXTENSION_REPO. FORCE INSTALL reads that community-signed
+# binary from the local repository, but it must be rejected when community
+# extension signing keys are disabled.
 statement error
-INSTALL pivot_table;
+FORCE INSTALL mssql;
+----
+<REGEX>:.*signature.*
 
-# The Irion battery installs mssql from DuckDB Community during setup, but this
-# profile deliberately excludes it from LOAD. Once community extensions are
-# disabled, loading that already-installed community binary must fail.
+# The previously installed community binary is still present in the isolated
+# extension home. Loading it must be rejected for the same trust-policy reason.
 statement error
 LOAD mssql;
+----
+<REGEX>:.*signature.*
