@@ -35,11 +35,23 @@ class IrionRuntimeTest(unittest.TestCase):
                 "githubRunner": "ubuntu-24.04",
             },
         )
-        self.assertEqual([profile["name"] for profile in irion["profiles"]], ["baseline"])
-        self.assertEqual(irion["profiles"][0]["tests"], "test/sql/irion/*")
         self.assertEqual(
-            irion["profiles"][0]["testConfig"],
+            [profile["name"] for profile in irion["profiles"]],
+            ["baseline", "extension_security"],
+        )
+        baseline, security = irion["profiles"]
+        self.assertEqual(baseline["tests"], "test/sql/irion/*")
+        self.assertEqual(
+            baseline["testConfig"],
             {"kind": "upstream", "path": "test/configs/irion.json"},
+        )
+        self.assertEqual(
+            security["tests"],
+            "test/sql/irion_security/extension_security.test",
+        )
+        self.assertEqual(
+            security["testConfig"]["excludedExtensions"],
+            ["mssql", "bigquery"],
         )
         self.assertEqual(irion["services"], [])
         self.assertEqual(irion["prerequisites"], [])
