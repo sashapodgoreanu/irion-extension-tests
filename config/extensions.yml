@@ -417,7 +417,21 @@ testBatteries:
       testConfig:
         kind: upstream
         path: test/configs/irion.json
-    - name: extension_security
+    extensions:
+    - name: json
+      isUsed: true
+    - name: sqlite_scanner
+      isUsed: true
+    ignoredTests: []
+
+  irion_extension_security:
+    isEnabled: true
+    runner: standard
+    source: self
+    services: []
+    prerequisites: []
+    profiles:
+    - name: security
       tests: test/sql/irion_security/extension_security.test
       services: []
       testConfig:
@@ -431,7 +445,5 @@ testBatteries:
         - parquet
     extensions:
     - name: json
-      isUsed: true
-    - name: sqlite_scanner
       isUsed: true
     ignoredTests: []
