@@ -52,6 +52,7 @@ class ConfigTestCase(unittest.TestCase):
                 "bigquery",
                 "mssql",
                 "irion",
+                "irion_extension_security",
             ],
         )
         self.assertEqual(
@@ -68,9 +69,12 @@ class ConfigTestCase(unittest.TestCase):
         self.assertTrue(all(item["runtime"] == plan.runtime.payload() for item in matrix))
         self.assertTrue(all("setup" not in item for item in matrix))
 
-        remote_cases = [item for item in matrix if item["name"] != "irion"]
-        self.assertTrue(all(item["sourceType"] == "remote" for item in remote_cases))
+        remote_cases = [item for item in matrix if item["sourceType"] == "remote"]
         self.assertTrue(all("repository" in item and "pin" in item for item in remote_cases))
+        self.assertEqual(
+            [item["name"] for item in matrix if item["sourceType"] == "self"],
+            ["irion", "irion_extension_security"],
+        )
 
         httpfs = matrix[0]
         self.assertEqual(
