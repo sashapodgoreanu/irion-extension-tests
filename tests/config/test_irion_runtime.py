@@ -13,6 +13,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 PROFILE_PREPARER = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
+WINDOWS_BATTERY_RUNNER = REPOSITORY_ROOT / "scripts" / "run-windows-wsl-battery.ps1"
+SECURITY_TEST = REPOSITORY_ROOT / "test" / "sql" / "irion_security" / "extension_security.test"
 
 
 class IrionRuntimeTest(unittest.TestCase):
@@ -61,6 +63,22 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertEqual(irion["services"], [])
         self.assertEqual(irion["prerequisites"], [])
         self.assertNotIn("accepted-failure", irion["capabilities"])
+
+    def test_extension_security_scenario_uses_local_repository_and_blocks_community(self) -> None:
+        test = SECURITY_TEST.read_text(encoding="utf-8")
+        self.assertIn("require-env LOCAL_EXTENSION_REPO", test)
+        self.assertIn(
+            "SET custom_extension_repository = '{LOCAL_EXTENSION_REPO}';",
+            test,
+        )
+        self.assertIn("SET allow_community_extensions = false;", test)
+        self.assertIn("FORCE INSTALL mssql;", test)
+        self.assertIn("LOAD mssql;", test)
+        self.assertGreaterEqual(test.count("statement error"), 2)
+
+        windows_runner = WINDOWS_BATTERY_RUNNER.read_text(encoding="utf-8")
+        self.assertIn("'irion_extension_security'", windows_runner)
+        self.assertIn("$nativeStandardBatteries", windows_runner)
 
     def test_workflow_uses_workspace_for_self_source(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
