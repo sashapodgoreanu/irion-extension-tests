@@ -12,6 +12,20 @@ The workflow runs automatically on:
 - pull requests;
 - manual execution through `workflow_dispatch`.
 
+Manual runs accept two optional comma-separated filters:
+
+- `batteries`: test battery names such as `irion,httpfs`;
+- `platforms`: `linux`, `windows`, or both.
+
+When `batteries` is empty, all enabled batteries are used. When `platforms`
+is empty, the default enablement from `config/runners.yml` is preserved. An
+explicit platform filter overrides that default, so `platforms=windows` can run
+the configured Windows runner even when it is normally disabled.
+
+For example, to run only the Irion extension-security battery on both configured
+platforms, use `batteries=irion_extension_security` and
+`platforms=linux,windows`.
+
 The main configuration file is:
 
 ```text

@@ -13,6 +13,8 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 PROFILE_PREPARER = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
+WINDOWS_BATTERY_RUNNER = REPOSITORY_ROOT / "scripts" / "run-windows-wsl-battery.ps1"
+SECURITY_TEST = REPOSITORY_ROOT / "test" / "sql" / "irion_security" / "extension_security.test"
 
 
 class IrionRuntimeTest(unittest.TestCase):
@@ -41,9 +43,50 @@ class IrionRuntimeTest(unittest.TestCase):
             irion["profiles"][0]["testConfig"],
             {"kind": "upstream", "path": "test/configs/irion.json"},
         )
+
+        security = next(
+            case
+            for case in plan.matrix()["include"]
+            if case["name"] == "irion_extension_security"
+        )
+        self.assertEqual(security["runner"], "standard")
+        self.assertEqual(security["sourceType"], "self")
+        self.assertEqual([profile["name"] for profile in security["profiles"]], ["security"])
+        self.assertEqual(
+            security["profiles"][0]["tests"],
+            "test/sql/irion_security/extension_security.test",
+        )
+        self.assertEqual(
+            security["profiles"][0]["testConfig"]["excludedExtensions"],
+            ["mssql", "bigquery"],
+        )
         self.assertEqual(irion["services"], [])
         self.assertEqual(irion["prerequisites"], [])
         self.assertNotIn("accepted-failure", irion["capabilities"])
+
+    def test_extension_security_scenario_uses_local_repository_and_blocks_community(self) -> None:
+        test = SECURITY_TEST.read_text(encoding="utf-8")
+        self.assertIn("require-env IRION_APPROVED_EXTENSION_REPO", test)
+        self.assertIn("require-env IRION_COMMUNITY_EXTENSION_PATH", test)
+        self.assertIn(
+            "SET custom_extension_repository = '{IRION_APPROVED_EXTENSION_REPO}';",
+            test,
+        )
+        self.assertIn("SET allow_community_extensions = false;", test)
+        self.assertIn("FORCE INSTALL mssql;", test)
+        self.assertIn("LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';", test)
+        self.assertGreaterEqual(test.count("statement error"), 2)
+
+        standard_runner = (REPOSITORY_ROOT / "scripts" / "run-standard-tests.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("prepare_approved_extension_repo", standard_runner)
+        self.assertIn('env["IRION_APPROVED_EXTENSION_REPO"]', standard_runner)
+        self.assertIn('env["IRION_COMMUNITY_EXTENSION_PATH"]', standard_runner)
+
+        windows_runner = WINDOWS_BATTERY_RUNNER.read_text(encoding="utf-8")
+        self.assertIn("'irion_extension_security'", windows_runner)
+        self.assertIn("$nativeStandardBatteries", windows_runner)
 
     def test_workflow_uses_workspace_for_self_source(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
@@ -51,6 +94,16 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertIn("if [[ '${{ matrix.sourceType }}' == 'self' ]]", workflow)
         self.assertIn('root="${GITHUB_WORKSPACE}"', workflow)
         self.assertIn('"${{ steps.test_source.outputs.root }}"', workflow)
+
+    def test_feature_pr_is_scoped_to_irion_security_battery(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("PR_HEAD_REF: ${{ github.head_ref }}", workflow)
+        self.assertIn(
+            '"${PR_HEAD_REF}" == "feature/irion-extension-security-filters"',
+            workflow,
+        )
+        self.assertIn('batteries="irion_extension_security"', workflow)
+        self.assertIn('platforms="linux,windows"', workflow)
 
     def test_repository_init_script_is_combined_with_extension_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,0 +1,31 @@
+# Irion hardening: use only an approved local extension repository and reject
+# community-signed extensions when they are loaded.
+
+require-env IRION_APPROVED_EXTENSION_REPO
+
+require-env IRION_COMMUNITY_EXTENSION_PATH
+
+statement ok
+SET custom_extension_repository = '{IRION_APPROVED_EXTENSION_REPO}';
+
+statement ok
+SET allow_community_extensions = false;
+
+query T
+SELECT current_setting('allow_community_extensions')::VARCHAR
+----
+false
+
+# mssql is a DuckDB Community extension. The runner intentionally removes
+# community binaries from the approved local repository, so an INSTALL through
+# the configured repository must fail instead of reaching a public repository.
+statement error
+FORCE INSTALL mssql;
+
+# The bootstrap phase installed mssql before hardening. A copy of that exact
+# community-signed binary is kept as a fixture so LOAD verifies the trust policy
+# independently from the failed INSTALL above.
+statement error
+LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';
+----
+<REGEX>:.*signature.*

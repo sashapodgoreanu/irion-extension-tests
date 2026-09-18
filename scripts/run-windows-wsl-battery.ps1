@@ -223,7 +223,7 @@ Write-QaLog INFO "Windows battery entry source=$SourceRoot duckdb_version=$DuckD
 # Migration is deliberately incremental. DuckLake joins the native path with
 # PostgreSQL hosted in WSL as infrastructure only; DuckDB and unittest never run
 # through the WSL proxy for this battery.
-$nativeStandardBatteries = @('irion', 'bigquery', 'ducklake')
+$nativeStandardBatteries = @('irion', 'irion_extension_security', 'bigquery', 'ducklake')
 if ($nativeStandardBatteries -contains $BatteryName) {
     if ($BatteryName -eq 'ducklake') {
         Write-QaLog INFO 'execution_mode=native-windows-standard wsl_role=infrastructure-only'
