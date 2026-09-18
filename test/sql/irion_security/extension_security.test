@@ -1,10 +1,11 @@
-# Irion hardening: use only the runner-owned local extension repository and
-# reject community-signed extensions for both INSTALL and LOAD.
+# Irion hardening: use only an approved local extension repository and reject
+# community-signed extensions when they are loaded.
 
-require-env LOCAL_EXTENSION_REPO
+require-env IRION_APPROVED_EXTENSION_REPO
+require-env IRION_COMMUNITY_EXTENSION_PATH
 
 statement ok
-SET custom_extension_repository = '{LOCAL_EXTENSION_REPO}';
+SET custom_extension_repository = '{IRION_APPROVED_EXTENSION_REPO}';
 
 statement ok
 SET allow_community_extensions = false;
@@ -14,18 +15,16 @@ SELECT current_setting('allow_community_extensions')::VARCHAR
 ----
 false
 
-# The battery bootstrap has already downloaded mssql from DuckDB Community and
-# copied it into LOCAL_EXTENSION_REPO. FORCE INSTALL reads that community-signed
-# binary from the local repository, but it must be rejected when community
-# extension signing keys are disabled.
+# mssql is a DuckDB Community extension. The runner intentionally removes
+# community binaries from the approved local repository, so an INSTALL through
+# the configured repository must fail instead of reaching a public repository.
 statement error
 FORCE INSTALL mssql;
-----
-<REGEX>:.*signature.*
 
-# The previously installed community binary is still present in the isolated
-# extension home. Loading it must be rejected for the same trust-policy reason.
+# The bootstrap phase installed mssql before hardening. A copy of that exact
+# community-signed binary is kept as a fixture so LOAD verifies the trust policy
+# independently from the failed INSTALL above.
 statement error
-LOAD mssql;
+LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';
 ----
 <REGEX>:.*signature.*
