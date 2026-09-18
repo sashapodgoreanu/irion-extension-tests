@@ -417,6 +417,18 @@ testBatteries:
       testConfig:
         kind: upstream
         path: test/configs/irion.json
+    - name: extension_security
+      tests: test/sql/irion/extension_security.test
+      services: []
+      testConfig:
+        kind: generated
+        description: Irion extension repository and community loading restrictions
+        excludedExtensions:
+        - mssql
+        - bigquery
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
     - name: json
       isUsed: true
