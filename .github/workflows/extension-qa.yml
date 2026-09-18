@@ -3,6 +3,17 @@ name: DuckDB Extension Compatibility
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      batteries:
+        description: 'Comma-separated test batteries (empty = all)'
+        required: false
+        default: ''
+        type: string
+      platforms:
+        description: 'Comma-separated platforms: linux,windows (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -51,6 +62,8 @@ jobs:
             config/runners.yml \
             --plan-output build/plan/execution-plan.json \
             --output build/plan/runner-matrices.json \
+            --batteries "${{ inputs.batteries }}" \
+            --platforms "${{ inputs.platforms }}" \
             >>"${GITHUB_OUTPUT}"
 
       - name: Test configuration contracts
