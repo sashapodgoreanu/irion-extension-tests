@@ -27,6 +27,7 @@ EXPECTED = [
     "bigquery",
     "mssql",
     "irion",
+    "irion_extension_security",
 ]
 
 
@@ -82,7 +83,7 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 str(EXTENSIONS),
                 str(RUNNERS),
                 "--batteries",
-                "irion,httpfs",
+                "irion_extension_security",
             ],
             cwd=REPOSITORY_ROOT,
             check=True,
@@ -94,10 +95,14 @@ class RunnerMatricesTestCase(unittest.TestCase):
             for line in result.stdout.splitlines()
             if "=" in line
         )
-        self.assertEqual(outputs["enabled_batteries"], "httpfs,irion")
+        self.assertEqual(outputs["enabled_batteries"], "irion_extension_security")
         for runner_name in ("linux", "windows"):
             matrix = json.loads(outputs[f"{runner_name}_matrix"])["include"]
-            expected = ["httpfs", "irion"] if outputs[f"{runner_name}_enabled"] == "true" else []
+            expected = (
+                ["irion_extension_security"]
+                if outputs[f"{runner_name}_enabled"] == "true"
+                else []
+            )
             self.assertEqual([item["name"] for item in matrix], expected)
 
     def test_platform_filter_disables_unselected_runner(self) -> None:
@@ -108,7 +113,7 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 str(EXTENSIONS),
                 str(RUNNERS),
                 "--batteries",
-                "irion",
+                "irion_extension_security",
                 "--platforms",
                 "linux",
             ],
@@ -122,12 +127,12 @@ class RunnerMatricesTestCase(unittest.TestCase):
             for line in result.stdout.splitlines()
             if "=" in line
         )
-        self.assertEqual(outputs["enabled_batteries"], "irion")
+        self.assertEqual(outputs["enabled_batteries"], "irion_extension_security")
         self.assertEqual(outputs["linux_enabled"], "true")
         self.assertEqual(outputs["windows_enabled"], "false")
         self.assertEqual(
             [item["name"] for item in json.loads(outputs["linux_matrix"])["include"]],
-            ["irion"],
+            ["irion_extension_security"],
         )
         self.assertEqual(json.loads(outputs["windows_matrix"])["include"], [])
 
