@@ -417,12 +417,28 @@ testBatteries:
       testConfig:
         kind: upstream
         path: test/configs/irion.json
+    - name: extension-security
+      tests: test/sql/irion/community_extensions_blocked.test
+      services: []
+      testConfig:
+        kind: generated
+        description: Irion extension repository and community-extension restrictions
+        excludedExtensions:
+        - mssql
+        - bigquery
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
     extensions:
     - name: json
       isUsed: true
     - name: sqlite_scanner
       isUsed: true
-    ignoredTests: []
+    ignoredTests:
+    - path: test/sql/irion/community_extensions_blocked.test
+      reason: Requires community extensions to be installed but not preloaded
+      profiles:
+      - baseline
 
   irion_extension_security:
     isEnabled: true
