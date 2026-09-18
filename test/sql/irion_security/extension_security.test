@@ -2,6 +2,7 @@
 # community-signed extensions when they are loaded.
 
 require-env IRION_APPROVED_EXTENSION_REPO
+
 require-env IRION_COMMUNITY_EXTENSION_PATH
 
 statement ok
