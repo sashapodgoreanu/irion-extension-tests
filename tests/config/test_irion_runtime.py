@@ -103,7 +103,7 @@ class IrionRuntimeTest(unittest.TestCase):
             workflow,
         )
         self.assertIn('batteries="irion_extension_security"', workflow)
-        self.assertIn('platforms="linux"', workflow)
+        self.assertIn('platforms="linux,windows"', workflow)
 
     def test_repository_init_script_is_combined_with_extension_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
