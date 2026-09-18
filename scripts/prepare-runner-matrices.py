@@ -209,8 +209,12 @@ def resolve_runner_matrices(
     selected_platforms = set(platform_filter)
 
     for name, runner in runners.items():
-        enabled = runner["isEnabled"] and (
-            not selected_platforms or name in selected_platforms
+        # An explicit platform filter is an intentional manual override of the
+        # default runner enablement. Without a filter, preserve runners.yml.
+        enabled = (
+            name in selected_platforms
+            if selected_platforms
+            else runner["isEnabled"]
         )
         resolved_plan = runner_plan(plan, runner)
         include = resolved_plan.matrix()["include"] if enabled else []
