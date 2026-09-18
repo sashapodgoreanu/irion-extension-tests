@@ -18,7 +18,8 @@ Manual runs accept two optional comma-separated filters:
 - `platforms`: `linux`, `windows`, or both.
 
 When a filter is empty, all enabled values are used. For example, to run only the
-Irion battery on Linux, use `batteries=irion` and `platforms=linux`.
+new Irion extension-security battery on both supported platforms, use
+`batteries=irion_extension_security` and `platforms=linux,windows`.
 
 The main configuration file is:
 
