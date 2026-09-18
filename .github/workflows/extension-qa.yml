@@ -56,14 +56,33 @@ jobs:
 
       - name: Resolve runner matrices
         id: resolve
+        shell: bash
+        env:
+          REQUESTED_BATTERIES: ${{ inputs.batteries }}
+          REQUESTED_PLATFORMS: ${{ inputs.platforms }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
+          set -Eeuo pipefail
+          batteries="${REQUESTED_BATTERIES}"
+          platforms="${REQUESTED_PLATFORMS}"
+
+          # Keep this feature PR focused on the new Irion security scenario.
+          # Manual workflow dispatches continue to use caller-provided filters.
+          if [[ "${CI_EVENT_NAME}" == "pull_request" && "${PR_HEAD_REF}" == "feature/irion-extension-security-filters" ]]; then
+            batteries="irion_extension_security"
+            platforms="linux"
+          fi
+
+          echo "Requested batteries: ${batteries:-all}"
+          echo "Requested platforms: ${platforms:-default}"
           .venv/bin/python scripts/prepare-runner-matrices.py \
             config/extensions.yml \
             config/runners.yml \
             --plan-output build/plan/execution-plan.json \
             --output build/plan/runner-matrices.json \
-            --batteries "${{ inputs.batteries }}" \
-            --platforms "${{ inputs.platforms }}" \
+            --batteries "${batteries}" \
+            --platforms "${platforms}" \
             >>"${GITHUB_OUTPUT}"
 
       - name: Test configuration contracts
