@@ -66,15 +66,23 @@ class IrionRuntimeTest(unittest.TestCase):
 
     def test_extension_security_scenario_uses_local_repository_and_blocks_community(self) -> None:
         test = SECURITY_TEST.read_text(encoding="utf-8")
-        self.assertIn("require-env LOCAL_EXTENSION_REPO", test)
+        self.assertIn("require-env IRION_APPROVED_EXTENSION_REPO", test)
+        self.assertIn("require-env IRION_COMMUNITY_EXTENSION_PATH", test)
         self.assertIn(
-            "SET custom_extension_repository = '{LOCAL_EXTENSION_REPO}';",
+            "SET custom_extension_repository = '{IRION_APPROVED_EXTENSION_REPO}';",
             test,
         )
         self.assertIn("SET allow_community_extensions = false;", test)
         self.assertIn("FORCE INSTALL mssql;", test)
-        self.assertIn("LOAD mssql;", test)
+        self.assertIn("LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';", test)
         self.assertGreaterEqual(test.count("statement error"), 2)
+
+        standard_runner = (REPOSITORY_ROOT / "scripts" / "run-standard-tests.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("prepare_approved_extension_repo", standard_runner)
+        self.assertIn('env["IRION_APPROVED_EXTENSION_REPO"]', standard_runner)
+        self.assertIn('env["IRION_COMMUNITY_EXTENSION_PATH"]', standard_runner)
 
         windows_runner = WINDOWS_BATTERY_RUNNER.read_text(encoding="utf-8")
         self.assertIn("'irion_extension_security'", windows_runner)
@@ -86,6 +94,16 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertIn("if [[ '${{ matrix.sourceType }}' == 'self' ]]", workflow)
         self.assertIn('root="${GITHUB_WORKSPACE}"', workflow)
         self.assertIn('"${{ steps.test_source.outputs.root }}"', workflow)
+
+    def test_feature_pr_is_scoped_to_irion_security_battery(self) -> None:
+        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+        self.assertIn("PR_HEAD_REF: ${{ github.head_ref }}", workflow)
+        self.assertIn(
+            '"${PR_HEAD_REF}" == "feature/irion-extension-security-filters"',
+            workflow,
+        )
+        self.assertIn('batteries="irion_extension_security"', workflow)
+        self.assertIn('platforms="linux"', workflow)
 
     def test_repository_init_script_is_combined_with_extension_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
