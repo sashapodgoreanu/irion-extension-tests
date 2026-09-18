@@ -166,23 +166,57 @@ def load_extensions_with_azure_cloud_overlay(path: Path):
         return load_config(Path(handle.name))
 
 
+def csv_filter(value: str) -> tuple[str, ...]:
+    return tuple(item.strip() for item in value.split(",") if item.strip())
+
+
+def filtered_plan(plan: ExecutionPlan, battery_filter: tuple[str, ...]) -> ExecutionPlan:
+    if not battery_filter:
+        return plan
+
+    available = {case.name for case in plan.cases}
+    unknown = sorted(set(battery_filter) - available)
+    if unknown:
+        raise RunnerConfigError(
+            "unknown test batteries: " + ", ".join(unknown)
+        )
+
+    selected = tuple(case for case in plan.cases if case.name in set(battery_filter))
+    return ExecutionPlan(
+        runtime=plan.runtime,
+        cases=selected,
+        schema_version=plan.schema_version,
+    )
+
+
 def resolve_runner_matrices(
     extensions_config: Path,
     runners_config: Path,
+    battery_filter: tuple[str, ...] = (),
+    platform_filter: tuple[str, ...] = (),
 ) -> tuple[ExecutionPlan, dict[str, dict[str, Any]]]:
     plan = resolve_config(load_extensions_with_azure_cloud_overlay(extensions_config))
+    plan = filtered_plan(plan, battery_filter)
     runners = load_runners(runners_config)
+
+    unknown_platforms = sorted(set(platform_filter) - set(runners))
+    if unknown_platforms:
+        raise RunnerConfigError(
+            "unknown platforms: " + ", ".join(unknown_platforms)
+        )
+
     resolved: dict[str, dict[str, Any]] = {}
+    selected_platforms = set(platform_filter)
 
     for name, runner in runners.items():
-        resolved_plan = runner_plan(plan, runner)
-        include = (
-            resolved_plan.matrix()["include"]
-            if runner["isEnabled"]
-            else []
+        enabled = runner["isEnabled"] and (
+            not selected_platforms or name in selected_platforms
         )
+        resolved_plan = runner_plan(plan, runner)
+        include = resolved_plan.matrix()["include"] if enabled else []
         resolved[name] = {
             **runner,
+            "isEnabled": enabled,
             "matrix": {"include": include},
             "runtime": resolved_plan.runtime.payload(),
             "executionPlanSha256": resolved_plan.sha256(),
@@ -201,6 +235,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("runners_config", type=Path)
     parser.add_argument("--plan-output", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--batteries",
+        default="",
+        help="Comma-separated battery names. Empty means all enabled batteries.",
+    )
+    parser.add_argument(
+        "--platforms",
+        default="",
+        help="Comma-separated runner names. Empty means all enabled platforms.",
+    )
     return parser.parse_args()
 
 
@@ -210,6 +254,8 @@ def main() -> int:
         plan, runners = resolve_runner_matrices(
             args.extensions_config,
             args.runners_config,
+            battery_filter=csv_filter(args.batteries),
+            platform_filter=csv_filter(args.platforms),
         )
         if args.plan_output is not None:
             # Keep the original path for backwards compatibility, and emit a
