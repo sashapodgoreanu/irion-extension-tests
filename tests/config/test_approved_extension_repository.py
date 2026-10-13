@@ -102,6 +102,49 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
         self.assertEqual(kwargs["log_file"], log_dir / "approved-repository-probe.log")
 
 
+    def test_community_load_policy_uses_fresh_processes_and_a_positive_control(self) -> None:
+        fixture = self.root / "extension-fixtures" / "mssql.duckdb_extension"
+        fixture.parent.mkdir()
+        fixture.write_bytes(b"community-extension")
+        calls: list[tuple[list[str], dict]] = []
+
+        def simulate_cli(command, **kwargs):
+            calls.append((command, kwargs))
+            if kwargs["log_file"].name == "community-load-denied.log":
+                kwargs["log_file"].write_text(
+                    "community_extensions_allowed\\nfalse\\n"
+                    "Error: community extension signature rejected\\n",
+                    encoding="utf-8",
+                )
+                return 1
+            return 0
+
+        with mock.patch.object(self.runner, "run_logged", side_effect=simulate_cli):
+            self.runner.validate_community_load_policy(
+                self.root / "duckdb.exe", fixture, self.runtime, self.root, self.logger
+            )
+
+        self.assertEqual(len(calls), 2)
+        self.assertIn("LOAD '", calls[0][0][-1])
+        self.assertNotIn("allow_community_extensions", calls[0][0][-1])
+        self.assertIn("SET allow_community_extensions = false;", calls[1][0][-1])
+        self.assertIn("LOAD '", calls[1][0][-1])
+        self.assertFalse(calls[1][1]["check"])
+        self.assertNotEqual(
+            calls[0][1]["env"]["HOME"], calls[1][1]["env"]["HOME"]
+        )
+
+    def test_community_load_policy_rejects_unexpected_success(self) -> None:
+        fixture = self.root / "mssql.duckdb_extension"
+        fixture.write_bytes(b"community-extension")
+        with mock.patch.object(self.runner, "run_logged", return_value=0):
+            with self.assertRaisesRegex(
+                self.runner.RunnerError, "unexpectedly loaded"
+            ):
+                self.runner.validate_community_load_policy(
+                    self.root / "duckdb.exe", fixture, self.runtime, self.root, self.logger
+                )
+
     def test_security_battery_rejects_skips_and_missing_test_discovery(self) -> None:
         log = self.root / "unittest-security.log"
         log.write_text(
