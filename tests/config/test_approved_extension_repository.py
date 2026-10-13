@@ -112,8 +112,8 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
             calls.append((command, kwargs))
             if kwargs["log_file"].name == "community-load-denied.log":
                 kwargs["log_file"].write_text(
-                    "community_extensions_allowed\\nfalse\\n"
-                    "Error: community extension signature rejected\\n",
+                    "community_extensions_allowed\nfalse\n"
+                    "Error: community extension signature rejected\n",
                     encoding="utf-8",
                 )
                 return 1
