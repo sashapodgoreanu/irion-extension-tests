@@ -67,11 +67,10 @@ jobs:
           batteries="${REQUESTED_BATTERIES}"
           platforms="${REQUESTED_PLATFORMS}"
 
-          # Exercise every enabled extension battery on both platforms in this
-          # feature PR. Keep runner defaults unchanged for other branches, and
-          # respect explicit filters supplied to manual workflow dispatches.
+          # Temporarily isolate failing httpfs battery on both platforms.
+          # Restore all batteries after the isolated checks pass.
           if [[ "${CI_EVENT_NAME}" == "pull_request" && "${PR_HEAD_REF}" == "feature/irion-extension-security-filters" ]]; then
-            batteries=""
+            batteries="httpfs"
             platforms="linux,windows"
           fi
 
