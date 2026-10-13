@@ -80,13 +80,15 @@ class IrionRuntimeTest(unittest.TestCase):
             test,
             r"(?s)statement error\s+FORCE INSTALL mssql;\s+----\s+<REGEX>:",
         )
-        self.assertIn("LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';", test)
-        self.assertGreaterEqual(test.count("statement error"), 2)
+        self.assertEqual(test.count("statement error"), 1)
 
         standard_runner = (REPOSITORY_ROOT / "scripts" / "run-standard-tests.py").read_text(
             encoding="utf-8"
         )
         self.assertIn("prepare_approved_extension_repo", standard_runner)
+        self.assertIn("validate_community_load_policy(", standard_runner)
+        self.assertIn("community-allowed-probe-home", standard_runner)
+        self.assertIn("community-denied-probe-home", standard_runner)
         self.assertIn('env["IRION_APPROVED_EXTENSION_REPO"]', standard_runner)
         self.assertIn('env["IRION_COMMUNITY_EXTENSION_PATH"]', standard_runner)
 
