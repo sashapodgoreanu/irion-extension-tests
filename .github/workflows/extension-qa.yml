@@ -67,10 +67,10 @@ jobs:
           batteries="${REQUESTED_BATTERIES}"
           platforms="${REQUESTED_PLATFORMS}"
 
-          # Run all enabled extension batteries on both platforms for this PR.
-          # Keep manual workflow dispatch filters and default runner settings.
+          # Isolate the Iceberg fixture failure on both platforms.
+          # Restore all enabled batteries after this focused run passes.
           if [[ "${CI_EVENT_NAME}" == "pull_request" && "${PR_HEAD_REF}" == "feature/irion-extension-security-filters" ]]; then
-            batteries=""
+            batteries="iceberg"
             platforms="linux,windows"
           fi
 

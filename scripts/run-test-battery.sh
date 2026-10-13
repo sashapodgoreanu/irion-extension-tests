@@ -198,6 +198,14 @@ if [[ "${UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
   fi
 fi
 
+# The pinned Iceberg REST fixture still references removed, unversioned
+# minio/minio and minio/mc Docker Hub images. Rewrite only this upstream
+# checkout before fixture generation, on Linux and Windows/WSL alike.
+if [[ "${BATTERY_NAME}" == "iceberg" ]]; then
+  qa_log INFO "adapting pinned Iceberg MinIO fixture images"
+  python3 "${SCRIPT_DIR}/patch-iceberg-fixture.py" "${UPSTREAM_ROOT}"
+fi
+
 prepare_bigquery_dynamic_tests() {
   python3 - "${UPSTREAM_ROOT}" <<'PY'
 from pathlib import Path
