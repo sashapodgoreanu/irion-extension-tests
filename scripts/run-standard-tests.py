@@ -289,6 +289,39 @@ def copy_extension_fixture(
     return destination
 
 
+def validate_approved_extension_repo(
+    duckdb: Path,
+    approved_repo: Path,
+    runtime_root: Path,
+    log_dir: Path,
+    logger: Logger,
+) -> None:
+    """Prove that the restricted repository actually serves trusted extensions.
+
+    A negative INSTALL alone is insufficient: it also passes if the repository
+    contains no usable binaries. Use a fresh DuckDB home so FORCE INSTALL does
+    not replace a DLL already loaded by the battery bootstrap on Windows.
+    """
+    probe_env = child_environment(runtime_root / "approved-repo-probe-home")
+    # Quoting the setting makes native Windows paths safe for DuckDB SQL.
+    repository_literal = approved_repo.as_posix().replace("'", "''")
+    sql = (
+        f"SET custom_extension_repository = '{repository_literal}'; "
+        "SET allow_community_extensions = false; "
+        "FORCE INSTALL httpfs; "
+        "LOAD httpfs; "
+        "SELECT extension_name, installed, loaded FROM duckdb_extensions() "
+        "WHERE extension_name = 'httpfs';"
+    )
+    run_logged(
+        [str(duckdb), "-csv", "-header", "-c", sql],
+        logger=logger,
+        log_file=log_dir / "approved-repository-probe.log",
+        env=probe_env,
+    )
+    logger.info("approved local repository accepted a trusted core extension")
+
+
 def validate_probe(
     duckdb: Path,
     install_sql: str,
@@ -596,6 +629,9 @@ def main() -> int:
             # and avoid SQL string escaping issues with native Windows paths.
             env["IRION_APPROVED_EXTENSION_REPO"] = approved_repo.as_posix()
             env["IRION_COMMUNITY_EXTENSION_PATH"] = community_fixture.as_posix()
+            validate_approved_extension_repo(
+                duckdb, approved_repo, runtime_root, log_dir, logger
+            )
 
         for profile_name, test_filter in profile_rows(runtime_config):
             config = runtime_root / "profiles" / f"{profile_name}.json"
