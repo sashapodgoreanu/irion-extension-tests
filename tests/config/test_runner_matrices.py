@@ -207,7 +207,8 @@ class RunnerMatricesTestCase(unittest.TestCase):
             workflow,
         )
         self.assertIn(
-            "needs.test-windows.result != 'cancelled'",
+            "needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped'",
+
             workflow,
         )
         self.assertIn("same external cloud accounts and resources", workflow)
