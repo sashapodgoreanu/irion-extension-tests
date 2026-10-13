@@ -277,9 +277,17 @@ status=0
 qa_log INFO "executing runner kind=${RUNNER_KIND}"
 case "${RUNNER_KIND}" in
   standard)
-    bash "${SCRIPT_DIR}/run-standard-tests.sh" \
-      "${BATTERY_NAME}" \
-      "${UPSTREAM_ROOT}" || status=$?
+    if [[ "${BATTERY_NAME}" == "irion_extension_security" ]]; then
+      # Share the same native runner and security preflight on Linux and Windows.
+      # The legacy Bash runner does not prepare the approved-repo fixtures.
+      python3 "${SCRIPT_DIR}/run-standard-tests.py" \
+        "${BATTERY_NAME}" \
+        "${UPSTREAM_ROOT}" || status=$?
+    else
+      bash "${SCRIPT_DIR}/run-standard-tests.sh" \
+        "${BATTERY_NAME}" \
+        "${UPSTREAM_ROOT}" || status=$?
+    fi
     ;;
   postgres-scanner)
     bash "${SCRIPT_DIR}/run-postgres-scanner-tests.sh" \
