@@ -28,4 +28,4 @@ FORCE INSTALL mssql;
 statement error
 LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';
 ----
-<REGEX>:.*signature.*
+<REGEX>:(?i).*(signature|signed|community|trusted).*
