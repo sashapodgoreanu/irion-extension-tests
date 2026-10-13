@@ -347,6 +347,60 @@ def validate_approved_extension_repo(
     logger.info("approved local repository accepted a trusted core extension")
 
 
+def validate_community_load_policy(
+    duckdb: Path,
+    community_fixture: Path,
+    runtime_root: Path,
+    log_dir: Path,
+    logger: Logger,
+) -> None:
+    """Test community signature enforcement in two fresh DuckDB processes.
+
+    SQLLogicTest's extension autoloading can make a repeated LOAD succeed
+    without rechecking the signature. Both probes load the same verified
+    binary with an otherwise identical configuration.
+    """
+    extension_literal = community_fixture.as_posix().replace("'", "''")
+    allowed_log = log_dir / "community-load-allowed.log"
+    denied_log = log_dir / "community-load-denied.log"
+
+    run_logged(
+        [str(duckdb), "-csv", "-header", "-c", f"LOAD '{extension_literal}';"],
+        logger=logger,
+        log_file=allowed_log,
+        env=child_environment(runtime_root / "community-allowed-probe-home"),
+    )
+    logger.info("community extension positive LOAD control passed")
+
+    denied_sql = (
+        "SET allow_community_extensions = false; "
+        "SELECT current_setting('allow_community_extensions')::VARCHAR "
+        "AS community_extensions_allowed; "
+        f"LOAD '{extension_literal}';"
+    )
+    denied_exit = run_logged(
+        [str(duckdb), "-csv", "-header", "-c", denied_sql],
+        logger=logger,
+        log_file=denied_log,
+        env=child_environment(runtime_root / "community-denied-probe-home"),
+        check=False,
+    )
+    denied_output = denied_log.read_text(encoding="utf-8", errors="replace")
+    if denied_exit == 0:
+        raise RunnerError(
+            "community-signed extension was unexpectedly loaded with "
+            "allow_community_extensions=false; inspect " + str(denied_log)
+        )
+    # The only policy difference from the successful control is the SET above.
+    # Also verify it executed successfully, rather than accepting a SET error.
+    if not re.search(r"(?m)^false\s*$", denied_output):
+        raise RunnerError(
+            "community LOAD rejection did not confirm that the restrictive "
+            f"setting was applied; inspect {denied_log}"
+        )
+    logger.info("community-signed extension LOAD rejected in a fresh process")
+
+
 def validate_probe(
     duckdb: Path,
     install_sql: str,
@@ -658,6 +712,9 @@ def main() -> int:
             env["IRION_COMMUNITY_EXTENSION_PATH"] = community_fixture.as_posix()
             validate_approved_extension_repo(
                 duckdb, approved_repo, runtime_root, log_dir, logger
+            )
+            validate_community_load_policy(
+                duckdb, community_fixture, runtime_root, log_dir, logger
             )
 
         for profile_name, test_filter in profile_rows(runtime_config):
