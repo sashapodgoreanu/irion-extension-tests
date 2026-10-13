@@ -111,6 +111,15 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
         self.runner.assert_security_test_executed(log)
 
         log.write_text(
+            "All tests passed (5 assertions in 1 test case)\n", encoding="utf-8"
+        )
+        self.runner.assert_security_test_executed(log)
+
+        log.write_text("All tests were skipped (total skipped 1)\n", encoding="utf-8")
+        with self.assertRaisesRegex(self.runner.RunnerError, "skipped"):
+            self.runner.assert_security_test_executed(log)
+
+        log.write_text(
             "test cases: 1 | 1 passed | 0 failed | 1 skipped\n"
             "require-env IRION_COMMUNITY_EXTENSION_PATH: 1\n",
             encoding="utf-8",
