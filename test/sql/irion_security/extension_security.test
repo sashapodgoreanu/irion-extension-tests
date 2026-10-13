@@ -24,10 +24,8 @@ FORCE INSTALL mssql;
 ----
 <REGEX>:(?i).*(mssql|extension|repository|download).*
 
-# The bootstrap phase installed mssql before hardening. A copy of that exact
-# community-signed binary is kept as a fixture so LOAD verifies the trust policy
-# independently from the failed INSTALL above.
-statement error
-LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';
-----
-<REGEX>:(?i).*(signature|signed|community|trusted).*
+# Community LOAD verification is performed by run-standard-tests.py in two
+# fresh DuckDB processes. SQLLogicTest may autoload an extension first, making
+# a subsequent LOAD a no-op even when the restrictive setting is enabled.
+# The runner requires the same signed binary to LOAD with the default policy
+# and fail to LOAD after allow_community_extensions=false.
