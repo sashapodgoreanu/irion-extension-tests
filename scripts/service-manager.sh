@@ -116,19 +116,9 @@ qa_service_start_squid() {
   echo "[qa-services] squid-env name=${name} HTTP_PROXY_PUBLIC=${HTTP_PROXY_PUBLIC} HTTP_PROXY_RUNNING=${HTTP_PROXY_RUNNING}" >&2
 }
 
-qa_service_start_httpfs_minio() {
-  local name=$1
-  local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/minio_s3.yml"
-  for required in \
-    "${compose_file}" \
-    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/generate_presigned_url.sh" \
-    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/run_s3_test_server.sh" \
-    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/set_s3_test_server_variables.sh"; do
-    if [[ ! -e "${required}" ]]; then
-      echo "HTTPFS MinIO service input is missing: ${required}" >&2
-      return 1
-    fi
-  done
+
+qa_httpfs_rewrite_minio_images() {
+  local compose_file=$1
   # The MinIO Docker Hub repositories were removed in September 2026.
   # Adapt only the pinned test fixture checkout (never change upstream Git).
   # Use versioned public mirrors of the same historical server/client releases.
@@ -144,6 +134,22 @@ qa_service_start_httpfs_minio() {
     -e 's#image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1#image: dappros/minio:RELEASE.2025-09-07T16-13-09Z#' \
     -e 's#image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1#image: ghcr.io/golithus/mc:RELEASE.2025-08-13T08-35-41Z#' \
     "${compose_file}"
+}
+
+qa_service_start_httpfs_minio() {
+  local name=$1
+  local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/minio_s3.yml"
+  for required in \
+    "${compose_file}" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/generate_presigned_url.sh" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/run_s3_test_server.sh" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/set_s3_test_server_variables.sh"; do
+    if [[ ! -e "${required}" ]]; then
+      echo "HTTPFS MinIO service input is missing: ${required}" >&2
+      return 1
+    fi
+  done
+  qa_httpfs_rewrite_minio_images "${compose_file}" || return 1
   if [[ -d "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets" ]]; then
     chmod -R 700 "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets"
   fi
