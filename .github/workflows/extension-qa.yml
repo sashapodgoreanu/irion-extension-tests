@@ -530,6 +530,13 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install native security QA dependencies
+        if: matrix.name == 'irion_extension_security'
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements/qa.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to install Windows QA dependencies' }
+
       - name: Prepare battery configuration
         shell: pwsh
         env:
