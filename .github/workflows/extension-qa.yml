@@ -67,10 +67,11 @@ jobs:
           batteries="${REQUESTED_BATTERIES}"
           platforms="${REQUESTED_PLATFORMS}"
 
-          # Keep this feature PR focused on the new Irion security scenario.
-          # Manual workflow dispatches continue to use caller-provided filters.
+          # Exercise every enabled extension battery on both platforms in this
+          # feature PR. Keep runner defaults unchanged for other branches, and
+          # respect explicit filters supplied to manual workflow dispatches.
           if [[ "${CI_EVENT_NAME}" == "pull_request" && "${PR_HEAD_REF}" == "feature/irion-extension-security-filters" ]]; then
-            batteries="irion_extension_security"
+            batteries=""
             platforms="linux,windows"
           fi
 
