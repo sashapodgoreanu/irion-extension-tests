@@ -385,12 +385,12 @@ def validate_community_load_policy(
         env=child_environment(runtime_root / "community-denied-probe-home"),
         check=False,
     )
-    denied_output = denied_log.read_text(encoding="utf-8", errors="replace")
     if denied_exit == 0:
         raise RunnerError(
             "community-signed extension was unexpectedly loaded with "
             "allow_community_extensions=false; inspect " + str(denied_log)
         )
+    denied_output = denied_log.read_text(encoding="utf-8", errors="replace")
     # The only policy difference from the successful control is the SET above.
     # Also verify it executed successfully, rather than accepting a SET error.
     if not re.search(r"(?m)^false\s*$", denied_output):
