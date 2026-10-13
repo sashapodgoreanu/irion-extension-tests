@@ -105,6 +105,11 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertIn(
             "if: matrix.name != 'irion_extension_security'", workflow
         )
+        self.assertIn("Install native security QA dependencies", workflow)
+        self.assertIn(
+            "python -m pip install --disable-pip-version-check -r requirements/qa.txt",
+            workflow,
+        )
 
     def test_feature_pr_is_scoped_to_irion_security_battery(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
