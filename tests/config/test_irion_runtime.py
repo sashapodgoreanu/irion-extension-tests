@@ -102,6 +102,9 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertIn("if [[ '${{ matrix.sourceType }}' == 'self' ]]", workflow)
         self.assertIn('root="${GITHUB_WORKSPACE}"', workflow)
         self.assertIn('"${{ steps.test_source.outputs.root }}"', workflow)
+        self.assertIn(
+            "if: matrix.name != 'irion_extension_security'", workflow
+        )
 
     def test_feature_pr_is_scoped_to_irion_security_battery(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
