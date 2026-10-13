@@ -132,8 +132,9 @@ SECURITY_REQUIREMENT_SKIP = re.compile(
     r"IRION_COMMUNITY_EXTENSION_PATH):\s*[1-9][0-9]*\s*$"
 )
 PASSED_TEST_SUMMARY = re.compile(
-    r"(?im)^\s*test cases?:\s*[0-9]+\s*\|\s*([0-9]+) passed"
+    r"(?im)\bAll tests passed\b|^\s*test cases?:\s*[0-9]+\s*\|\s*[1-9][0-9]* passed\b"
 )
+ALL_TESTS_SKIPPED = re.compile(r"(?i)\bAll tests (?:were )?skipped\b")
 
 
 def assert_security_test_executed(log_file: Path) -> None:
@@ -141,8 +142,9 @@ def assert_security_test_executed(log_file: Path) -> None:
     output = log_file.read_text(encoding="utf-8", errors="replace")
     if SECURITY_REQUIREMENT_SKIP.search(output):
         raise RunnerError("Irion security test was skipped due to missing environment")
-    matches = PASSED_TEST_SUMMARY.findall(output)
-    if not matches or not any(int(count) > 0 for count in matches):
+    if ALL_TESTS_SKIPPED.search(output):
+        raise RunnerError("Irion security test was skipped instead of executed")
+    if not PASSED_TEST_SUMMARY.search(output):
         raise RunnerError(
             "Irion security test did not report any passed test cases; "
             f"inspect {log_file}"
