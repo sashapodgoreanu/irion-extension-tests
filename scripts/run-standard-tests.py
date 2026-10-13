@@ -128,11 +128,11 @@ def assert_unittest_passed(log_file: Path) -> None:
 
 
 SECURITY_REQUIREMENT_SKIP = re.compile(
-    r"(?im)^\\s*require-env\\s+(?:IRION_APPROVED_EXTENSION_REPO|"
-    r"IRION_COMMUNITY_EXTENSION_PATH):\\s*[1-9][0-9]*\\s*$"
+    r"(?im)^\s*require-env\s+(?:IRION_APPROVED_EXTENSION_REPO|"
+    r"IRION_COMMUNITY_EXTENSION_PATH):\s*[1-9][0-9]*\s*$"
 )
 PASSED_TEST_SUMMARY = re.compile(
-    r"(?im)^\\s*test cases?:\\s*[0-9]+\\s*\\|\\s*([0-9]+) passed"
+    r"(?im)^\s*test cases?:\s*[0-9]+\s*\|\s*([0-9]+) passed"
 )
 
 
