@@ -296,18 +296,19 @@ def copy_extension_fixture(
     extension_name: str,
     logger: Logger,
 ) -> Path:
-    candidates = sorted(source_dir.glob(f"{extension_name}.duckdb_extension*"))
-    if len(candidates) != 1:
+    # DuckDB also writes a .duckdb_extension.info sidecar on Windows.
+    # LOAD needs the actual extension binary, not the accompanying metadata.
+    binary = source_dir / f"{extension_name}.duckdb_extension"
+    if not binary.is_file():
         raise RunnerError(
-            f"expected exactly one installed {extension_name} extension binary; "
-            f"found {[path.name for path in candidates]}"
+            f"installed {extension_name} extension binary is missing: {binary}"
         )
 
     fixture_dir = runtime_root / "extension-fixtures"
     fixture_dir.mkdir(parents=True, exist_ok=True)
-    destination = fixture_dir / candidates[0].name
-    shutil.copy2(candidates[0], destination)
-    logger.info(f"extension fixture copied source={candidates[0]} target={destination}")
+    destination = fixture_dir / binary.name
+    shutil.copy2(binary, destination)
+    logger.info(f"extension fixture copied source={binary} target={destination}")
     return destination
 
 
