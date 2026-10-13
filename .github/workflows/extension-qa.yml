@@ -321,12 +321,12 @@ jobs:
     needs:
       - build-linux
       - test-windows
-    if: ${{ always() && needs.build-linux.result == 'success' && needs.test-windows.result != 'cancelled' }}
+    if: ${{ always() && needs.build-linux.result == 'success' && (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped') }}
     runs-on: ${{ needs.build-linux.outputs.github_runner }}
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       max-parallel: 4
       matrix: ${{ fromJSON(needs.build-linux.outputs.matrix) }}
 
@@ -517,7 +517,7 @@ jobs:
     timeout-minutes: 180
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       max-parallel: 4
       matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
 
