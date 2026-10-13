@@ -91,20 +91,20 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
     def test_security_battery_rejects_skips_and_missing_test_discovery(self) -> None:
         log = self.root / "unittest-security.log"
         log.write_text(
-            "test cases: 1 | 1 passed | 0 failed | 0 skipped\\n",
+            "test cases: 1 | 1 passed | 0 failed | 0 skipped\n",
             encoding="utf-8",
         )
         self.runner.assert_security_test_executed(log)
 
         log.write_text(
-            "test cases: 1 | 1 passed | 0 failed | 1 skipped\\n"
-            "require-env IRION_COMMUNITY_EXTENSION_PATH: 1\\n",
+            "test cases: 1 | 1 passed | 0 failed | 1 skipped\n"
+            "require-env IRION_COMMUNITY_EXTENSION_PATH: 1\n",
             encoding="utf-8",
         )
         with self.assertRaisesRegex(self.runner.RunnerError, "skipped"):
             self.runner.assert_security_test_executed(log)
 
-        log.write_text("test cases: 0 | 0 passed | 0 failed\\n", encoding="utf-8")
+        log.write_text("test cases: 0 | 0 passed | 0 failed\n", encoding="utf-8")
         with self.assertRaisesRegex(self.runner.RunnerError, "did not report"):
             self.runner.assert_security_test_executed(log)
 
