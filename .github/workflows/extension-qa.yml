@@ -620,6 +620,7 @@ jobs:
           credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
 
       - name: Set up shared Linux service host
+        if: matrix.name != 'irion_extension_security'
         id: wsl_runtime
         shell: pwsh
         env:
