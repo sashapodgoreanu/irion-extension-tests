@@ -127,6 +127,28 @@ def assert_unittest_passed(log_file: Path) -> None:
         )
 
 
+SECURITY_REQUIREMENT_SKIP = re.compile(
+    r"(?im)^\\s*require-env\\s+(?:IRION_APPROVED_EXTENSION_REPO|"
+    r"IRION_COMMUNITY_EXTENSION_PATH):\\s*[1-9][0-9]*\\s*$"
+)
+PASSED_TEST_SUMMARY = re.compile(
+    r"(?im)^\\s*test cases?:\\s*[0-9]+\\s*\\|\\s*([0-9]+) passed"
+)
+
+
+def assert_security_test_executed(log_file: Path) -> None:
+    """Security checks must not turn green by being skipped or undiscovered."""
+    output = log_file.read_text(encoding="utf-8", errors="replace")
+    if SECURITY_REQUIREMENT_SKIP.search(output):
+        raise RunnerError("Irion security test was skipped due to missing environment")
+    matches = PASSED_TEST_SUMMARY.findall(output)
+    if not matches or not any(int(count) > 0 for count in matches):
+        raise RunnerError(
+            "Irion security test did not report any passed test cases; "
+            f"inspect {log_file}"
+        )
+
+
 def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
     test_root = upstream_root / "test" / "sql"
     files = sorted(
@@ -509,6 +531,8 @@ def run_profile(
             cwd=upstream_root,
         )
         assert_unittest_passed(unittest_log)
+        if test_name == "irion_extension_security":
+            assert_security_test_executed(unittest_log)
 
     subprocess.run(
         [
