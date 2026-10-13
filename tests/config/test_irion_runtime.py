@@ -74,6 +74,12 @@ class IrionRuntimeTest(unittest.TestCase):
         )
         self.assertIn("SET allow_community_extensions = false;", test)
         self.assertIn("FORCE INSTALL mssql;", test)
+        # SQLLogicTest requires a concrete expected error for statement error;
+        # omitting ---- causes a parser failure on both runner platforms.
+        self.assertRegex(
+            test,
+            r"(?s)statement error\s+FORCE INSTALL mssql;\s+----\s+<REGEX>:",
+        )
         self.assertIn("LOAD '{IRION_COMMUNITY_EXTENSION_PATH}';", test)
         self.assertGreaterEqual(test.count("statement error"), 2)
 
