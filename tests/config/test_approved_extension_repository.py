@@ -31,6 +31,9 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
         self.platform_dir.mkdir(parents=True)
         (self.platform_dir / "httpfs.duckdb_extension").write_bytes(b"core-extension")
         (self.platform_dir / "mssql.duckdb_extension").write_bytes(b"community-extension")
+        (self.platform_dir / "mssql.duckdb_extension.info").write_text(
+            '{"name": "mssql"}', encoding="utf-8"
+        )
         (self.platform_dir / "bigquery.duckdb_extension").write_bytes(b"other-community")
         self.runtime = self.root / "runtime"
         self.manifest = self.root / "extensions.json"
@@ -63,8 +66,19 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
         fixture = self.runner.copy_extension_fixture(
             self.platform_dir, self.runtime, "mssql", self.logger
         )
+        self.assertEqual(fixture.name, "mssql.duckdb_extension")
         self.assertEqual(fixture.read_bytes(), b"community-extension")
+        self.assertFalse((fixture.parent / "mssql.duckdb_extension.info").exists())
         self.assertNotEqual(fixture.parent, self.platform_dir)
+
+    def test_community_fixture_rejects_info_only_installation(self) -> None:
+        (self.platform_dir / "mssql.duckdb_extension").unlink()
+        with self.assertRaisesRegex(
+            self.runner.RunnerError, "extension binary is missing"
+        ):
+            self.runner.copy_extension_fixture(
+                self.platform_dir, self.runtime, "mssql", self.logger
+            )
 
     def test_positive_probe_uses_separate_home_and_valid_sql_path(self) -> None:
         approved = self.runtime / "repository's approved"
