@@ -21,6 +21,8 @@ false
 # the configured repository must fail instead of reaching a public repository.
 statement error
 FORCE INSTALL mssql;
+----
+<REGEX>:(?i).*(mssql|extension|repository|download).*
 
 # The bootstrap phase installed mssql before hardening. A copy of that exact
 # community-signed binary is kept as a fixture so LOAD verifies the trust policy
