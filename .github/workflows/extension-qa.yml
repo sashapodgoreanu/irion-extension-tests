@@ -3,6 +3,17 @@ name: DuckDB Extension Compatibility
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      batteries:
+        description: 'Comma-separated test batteries (empty = all)'
+        required: false
+        default: ''
+        type: string
+      platforms:
+        description: 'Comma-separated platforms: linux,windows (empty = all)'
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -45,12 +56,33 @@ jobs:
 
       - name: Resolve runner matrices
         id: resolve
+        shell: bash
+        env:
+          REQUESTED_BATTERIES: ${{ inputs.batteries }}
+          REQUESTED_PLATFORMS: ${{ inputs.platforms }}
+          CI_EVENT_NAME: ${{ github.event_name }}
+          PR_HEAD_REF: ${{ github.head_ref }}
         run: |
+          set -Eeuo pipefail
+          batteries="${REQUESTED_BATTERIES}"
+          platforms="${REQUESTED_PLATFORMS}"
+
+          # Run all enabled extension batteries on both platforms for this PR.
+          # Keep manual workflow dispatch filters and default runner settings.
+          if [[ "${CI_EVENT_NAME}" == "pull_request" && "${PR_HEAD_REF}" == "feature/irion-extension-security-filters" ]]; then
+            batteries=""
+            platforms="linux,windows"
+          fi
+
+          echo "Requested batteries: ${batteries:-all}"
+          echo "Requested platforms: ${platforms:-default}"
           .venv/bin/python scripts/prepare-runner-matrices.py \
             config/extensions.yml \
             config/runners.yml \
             --plan-output build/plan/execution-plan.json \
             --output build/plan/runner-matrices.json \
+            --batteries "${batteries}" \
+            --platforms "${platforms}" \
             >>"${GITHUB_OUTPUT}"
 
       - name: Test configuration contracts
@@ -289,12 +321,12 @@ jobs:
     needs:
       - build-linux
       - test-windows
-    if: ${{ always() && needs.build-linux.result == 'success' && needs.test-windows.result != 'cancelled' }}
+    if: ${{ always() && needs.build-linux.result == 'success' && (needs.test-windows.result == 'success' || needs.test-windows.result == 'skipped') }}
     runs-on: ${{ needs.build-linux.outputs.github_runner }}
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       max-parallel: 4
       matrix: ${{ fromJSON(needs.build-linux.outputs.matrix) }}
 
@@ -485,7 +517,7 @@ jobs:
     timeout-minutes: 180
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
-      fail-fast: false
+      fail-fast: true
       max-parallel: 4
       matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
 
@@ -497,6 +529,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install native security QA dependencies
+        if: matrix.name == 'irion_extension_security'
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements/qa.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to install Windows QA dependencies' }
 
       - name: Prepare battery configuration
         shell: pwsh
@@ -588,6 +627,7 @@ jobs:
           credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
 
       - name: Set up shared Linux service host
+        if: matrix.name != 'irion_extension_security'
         id: wsl_runtime
         shell: pwsh
         env:
@@ -662,7 +702,7 @@ jobs:
   aggregate-linux:
     name: Aggregate Linux results
     needs: test-linux
-    if: always()
+    if: ${{ always() && needs.test-linux.result != 'skipped' }}
     runs-on: ubuntu-24.04
 
     steps:

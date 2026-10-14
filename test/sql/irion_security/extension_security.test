@@ -1,0 +1,31 @@
+# Irion hardening: use only an approved local extension repository and reject
+# community-signed extensions when they are loaded.
+
+require-env IRION_APPROVED_EXTENSION_REPO
+
+require-env IRION_COMMUNITY_EXTENSION_PATH
+
+statement ok
+SET custom_extension_repository = '{IRION_APPROVED_EXTENSION_REPO}';
+
+statement ok
+SET allow_community_extensions = false;
+
+query T
+SELECT current_setting('allow_community_extensions')::VARCHAR
+----
+false
+
+# mssql is a DuckDB Community extension. The runner intentionally removes
+# community binaries from the approved local repository, so an INSTALL through
+# the configured repository must fail instead of reaching a public repository.
+statement error
+FORCE INSTALL mssql;
+----
+<REGEX>:(?i).*(mssql|extension|repository|download).*
+
+# Community LOAD verification is performed by run-standard-tests.py in two
+# fresh DuckDB processes. SQLLogicTest may autoload an extension first, making
+# a subsequent LOAD a no-op even when the restrictive setting is enabled.
+# The runner requires the same signed binary to LOAD with the default policy
+# and fail to LOAD after allow_community_extensions=false.
