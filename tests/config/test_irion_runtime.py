@@ -111,15 +111,16 @@ class IrionRuntimeTest(unittest.TestCase):
             workflow,
         )
 
-    def test_feature_pr_isolates_iceberg_on_both_platforms(self) -> None:
+    def test_feature_pr_runs_all_batteries_on_both_platforms(self) -> None:
         workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
         self.assertIn("PR_HEAD_REF: ${{ github.head_ref }}", workflow)
         self.assertIn(
             '"${PR_HEAD_REF}" == "feature/irion-extension-security-filters"',
             workflow,
         )
-        self.assertIn('batteries="iceberg"', workflow)
+        self.assertIn('batteries=""', workflow)
         self.assertIn('platforms="linux,windows"', workflow)
+        self.assertNotIn('batteries="iceberg"', workflow)
 
     def test_repository_init_script_is_combined_with_extension_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
