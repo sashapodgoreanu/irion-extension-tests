@@ -646,6 +646,12 @@ def main() -> int:
         verify_upstream_ref(upstream_root, battery.get("pin", "self"), logger)
         move_ignored_tests(runtime_config, upstream_root, ignored_root, log_dir, logger)
 
+        if test_name == "azure":
+            subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "prepare-azure-tests.py"), str(upstream_root)],
+                check=True,
+            )
+
         if test_name == "bigquery":
             if os.environ.get("BQ_TEST_PROJECT"):
                 env["BQ_TEST_BILLING_PROJECT"] = os.environ["BQ_TEST_PROJECT"]

@@ -271,6 +271,11 @@ if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
   prepare_bigquery_dynamic_tests
 fi
 
+if [[ "${BATTERY_NAME}" == "azure" ]]; then
+  qa_log INFO "adapting Azure HTTP statistics expectations for variable cache GETs"
+  python3 "${SCRIPT_DIR}/prepare-azure-tests.py" "${UPSTREAM_ROOT}"
+fi
+
 export ARTIFACT_DIR
 export BATTERY_RUNTIME_CONFIG_DIR
 export DUCKDB_VERSION
