@@ -338,7 +338,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: hafenkran/duckdb-bigquery
-    pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
+    pin: 27d85add08e4e2817c9400b2435935d7036844fa
     submodules: recursive
     services: []
     prerequisites:
