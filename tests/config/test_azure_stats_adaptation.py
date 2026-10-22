@@ -9,11 +9,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PREPARER = ROOT / "scripts" / "prepare-azure-tests.py"
 PRIVATE_LINE = (
-    r"analyzed_plan\t<REGEX>:.*HTTP Stats.*in\: \d[.]\d MiB.*"
+    "analyzed_plan\t<REGEX>:" r".*HTTP Stats.*in\: \d[.]\d MiB.*"
     r"\#HEAD\: 3.*GET\: 0.*PUT\: 0.*\#POST\: 0.*"
 )
 PUBLIC_LINE = (
-    r"analyzed_plan\t<REGEX>:.*HTTP Stats.*in\: \d[.]\d MiB.*"
+    "analyzed_plan\t<REGEX>:" r".*HTTP Stats.*in\: \d[.]\d MiB.*"
     r"\#HEAD\: 2.*GET\: 1.*PUT\: 0.*\#POST\: 0.*"
 )
 
