@@ -18,11 +18,16 @@ this overrides disabled runner defaults, so Windows is not disabled by the
 previous `config/runners.yml` setting. Both independently run on pull requests
 and expose a manual `batteries` CSV filter (empty = all enabled batteries).
 
-**Shared cloud account protection:** some batteries share mutable cloud
-fixtures. The two independent workflows use the same GitHub Actions
-`concurrency.group` with `cancel-in-progress: false` to avoid overlapping
-runs for the same branch/ref. No execution order is guaranteed. After isolating
-cloud accounts by platform this shared concurrency guard can be removed.
+**Independent scheduling:** each workflow uses its own GitHub Actions
+`concurrency.group` keyed by `github.workflow` and `github.ref`.
+There is no common queue or imposed Linux/Windows order: both pipelines can
+run at the same time, or either can run alone. Multiple runs of the same
+workflow on the same ref remain serialized.
+
+**External cloud fixtures:** some Linux and Windows batteries share mutable
+cloud accounts. Concurrent platform runs may interfere with each other's
+fixtures until these resources are isolated by OS. This is a test-fixture
+limitation, not a CI dependency.
 
 Linux uses the existing Bash/Python runtime. Windows uses the native MSVC
 DuckDB/unittest binaries and Windows PowerShell/Python code; for some batteries

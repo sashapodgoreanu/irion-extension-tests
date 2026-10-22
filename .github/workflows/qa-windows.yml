@@ -13,9 +13,9 @@ on:
 permissions:
   contents: read
 
-# Standalone pipelines; serialize conflicting external cloud fixtures.
+# Only runs of this workflow share a queue; Linux and Windows never block each other.
 concurrency:
-  group: extension-qa-cloud-${{ github.repository }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
 env:

@@ -19,8 +19,10 @@ compatible with the selected DuckDB release.
 Choose **DuckDB Extension QA (Linux)** or **DuckDB Extension QA (Windows)**
 in Actions, then enter a battery such as `irion_extension_security` if desired.
 They are separate runs and neither depends on the other's status.
-A shared concurrency lock protects external cloud test accounts until their
-fixtures can run simultaneously.
+There is no ordering or shared concurrency lock: Linux and Windows can run
+individually or in parallel. Some test batteries still share mutable external
+cloud fixtures, so concurrent tests targeting those accounts may interfere
+until the fixtures are isolated per platform.
 
 The main configuration file is:
 

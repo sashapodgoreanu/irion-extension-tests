@@ -224,6 +224,21 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 other = "windows" if platform == "linux" else "linux"
                 self.assertNotIn("needs.test-" + other, path.read_text())
 
+    def test_os_workflow_concurrency_is_not_shared(self) -> None:
+        # Both OS workflows can run concurrently; only duplicate runs of the
+        # same workflow/ref share the normal GitHub Actions concurrency queue.
+        groups = []
+        for path in (LINUX_WORKFLOW, WINDOWS_WORKFLOW):
+            workflow = yaml.load(
+                path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+            )
+            group = workflow["concurrency"]["group"]
+            self.assertEqual(group, "${{ github.workflow }}-${{ github.ref }}")
+            self.assertEqual(workflow["concurrency"]["cancel-in-progress"], "false")
+            self.assertNotIn("extension-qa-cloud-", group)
+            groups.append(workflow["name"])
+        self.assertEqual(len(set(groups)), 2)
+
     def test_platform_pipelines_resolve_shared_battery_pins(self) -> None:
         for path in (LINUX_WORKFLOW, WINDOWS_WORKFLOW):
             with self.subTest(path=path.name):
