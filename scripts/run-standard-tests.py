@@ -185,9 +185,11 @@ def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
     )
     for path, old, new in replacements:
         text = path.read_text(encoding="utf-8")
-        if old not in text:
+        if old in text:
+            path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        elif new not in text:
             raise RunnerError(f"BigQuery adaptation anchor was not found: {path}: {old}")
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        # Newer upstream test files already contain the adapted form.
     logger.info(
         f"BigQuery source adapted require_directives={require_count} normalized_locations={location_count}"
     )

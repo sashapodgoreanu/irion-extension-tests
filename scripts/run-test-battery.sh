@@ -246,9 +246,11 @@ jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
 text = jobs_test.read_text(encoding="utf-8")
 old = "<REGEX>:[a-zA-Z0-9]+"
 new = "<REGEX>:[a-zA-Z0-9-]+"
-if old not in text:
+if old in text:
+    jobs_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+elif new not in text:
     raise SystemExit("BigQuery project result regex was not found")
-jobs_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+# Newer BigQuery tests already include the expanded regex.
 
 print(
     f"Adapted {require_count} BigQuery SQLLogicTest files for the dynamic runtime; "
