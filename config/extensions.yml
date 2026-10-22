@@ -365,7 +365,7 @@ testBatteries:
     runner: mssql-release
     source: remote
     repository: hugr-lab/mssql-extension
-    pin: v0.2.3
+    pin: v0.2.5
     submodules: false
     services:
     - name: sqlserver
