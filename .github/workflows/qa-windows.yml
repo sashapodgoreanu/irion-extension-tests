@@ -1,50 +1,86 @@
 name: DuckDB Extension QA (Windows)
 
 on:
-  workflow_call:
+  pull_request:
+  workflow_dispatch:
     inputs:
-      matrix:
-        description: 'matrix from shared configuration'
-        required: true
-        type: string
-      duckdb_version:
-        description: 'duckdb version from shared configuration'
-        required: true
-        type: string
-      ci_tools_version:
-        description: 'ci tools version from shared configuration'
-        required: true
-        type: string
-      operating_system:
-        description: 'operating system from shared configuration'
-        required: true
-        type: string
-      architecture:
-        description: 'architecture from shared configuration'
-        required: true
-        type: string
-      github_runner:
-        description: 'github runner from shared configuration'
-        required: true
+      batteries:
+        description: 'Comma-separated test batteries (empty = all)'
+        required: false
+        default: ''
         type: string
 
 permissions:
   contents: read
 
+# Standalone pipelines; serialize conflicting external cloud fixtures.
+concurrency:
+  group: extension-qa-cloud-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   BQ_TEST_EXPORT_URI: ${{ secrets.BQ_TEST_EXPORT_URI }}
 
 jobs:
+  configure:
+    name: Resolve Windows test matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.resolve.outputs.windows_matrix }}
+      duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
+      ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
+      operating_system: ${{ steps.resolve.outputs.windows_operating_system }}
+      architecture: ${{ steps.resolve.outputs.windows_architecture }}
+      github_runner: ${{ steps.resolve.outputs.windows_github_runner }}
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+      - name: Install configuration tooling
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
+      - name: Resolve Windows matrix
+        id: resolve
+        shell: bash
+        env:
+          REQUESTED_BATTERIES: ${{ inputs.batteries }}
+        run: |
+          set -Eeuo pipefail
+          .venv/bin/python scripts/prepare-runner-matrices.py \
+            config/extensions.yml \
+            config/runners.yml \
+            --plan-output build/plan/execution-plan.json \
+            --output build/plan/runner-matrices.json \
+            --batteries "${REQUESTED_BATTERIES}" \
+            --platforms windows \
+            >>"${GITHUB_OUTPUT}"
+      - name: Test configuration contracts
+        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
+      - name: Upload execution plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-execution-plan
+          path: build/plan/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Report resolved configuration
+        run: |
+          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
+          echo "Batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
+          echo "Runner: ${{ steps.resolve.outputs.windows_github_runner }}"
+          echo "Plan SHA-256: ${{ steps.resolve.outputs.windows_execution_plan_sha256 }}"
+
   build-windows:
-    name: Build Windows ${{ inputs.duckdb_version }}
-    runs-on: ${{ inputs.github_runner }}
+    name: Build Windows ${{ needs.configure.outputs.duckdb_version }}
+    needs: configure
+    runs-on: ${{ needs.configure.outputs.github_runner }}
     timeout-minutes: 90
     outputs:
-      matrix: ${{ inputs.matrix }}
-      duckdb_version: ${{ inputs.duckdb_version }}
-      operating_system: ${{ inputs.operating_system }}
-      architecture: ${{ inputs.architecture }}
-      github_runner: ${{ inputs.github_runner }}
+      matrix: ${{ needs.configure.outputs.matrix }}
+      duckdb_version: ${{ needs.configure.outputs.duckdb_version }}
+      operating_system: ${{ needs.configure.outputs.operating_system }}
+      architecture: ${{ needs.configure.outputs.architecture }}
+      github_runner: ${{ needs.configure.outputs.github_runner }}
 
     steps:
       - name: Checkout repository
@@ -61,11 +97,11 @@ jobs:
           $ciToolsSha = (git rev-parse HEAD:extension-ci-tools).Trim()
           $inputs = [System.Collections.Generic.List[string]]::new()
           $inputs.Add('cache-schema=v1')
-          $inputs.Add('runner=${{ inputs.github_runner }}')
-          $inputs.Add('operating-system=${{ inputs.operating_system }}')
-          $inputs.Add('architecture=${{ inputs.architecture }}')
-          $inputs.Add('duckdb-version=${{ inputs.duckdb_version }}')
-          $inputs.Add('ci-tools-version=${{ inputs.ci_tools_version }}')
+          $inputs.Add('runner=${{ needs.configure.outputs.github_runner }}')
+          $inputs.Add('operating-system=${{ needs.configure.outputs.operating_system }}')
+          $inputs.Add('architecture=${{ needs.configure.outputs.architecture }}')
+          $inputs.Add('duckdb-version=${{ needs.configure.outputs.duckdb_version }}')
+          $inputs.Add('ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}')
           $inputs.Add("duckdb-sha=$duckdbSha")
           $inputs.Add("ci-tools-sha=$ciToolsSha")
           $files = @('.gitmodules','CMakeLists.txt','extension_config.cmake','scripts/build-windows.ps1')
@@ -88,7 +124,7 @@ jobs:
           finally {
             $sha256.Dispose()
           }
-          $cacheKey = "duckdb-runtime-v1-${{ inputs.operating_system }}-${{ inputs.architecture }}-$inputHash"
+          $cacheKey = "duckdb-runtime-v1-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-$inputHash"
           "key=$cacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "duckdb_sha=$duckdbSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           "ci_tools_sha=$ciToolsSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
@@ -111,8 +147,8 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/build-windows.ps1 `
-            -DuckDBVersion '${{ inputs.duckdb_version }}' `
-            -CiToolsVersion '${{ inputs.ci_tools_version }}' `
+            -DuckDBVersion '${{ needs.configure.outputs.duckdb_version }}' `
+            -CiToolsVersion '${{ needs.configure.outputs.ci_tools_version }}' `
             -BuildJobs 4
 
       - name: Validate restored or built Windows runtime
@@ -130,16 +166,16 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "unittest.exe validation failed with exit code $LASTEXITCODE" }
           Add-Content -Path $buildInfo -Value "cache_key=${{ steps.windows-runtime-key.outputs.key }}"
           Add-Content -Path $buildInfo -Value "cache_hit=${{ steps.windows-runtime-cache.outputs.cache-hit }}"
-          Add-Content -Path $buildInfo -Value "operating_system=${{ inputs.operating_system }}"
-          Add-Content -Path $buildInfo -Value "architecture=${{ inputs.architecture }}"
-          Add-Content -Path $buildInfo -Value "github_runner=${{ inputs.github_runner }}"
+          Add-Content -Path $buildInfo -Value "operating_system=${{ needs.configure.outputs.operating_system }}"
+          Add-Content -Path $buildInfo -Value "architecture=${{ needs.configure.outputs.architecture }}"
+          Add-Content -Path $buildInfo -Value "github_runner=${{ needs.configure.outputs.github_runner }}"
           Add-Content -Path $buildInfo -Value "duckdb_commit=${{ steps.windows-runtime-key.outputs.duckdb_sha }}"
           Add-Content -Path $buildInfo -Value "ci_tools_commit=${{ steps.windows-runtime-key.outputs.ci_tools_sha }}"
 
       - name: Upload Windows DuckDB runtime
         uses: actions/upload-artifact@v4
         with:
-          name: duckdb-${{ inputs.duckdb_version }}-${{ inputs.operating_system }}-${{ inputs.architecture }}
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}
           path: build/artifact-windows/
           if-no-files-found: error
           retention-days: 7

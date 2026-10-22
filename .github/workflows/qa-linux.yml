@@ -1,50 +1,86 @@
 name: DuckDB Extension QA (Linux)
 
 on:
-  workflow_call:
+  pull_request:
+  workflow_dispatch:
     inputs:
-      matrix:
-        description: 'matrix from shared configuration'
-        required: true
-        type: string
-      duckdb_version:
-        description: 'duckdb version from shared configuration'
-        required: true
-        type: string
-      ci_tools_version:
-        description: 'ci tools version from shared configuration'
-        required: true
-        type: string
-      operating_system:
-        description: 'operating system from shared configuration'
-        required: true
-        type: string
-      architecture:
-        description: 'architecture from shared configuration'
-        required: true
-        type: string
-      github_runner:
-        description: 'github runner from shared configuration'
-        required: true
+      batteries:
+        description: 'Comma-separated test batteries (empty = all)'
+        required: false
+        default: ''
         type: string
 
 permissions:
   contents: read
 
+# Standalone pipelines; serialize conflicting external cloud fixtures.
+concurrency:
+  group: extension-qa-cloud-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   BQ_TEST_EXPORT_URI: ${{ secrets.BQ_TEST_EXPORT_URI }}
 
 jobs:
+  configure:
+    name: Resolve Linux test matrix
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.resolve.outputs.linux_matrix }}
+      duckdb_version: ${{ steps.resolve.outputs.duckdb_version }}
+      ci_tools_version: ${{ steps.resolve.outputs.ci_tools_version }}
+      operating_system: ${{ steps.resolve.outputs.linux_operating_system }}
+      architecture: ${{ steps.resolve.outputs.linux_architecture }}
+      github_runner: ${{ steps.resolve.outputs.linux_github_runner }}
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+      - name: Install configuration tooling
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
+      - name: Resolve Linux matrix
+        id: resolve
+        shell: bash
+        env:
+          REQUESTED_BATTERIES: ${{ inputs.batteries }}
+        run: |
+          set -Eeuo pipefail
+          .venv/bin/python scripts/prepare-runner-matrices.py \
+            config/extensions.yml \
+            config/runners.yml \
+            --plan-output build/plan/execution-plan.json \
+            --output build/plan/runner-matrices.json \
+            --batteries "${REQUESTED_BATTERIES}" \
+            --platforms linux \
+            >>"${GITHUB_OUTPUT}"
+      - name: Test configuration contracts
+        run: .venv/bin/python -m unittest discover -s tests/config -p 'test_*.py' -v
+      - name: Upload execution plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-execution-plan
+          path: build/plan/
+          if-no-files-found: error
+          retention-days: 7
+      - name: Report resolved configuration
+        run: |
+          echo "DuckDB: ${{ steps.resolve.outputs.duckdb_version }}"
+          echo "Batteries: ${{ steps.resolve.outputs.enabled_batteries }}"
+          echo "Runner: ${{ steps.resolve.outputs.linux_github_runner }}"
+          echo "Plan SHA-256: ${{ steps.resolve.outputs.linux_execution_plan_sha256 }}"
+
   build-linux:
-    name: Build Linux ${{ inputs.duckdb_version }}
-    runs-on: ${{ inputs.github_runner }}
+    name: Build Linux ${{ needs.configure.outputs.duckdb_version }}
+    needs: configure
+    runs-on: ${{ needs.configure.outputs.github_runner }}
     timeout-minutes: 90
     outputs:
-      matrix: ${{ inputs.matrix }}
-      duckdb_version: ${{ inputs.duckdb_version }}
-      operating_system: ${{ inputs.operating_system }}
-      architecture: ${{ inputs.architecture }}
-      github_runner: ${{ inputs.github_runner }}
+      matrix: ${{ needs.configure.outputs.matrix }}
+      duckdb_version: ${{ needs.configure.outputs.duckdb_version }}
+      operating_system: ${{ needs.configure.outputs.operating_system }}
+      architecture: ${{ needs.configure.outputs.architecture }}
+      github_runner: ${{ needs.configure.outputs.github_runner }}
 
     steps:
       - name: Checkout repository
@@ -63,17 +99,17 @@ jobs:
           BUILD_INPUT_HASH="$({
             printf '%s\n' \
               'cache-schema=v3' \
-              'runner=${{ inputs.github_runner }}' \
-              'operating-system=${{ inputs.operating_system }}' \
-              'architecture=${{ inputs.architecture }}' \
-              'duckdb-version=${{ inputs.duckdb_version }}' \
-              'ci-tools-version=${{ inputs.ci_tools_version }}' \
+              'runner=${{ needs.configure.outputs.github_runner }}' \
+              'operating-system=${{ needs.configure.outputs.operating_system }}' \
+              'architecture=${{ needs.configure.outputs.architecture }}' \
+              'duckdb-version=${{ needs.configure.outputs.duckdb_version }}' \
+              'ci-tools-version=${{ needs.configure.outputs.ci_tools_version }}' \
               "duckdb-sha=${DUCKDB_SHA}" \
               "ci-tools-sha=${CI_TOOLS_SHA}"
             git ls-files -s -- \
               .gitmodules CMakeLists.txt extension_config.cmake Makefile scripts/build.sh src
           } | sha256sum | cut -d' ' -f1)"
-          CACHE_KEY="duckdb-runtime-v3-${{ inputs.operating_system }}-${{ inputs.architecture }}-${BUILD_INPUT_HASH}"
+          CACHE_KEY="duckdb-runtime-v3-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
           echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
           echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
           echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
@@ -94,8 +130,8 @@ jobs:
       - name: Build DuckDB runtime
         if: steps.duckdb-runtime-cache.outputs.cache-hit != 'true'
         env:
-          DUCKDB_VERSION: ${{ inputs.duckdb_version }}
-          CI_TOOLS_VERSION: ${{ inputs.ci_tools_version }}
+          DUCKDB_VERSION: ${{ needs.configure.outputs.duckdb_version }}
+          CI_TOOLS_VERSION: ${{ needs.configure.outputs.ci_tools_version }}
           BUILD_JOBS: 2
         run: bash scripts/build.sh
 
@@ -111,9 +147,9 @@ jobs:
           {
             echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
             echo "cache_hit=${{ steps.duckdb-runtime-cache.outputs.cache-hit }}"
-            echo "operating_system=${{ inputs.operating_system }}"
-            echo "architecture=${{ inputs.architecture }}"
-            echo "github_runner=${{ inputs.github_runner }}"
+            echo "operating_system=${{ needs.configure.outputs.operating_system }}"
+            echo "architecture=${{ needs.configure.outputs.architecture }}"
+            echo "github_runner=${{ needs.configure.outputs.github_runner }}"
             echo "duckdb_commit=${{ steps.duckdb-runtime-key.outputs.duckdb_sha }}"
             echo "ci_tools_commit=${{ steps.duckdb-runtime-key.outputs.ci_tools_sha }}"
           } >>build/artifact/logs/build-info.txt
@@ -121,7 +157,7 @@ jobs:
       - name: Upload Linux DuckDB runtime
         uses: actions/upload-artifact@v4
         with:
-          name: duckdb-${{ inputs.duckdb_version }}-${{ inputs.operating_system }}-${{ inputs.architecture }}
+          name: duckdb-${{ needs.configure.outputs.duckdb_version }}-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}
           path: build/artifact/
           if-no-files-found: error
           retention-days: 7

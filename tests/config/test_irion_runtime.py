@@ -12,7 +12,7 @@ from qa import load_config, resolve_config
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 PROFILE_PREPARER = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
-WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "qa-linux.yml"
 WINDOWS_BATTERY_RUNNER = REPOSITORY_ROOT / "scripts" / "run-windows-wsl-battery.ps1"
 SECURITY_TEST = REPOSITORY_ROOT / "test" / "sql" / "irion_security" / "extension_security.test"
 
@@ -114,16 +114,17 @@ class IrionRuntimeTest(unittest.TestCase):
             windows,
         )
 
-    def test_feature_pr_runs_all_batteries_on_both_platforms(self) -> None:
-        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        self.assertIn("PR_HEAD_REF: ${{ github.head_ref }}", workflow)
-        self.assertIn(
-            '"${PR_HEAD_REF}" == "feature/irion-extension-security-filters"',
-            workflow,
-        )
-        self.assertIn('batteries=""', workflow)
-        self.assertIn('platforms="linux,windows"', workflow)
-        self.assertNotIn('batteries="iceberg"', workflow)
+    def test_both_platforms_select_all_batteries_independently(self) -> None:
+        for platform in ("linux", "windows"):
+            with self.subTest(platform=platform):
+                workflow = (WORKFLOW_PATH.parent / f"qa-{platform}.yml").read_text(
+                    encoding="utf-8"
+                )
+                self.assertIn("  pull_request:", workflow)
+                self.assertIn("  workflow_dispatch:", workflow)
+                self.assertIn('--batteries "${REQUESTED_BATTERIES}"', workflow)
+                self.assertIn(f"--platforms {platform}", workflow)
+                self.assertNotIn('batteries="iceberg"', workflow)
 
     def test_repository_init_script_is_combined_with_extension_loads(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -1,35 +1,26 @@
 # Irion DuckDB Extension Compatibility Tests
 
-GitHub Actions uses `.github/workflows/extension-qa.yml` as its common entry
-point, invoking independent Linux (`qa-linux.yml`) and Windows (`qa-windows.yml`)
-reusable workflows. Matrices and pinned test sources remain centralized.
+GitHub Actions has **two independent pipelines**, visible separately in Actions:
 
+- `.github/workflows/qa-linux.yml` — Linux.
+- `.github/workflows/qa-windows.yml` — Windows.
 
-This repository verifies that the DuckDB extensions used by Irion remain compatible with the selected DuckDB release.
+Both run on pull requests and have their own **Run workflow** manual trigger.
+Each accepts a `batteries` input with comma-separated test batteries
+(e.g. `irion,httpfs`); empty means all enabled tests. Each runs on its own
+OS, with separate build and reporting, reading the same pin/configuration data
+from `config/extensions.yml`.
 
-The GitHub Actions workflow builds one DuckDB runtime and runs the enabled Irion and upstream extension test batteries against it.
+This repository verifies that DuckDB extensions used by Irion remain
+compatible with the selected DuckDB release.
 
 ## Running the tests
 
-The workflow runs automatically on:
-
-- pushes;
-- pull requests;
-- manual execution through `workflow_dispatch`.
-
-Manual runs accept two optional comma-separated filters:
-
-- `batteries`: test battery names such as `irion,httpfs`;
-- `platforms`: `linux`, `windows`, or both.
-
-When `batteries` is empty, all enabled batteries are used. When `platforms`
-is empty, the default enablement from `config/runners.yml` is preserved. An
-explicit platform filter overrides that default, so `platforms=windows` can run
-the configured Windows runner even when it is normally disabled.
-
-For example, to run only the Irion extension-security battery on both configured
-platforms, use `batteries=irion_extension_security` and
-`platforms=linux,windows`.
+Choose **DuckDB Extension QA (Linux)** or **DuckDB Extension QA (Windows)**
+in Actions, then enter a battery such as `irion_extension_security` if desired.
+They are separate runs and neither depends on the other's status.
+A shared concurrency lock protects external cloud test accounts until their
+fixtures can run simultaneously.
 
 The main configuration file is:
 

@@ -13,9 +13,9 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RESOLVER = REPOSITORY_ROOT / "scripts" / "prepare-runner-matrices.py"
 EXTENSIONS = REPOSITORY_ROOT / "config" / "extensions.yml"
 RUNNERS = REPOSITORY_ROOT / "config" / "runners.yml"
-WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
-LINUX_WORKFLOW = WORKFLOW.with_name("qa-linux.yml")
-WINDOWS_WORKFLOW = WORKFLOW.with_name("qa-windows.yml")
+LINUX_WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "qa-linux.yml"
+WINDOWS_WORKFLOW = LINUX_WORKFLOW.with_name("qa-windows.yml")
+LEGACY_WORKFLOW = LINUX_WORKFLOW.with_name("extension-qa.yml")
 WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
 WSL_HELPER = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
 WINDOWS_DUCKDB_PROXY = REPOSITORY_ROOT / "scripts" / "windows-duckdb-proxy.sh"
@@ -190,69 +190,50 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("unknown", result.stderr.lower())
 
-    def test_separate_platform_workflows_have_isolated_jobs(self) -> None:
-        def read_yaml(path: Path) -> dict:
-            # Preserve the YAML 1.1 "on" key when parsing workflow files.
+    def test_two_standalone_platform_workflows(self) -> None:
+        def load(path: Path) -> dict:
             return yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader)
 
-        entry = read_yaml(WORKFLOW)
-        linux = read_yaml(LINUX_WORKFLOW)
-        windows = read_yaml(WINDOWS_WORKFLOW)
-        self.assertEqual(set(entry["jobs"]), {"configure", "windows", "linux"})
-        self.assertEqual(entry["jobs"]["windows"]["needs"], "configure")
-        self.assertEqual(entry["jobs"]["linux"]["needs"], ["configure", "windows"])
-        self.assertIn("always()", entry["jobs"]["linux"]["if"])
-        self.assertIn("needs.configure.result == 'success'", entry["jobs"]["linux"]["if"])
-        self.assertEqual(entry["jobs"]["windows"]["secrets"], "inherit")
-        self.assertEqual(entry["jobs"]["linux"]["secrets"], "inherit")
+        self.assertFalse(LEGACY_WORKFLOW.exists())
+        for platform, path in (("linux", LINUX_WORKFLOW), ("windows", WINDOWS_WORKFLOW)):
+            with self.subTest(platform=platform):
+                workflow = load(path)
+                self.assertEqual(set(workflow["on"]), {"pull_request", "workflow_dispatch"})
+                self.assertEqual(
+                    set(workflow["jobs"]),
+                    {"configure", f"build-{platform}", f"test-{platform}",
+                     f"aggregate-{platform}"},
+                )
+                self.assertEqual(workflow["jobs"][f"build-{platform}"]["needs"], "configure")
+                self.assertEqual(workflow["jobs"][f"test-{platform}"]["needs"], f"build-{platform}")
+                self.assertEqual(workflow["jobs"][f"aggregate-{platform}"]["needs"], f"test-{platform}")
+                self.assertEqual(
+                    workflow["jobs"][f"build-{platform}"]["runs-on"],
+                    "${{ needs.configure.outputs.github_runner }}",
+                )
+                self.assertEqual(
+                    workflow["jobs"][f"test-{platform}"]["strategy"]["matrix"],
+                    "${{ fromJSON(needs.build-" + platform + ".outputs.matrix) }}",
+                )
+                self.assertIn(
+                    "--platforms " + platform,
+                    workflow["jobs"]["configure"]["steps"][2]["run"],
+                )
+                self.assertNotIn("workflow_call", workflow["on"])
+                self.assertNotIn("uses: ./.github/workflows/", path.read_text())
+                other = "windows" if platform == "linux" else "linux"
+                self.assertNotIn("needs.test-" + other, path.read_text())
 
-        for os, child in (("windows", windows), ("linux", linux)):
-            with self.subTest(platform=os):
-                self.assertEqual(
-                    entry["jobs"][os]["uses"],
-                    f"./.github/workflows/qa-{os}.yml",
-                )
-                self.assertIn("workflow_call", child["on"])
-                self.assertEqual(
-                    set(child["on"]["workflow_call"]["inputs"]),
-                    {
-                        "matrix", "duckdb_version", "ci_tools_version",
-                        "operating_system", "architecture", "github_runner",
-                    },
-                )
-                self.assertEqual(
-                    set(child["jobs"]),
-                    {f"build-{os}", f"test-{os}", f"aggregate-{os}"},
-                )
-                self.assertEqual(
-                    child["jobs"][f"build-{os}"]["runs-on"],
-                    "${{ inputs.github_runner }}",
-                )
-                self.assertEqual(child["jobs"][f"test-{os}"]["needs"], f"build-{os}")
-                self.assertEqual(child["jobs"][f"aggregate-{os}"]["needs"], f"test-{os}")
-                self.assertNotIn("needs.configure", str(child["jobs"]))
-                self.assertNotIn(
-                    f"needs.test-{'linux' if os == 'windows' else 'windows'}",
-                    str(child["jobs"]),
-                )
-                self.assertEqual(
-                    child["jobs"][f"test-{os}"]["strategy"]["matrix"],
-                    "${{ fromJSON(needs.build-" + os + ".outputs.matrix) }}",
-                )
-
-    def test_child_workflows_use_one_shared_matrix_and_pin_source(self) -> None:
-        entry = WORKFLOW.read_text(encoding="utf-8")
-        for shared in (
-            "scripts/prepare-runner-matrices.py",
-            "config/extensions.yml",
-            "config/runners.yml",
-        ):
-            self.assertIn(shared, entry)
-        for child in (LINUX_WORKFLOW, WINDOWS_WORKFLOW):
-            content = child.read_text(encoding="utf-8")
-            self.assertIn("repository: ${{ matrix.repository }}", content)
-            self.assertIn("ref: ${{ matrix.pin }}", content)
-            self.assertNotIn("scripts/prepare-runner-matrices.py", content)
+    def test_platform_pipelines_resolve_shared_battery_pins(self) -> None:
+        for path in (LINUX_WORKFLOW, WINDOWS_WORKFLOW):
+            with self.subTest(path=path.name):
+                source = path.read_text(encoding="utf-8")
+                self.assertIn("scripts/prepare-runner-matrices.py", source)
+                self.assertIn("config/extensions.yml", source)
+                self.assertIn("config/runners.yml", source)
+                self.assertIn("repository: ${{ matrix.repository }}", source)
+                self.assertIn("ref: ${{ matrix.pin }}", source)
+                self.assertIn("qa-execution-plan", source)
 
     def test_windows_wsl_argument_bridge_preserves_cli_payloads(self) -> None:
         environment = os.environ.copy()

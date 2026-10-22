@@ -1,55 +1,32 @@
 # CI architecture
 
-This repository tests a common set of pinned DuckDB extensions on Linux and
-Windows. Test batteries, upstream repositories, pins, profiles, and expected
-extensions are defined only in `config/extensions.yml`. Platform defaults
-are defined in `config/runners.yml`.
+Linux and Windows now use **two standalone GitHub Actions workflows**:
 
-## GitHub Actions pipelines
+| Workflow | Triggers | Jobs |
+| --- | --- | --- |
+| `.github/workflows/qa-linux.yml` | pull_request and manual dispatch | Linux matrix → build → tests → aggregate |
+| `.github/workflows/qa-windows.yml` | pull_request and manual dispatch | Windows matrix → build → tests → aggregate |
 
-| File | Responsibility |
-| --- | --- |
-| `.github/workflows/extension-qa.yml` | Single pull-request/manual entry point; validates configuration, resolves matrices, uploads the execution plan and invokes platform workflows |
-| `.github/workflows/qa-windows.yml` | Reusable Windows pipeline: MSVC build, Windows test matrix, artifacts and Windows-only aggregation |
-| `.github/workflows/qa-linux.yml` | Reusable Linux pipeline: Linux build, Linux test matrix, artifacts and Linux-only aggregation |
+There is **no central orchestrator, no workflow_call, no cross-OS job dependency**.
+Each Actions run has its own configuration, build, tests, artifacts and verdict.
+Both read the same pinned DuckDB versions and batteries from
+`config/extensions.yml` and runner definitions from `config/runners.yml`
+through `scripts/prepare-runner-matrices.py`. No pins are duplicated.
 
-The two reusable workflows accept the same six `workflow_call` inputs:
-`matrix`, `duckdb_version`, `ci_tools_version`, `operating_system`,
-`architecture`, and `github_runner`. These are derived centrally from
-`scripts/prepare-runner-matrices.py`; the child workflows do not own copies
-of the pinned source configuration. The caller passes credentials with
-`secrets: inherit`.
+Each workflow passes `--platforms linux` or `--platforms windows` explicitly;
+this overrides disabled runner defaults, so Windows is not disabled by the
+previous `config/runners.yml` setting. Both independently run on pull requests
+and expose a manual `batteries` CSV filter (empty = all enabled batteries).
 
-## Failure and resource isolation
+**Shared cloud account protection:** some batteries share mutable cloud
+fixtures. The two independent workflows use the same GitHub Actions
+`concurrency.group` with `cancel-in-progress: false` to avoid overlapping
+runs for the same branch/ref. No execution order is guaranteed. After isolating
+cloud accounts by platform this shared concurrency guard can be removed.
 
-Windows runs before Linux because some batteries share external cloud accounts
-and resources. Linux still runs if Windows fails, and reports an independent
-verdict; a failure in either selected platform fails the complete run.
-Selecting only one platform invokes only its pipeline.
-
-Each platform builds its own native DuckDB runtime and uses distinct result,
-log and summary artifacts. Existing artifact naming and result schemas are
-preserved.
-
-## Running specific batteries
-
-Manual `workflow_dispatch` inputs are:
-
-- `batteries`: comma-separated battery names; empty means all enabled batteries.
-- `platforms`: `linux`, `windows`, `linux,windows`; empty uses
-  `config/runners.yml` (currently Linux enabled and Windows disabled).
-
-Pull requests from `feature/irion-extension-security-filters` deliberately
-select both platforms and every enabled battery, as before.
-
-## Runner implementation
-
-This workflow split does **not** migrate Windows test adapters. The Windows
-runner still invokes native `duckdb.exe`/`unittest.exe` for the supported
-batteries and WSL-assisted orchestration for the remaining batteries.
-The Linux runner retains its existing Bash/Python implementation. Windows-native
-migration can be made separately without changing the shared test matrix.
-
-Results are generated and validated by the existing `qa/plan.py`,
-`qa/results.py`, `scripts/write-test-result.py` and
+Linux uses the existing Bash/Python runtime. Windows uses the native MSVC
+DuckDB/unittest binaries and Windows PowerShell/Python code; for some batteries
+WSL remains an internal fixture host/legacy bridge. This change separates
+GitHub Actions pipelines without migrating the legacy Windows runtime scripts.
+Results continue to use the shared `qa/plan.py`, `qa/results.py` and
 `scripts/aggregate-test-results.py` contracts.
