@@ -1,0 +1,399 @@
+name: DuckDB Extension QA (Windows)
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: 'matrix from shared configuration'
+        required: true
+        type: string
+      duckdb_version:
+        description: 'duckdb version from shared configuration'
+        required: true
+        type: string
+      ci_tools_version:
+        description: 'ci tools version from shared configuration'
+        required: true
+        type: string
+      operating_system:
+        description: 'operating system from shared configuration'
+        required: true
+        type: string
+      architecture:
+        description: 'architecture from shared configuration'
+        required: true
+        type: string
+      github_runner:
+        description: 'github runner from shared configuration'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  BQ_TEST_EXPORT_URI: ${{ secrets.BQ_TEST_EXPORT_URI }}
+
+jobs:
+  build-windows:
+    name: Build Windows ${{ inputs.duckdb_version }}
+    runs-on: ${{ inputs.github_runner }}
+    timeout-minutes: 90
+    outputs:
+      matrix: ${{ inputs.matrix }}
+      duckdb_version: ${{ inputs.duckdb_version }}
+      operating_system: ${{ inputs.operating_system }}
+      architecture: ${{ inputs.architecture }}
+      github_runner: ${{ inputs.github_runner }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Calculate Windows runtime cache key
+        id: windows-runtime-key
+        shell: pwsh
+        run: |
+          $duckdbSha = (git rev-parse HEAD:duckdb).Trim()
+          $ciToolsSha = (git rev-parse HEAD:extension-ci-tools).Trim()
+          $inputs = [System.Collections.Generic.List[string]]::new()
+          $inputs.Add('cache-schema=v1')
+          $inputs.Add('runner=${{ inputs.github_runner }}')
+          $inputs.Add('operating-system=${{ inputs.operating_system }}')
+          $inputs.Add('architecture=${{ inputs.architecture }}')
+          $inputs.Add('duckdb-version=${{ inputs.duckdb_version }}')
+          $inputs.Add('ci-tools-version=${{ inputs.ci_tools_version }}')
+          $inputs.Add("duckdb-sha=$duckdbSha")
+          $inputs.Add("ci-tools-sha=$ciToolsSha")
+          $files = @('.gitmodules','CMakeLists.txt','extension_config.cmake','scripts/build-windows.ps1')
+          if (Test-Path 'src') {
+            $files += Get-ChildItem -Path 'src' -Recurse -File |
+              Sort-Object FullName |
+              ForEach-Object { $_.FullName.Substring($env:GITHUB_WORKSPACE.Length + 1) }
+          }
+          foreach ($file in $files) {
+            if (Test-Path $file) {
+              $hash = (Get-FileHash -Path $file -Algorithm SHA256).Hash.ToLowerInvariant()
+              $inputs.Add("$file=$hash")
+            }
+          }
+          $payload = [System.Text.Encoding]::UTF8.GetBytes(($inputs -join "`n"))
+          $sha256 = [System.Security.Cryptography.SHA256]::Create()
+          try {
+            $inputHash = [Convert]::ToHexString($sha256.ComputeHash($payload)).ToLowerInvariant()
+          }
+          finally {
+            $sha256.Dispose()
+          }
+          $cacheKey = "duckdb-runtime-v1-${{ inputs.operating_system }}-${{ inputs.architecture }}-$inputHash"
+          "key=$cacheKey" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "duckdb_sha=$duckdbSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "ci_tools_sha=$ciToolsSha" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Restore cached Windows DuckDB runtime
+        id: windows-runtime-cache
+        uses: actions/cache@v4
+        with:
+          path: build/artifact-windows
+          key: ${{ steps.windows-runtime-key.outputs.key }}
+
+      - name: Set up Python
+        if: steps.windows-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build DuckDB and unittest with MSVC
+        if: steps.windows-runtime-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          ./scripts/build-windows.ps1 `
+            -DuckDBVersion '${{ inputs.duckdb_version }}' `
+            -CiToolsVersion '${{ inputs.ci_tools_version }}' `
+            -BuildJobs 4
+
+      - name: Validate restored or built Windows runtime
+        shell: pwsh
+        run: |
+          $duckdb = 'build/artifact-windows/bin/duckdb.exe'
+          $unittest = 'build/artifact-windows/bin/unittest.exe'
+          $buildInfo = 'build/artifact-windows/logs/build-info.txt'
+          if (-not (Test-Path $duckdb)) { throw "DuckDB executable is missing: $duckdb" }
+          if (-not (Test-Path $unittest)) { throw "DuckDB unittest executable is missing: $unittest" }
+          if (-not (Test-Path $buildInfo)) { throw "Windows build metadata is missing: $buildInfo" }
+          & $duckdb --version
+          if ($LASTEXITCODE -ne 0) { throw "duckdb.exe validation failed with exit code $LASTEXITCODE" }
+          & $unittest --help *> $null
+          if ($LASTEXITCODE -ne 0) { throw "unittest.exe validation failed with exit code $LASTEXITCODE" }
+          Add-Content -Path $buildInfo -Value "cache_key=${{ steps.windows-runtime-key.outputs.key }}"
+          Add-Content -Path $buildInfo -Value "cache_hit=${{ steps.windows-runtime-cache.outputs.cache-hit }}"
+          Add-Content -Path $buildInfo -Value "operating_system=${{ inputs.operating_system }}"
+          Add-Content -Path $buildInfo -Value "architecture=${{ inputs.architecture }}"
+          Add-Content -Path $buildInfo -Value "github_runner=${{ inputs.github_runner }}"
+          Add-Content -Path $buildInfo -Value "duckdb_commit=${{ steps.windows-runtime-key.outputs.duckdb_sha }}"
+          Add-Content -Path $buildInfo -Value "ci_tools_commit=${{ steps.windows-runtime-key.outputs.ci_tools_sha }}"
+
+      - name: Upload Windows DuckDB runtime
+        uses: actions/upload-artifact@v4
+        with:
+          name: duckdb-${{ inputs.duckdb_version }}-${{ inputs.operating_system }}-${{ inputs.architecture }}
+          path: build/artifact-windows/
+          if-no-files-found: error
+          retention-days: 7
+
+  test-windows:
+    name: ${{ matrix.name }}
+    needs: build-windows
+    runs-on: ${{ needs.build-windows.outputs.github_runner }}
+    timeout-minutes: 180
+    continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
+    strategy:
+      fail-fast: true
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
+
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Set up Windows Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install native security QA dependencies
+        if: matrix.name == 'irion_extension_security'
+        shell: pwsh
+        run: |
+          python -m pip install --disable-pip-version-check -r requirements/qa.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to install Windows QA dependencies' }
+
+      - name: Prepare battery configuration
+        shell: pwsh
+        env:
+          BATTERY_CONFIG_JSON: ${{ toJSON(matrix) }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZ_STORAGE_ACCOUNT: ${{ vars.AZ_STORAGE_ACCOUNT }}
+          AZ_DATA_DIR: ${{ vars.AZ_DATA_DIR }}
+          AZ_TEMP_DIR: ${{ vars.AZ_TEMP_DIR }}
+          ABFSS_STORAGE_ACCOUNT: ${{ vars.ABFSS_STORAGE_ACCOUNT }}
+          ABFSS_DATA_DIR: ${{ vars.ABFSS_DATA_DIR }}
+          ABFSS_TEMP_DIR: ${{ vars.ABFSS_TEMP_DIR }}
+        run: |
+          New-Item -ItemType Directory -Force -Path 'build/config','build/results/${{ matrix.name }}' | Out-Null
+          $utf8 = [System.Text.UTF8Encoding]::new($false)
+          [System.IO.File]::WriteAllText(
+            (Join-Path $env:GITHUB_WORKSPACE 'build/config/${{ matrix.name }}.json'),
+            $env:BATTERY_CONFIG_JSON,
+            $utf8
+          )
+          $started = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+          "RESULT_STARTED_AT_MS=$started" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          if ('${{ matrix.name }}' -eq 'azure') {
+            python scripts/init-azure-test-env.py --github-env $env:GITHUB_ENV
+            if ($LASTEXITCODE -ne 0) { throw 'Azure test environment initialization failed' }
+          }
+
+      - name: Checkout remote test source
+        if: matrix.sourceType == 'remote'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.pin }}
+          path: upstream/${{ matrix.name }}
+          fetch-depth: 1
+          submodules: ${{ matrix.submodules }}
+
+      - name: Resolve test source root
+        id: test_source
+        shell: pwsh
+        run: |
+          if ('${{ matrix.sourceType }}' -eq 'self') {
+            $root = $env:GITHUB_WORKSPACE
+          } else {
+            $root = Join-Path $env:GITHUB_WORKSPACE 'upstream/${{ matrix.name }}'
+          }
+          if (-not (Test-Path $root)) { throw "Windows test source root is missing: $root" }
+          "root=$root" | Out-File $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Bootstrap Azure cloud fixtures
+        if: matrix.name == 'azure'
+        shell: pwsh
+        run: |
+          python scripts/bootstrap-azure-test-data.py --source-root '${{ steps.test_source.outputs.root }}'
+          if ($LASTEXITCODE -ne 0) { throw 'Azure cloud fixture bootstrap failed' }
+
+      - name: Download Windows DuckDB runtime
+        uses: actions/download-artifact@v4
+        with:
+          name: duckdb-${{ needs.build-windows.outputs.duckdb_version }}-${{ needs.build-windows.outputs.operating_system }}-${{ needs.build-windows.outputs.architecture }}
+          path: build/artifact-windows
+
+      - name: Report accepted external-account failure
+        if: contains(matrix.capabilities, 'accepted-failure')
+        shell: pwsh
+        run: Write-Host 'Accepted failure contract — required external cloud account is unavailable'
+
+      - name: Validate Google BigQuery credentials
+        id: google_credentials
+        if: contains(matrix.capabilities, 'google-cloud-auth')
+        shell: pwsh
+        env:
+          GCS_SERVICE_ACCOUNT_KEY: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
+          BQ_TEST_PROJECT: ${{ secrets.BQ_TEST_PROJECT }}
+          BQ_TEST_DATASET: ${{ secrets.BQ_TEST_DATASET }}
+        run: |
+          foreach ($name in @('GCS_SERVICE_ACCOUNT_KEY','BQ_TEST_PROJECT','BQ_TEST_DATASET','BQ_TEST_EXPORT_URI')) {
+            if ([string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($name))) {
+              throw "Missing repository secret $name"
+            }
+          }
+
+      - name: Authenticate Google Cloud
+        if: contains(matrix.capabilities, 'google-cloud-auth') && steps.google_credentials.outcome == 'success'
+        uses: google-github-actions/auth@v3
+        with:
+          credentials_json: ${{ secrets.GCS_SERVICE_ACCOUNT_KEY }}
+
+      - name: Set up shared Linux service host
+        if: matrix.name != 'irion_extension_security'
+        id: wsl_runtime
+        shell: pwsh
+        env:
+          CAPABILITIES_JSON: ${{ toJSON(matrix.capabilities) }}
+        run: |
+          ./scripts/setup-windows-wsl-runtime.ps1 `
+            -BatteryName '${{ matrix.name }}' `
+            -CapabilitiesJson $env:CAPABILITIES_JSON
+
+      - name: Run shared test battery with native Windows DuckDB
+        id: run_battery
+        shell: pwsh
+        env:
+          SOURCE_ROOT: ${{ steps.test_source.outputs.root }}
+          BQ_TEST_PROJECT: ${{ secrets.BQ_TEST_PROJECT }}
+          BQ_TEST_DATASET: ${{ secrets.BQ_TEST_DATASET }}
+        run: |
+          ./scripts/run-windows-wsl-battery.ps1 `
+            -BatteryName '${{ matrix.name }}' `
+            -SourceRoot $env:SOURCE_ROOT `
+            -DuckDBVersion '${{ needs.build-windows.outputs.duckdb_version }}' `
+            -StartedAtMs $env:RESULT_STARTED_AT_MS
+
+      - name: Ensure structured test result
+        if: always()
+        shell: pwsh
+        env:
+          GOOGLE_CREDENTIALS_OUTCOME: ${{ steps.google_credentials.outcome }}
+          RUN_BATTERY_OUTCOME: ${{ steps.run_battery.outcome }}
+        run: |
+          New-Item -ItemType Directory -Force -Path 'build/logs/${{ matrix.name }}','build/results/${{ matrix.name }}' | Out-Null
+          $exitCode = 0
+          $reason = ''
+          if ($env:GOOGLE_CREDENTIALS_OUTCOME -eq 'failure') {
+            $exitCode = 1; $reason = 'missing-google-cloud-credentials'
+          } elseif ($env:RUN_BATTERY_OUTCOME -eq 'failure') {
+            $exitCode = 1; $reason = 'test-battery-failed'
+          } elseif ($env:RUN_BATTERY_OUTCOME -ne 'success') {
+            $exitCode = 2; $reason = "test-battery-$($env:RUN_BATTERY_OUTCOME)"
+          }
+          python scripts/write-test-result.py `
+            --battery-config 'build/config/${{ matrix.name }}.json' `
+            --log-dir 'build/logs/${{ matrix.name }}' `
+            --output 'build/results/${{ matrix.name }}/result.json' `
+            --exit-code $exitCode `
+            --started-at-ms $env:RESULT_STARTED_AT_MS `
+            --reason $reason `
+            --preserve-existing
+          if ($LASTEXITCODE -ne 0) { throw 'Unable to write structured Windows result' }
+
+      - name: Upload structured test result
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-result-${{ matrix.name }}
+          path: build/results/${{ matrix.name }}/result.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-logs-${{ matrix.name }}
+          path: build/logs/${{ matrix.name }}/
+          if-no-files-found: warn
+          retention-days: 7
+
+  # Aggregation reads artifacts only and does not touch the shared cloud test
+  # accounts. Each aggregate node starts as soon as its own platform battery has
+  # finished, so Windows aggregation may run in parallel with the Linux battery.
+
+  aggregate-windows:
+    name: Aggregate Windows results
+    needs: test-windows
+    if: ${{ always() && needs.test-windows.result != 'skipped' }}
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout QA repository
+        uses: actions/checkout@v4
+
+      - name: Install result tooling
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install --disable-pip-version-check -r requirements/qa.txt
+
+      - name: Download execution plan
+        uses: actions/download-artifact@v4
+        with:
+          name: qa-execution-plan
+          path: build/plan
+
+      - name: Download Windows structured results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: windows-result-*
+          path: build/windows-results
+
+      - name: Aggregate and validate Windows results
+        id: aggregate_results
+        continue-on-error: true
+        run: |
+          .venv/bin/python scripts/aggregate-test-results.py \
+            --plan build/plan/execution-plan.json \
+            --results-root build/windows-results \
+            --result-schema schemas/test-result-v1.schema.json \
+            --summary-schema schemas/test-summary-v1.schema.json \
+            --policy config/result-policy.yml \
+            --policy-schema schemas/result-policy-v1.schema.json \
+            --output-json build/windows-summary/summary.json \
+            --output-markdown build/windows-summary/summary.md
+
+      - name: Publish Windows job summary
+        if: always()
+        run: |
+          if [[ -f build/windows-summary/summary.md ]]; then
+            cat build/windows-summary/summary.md >>"${GITHUB_STEP_SUMMARY}"
+          else
+            echo "# Windows DuckDB extension QA summary" >>"${GITHUB_STEP_SUMMARY}"
+            echo "Structured summary was not generated." >>"${GITHUB_STEP_SUMMARY}"
+          fi
+
+      - name: Upload Windows aggregate summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-qa-result-summary
+          path: build/windows-summary/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce Windows aggregate verdict
+        if: always()
+        run: test '${{ steps.aggregate_results.outcome }}' = 'success'

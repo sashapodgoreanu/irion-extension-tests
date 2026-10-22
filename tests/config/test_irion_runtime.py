@@ -97,18 +97,21 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertIn("$nativeStandardBatteries", windows_runner)
 
     def test_workflow_uses_workspace_for_self_source(self) -> None:
-        workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-        self.assertIn("if: matrix.sourceType == 'remote'", workflow)
-        self.assertIn("if [[ '${{ matrix.sourceType }}' == 'self' ]]", workflow)
-        self.assertIn('root="${GITHUB_WORKSPACE}"', workflow)
-        self.assertIn('"${{ steps.test_source.outputs.root }}"', workflow)
-        self.assertIn(
-            "if: matrix.name != 'irion_extension_security'", workflow
-        )
-        self.assertIn("Install native security QA dependencies", workflow)
+        linux = (WORKFLOW_PATH.parent / "qa-linux.yml").read_text(encoding="utf-8")
+        windows = (WORKFLOW_PATH.parent / "qa-windows.yml").read_text(encoding="utf-8")
+        for workflow in (linux, windows):
+            self.assertIn("if: matrix.sourceType == 'remote'", workflow)
+            self.assertIn("repository: ${{ matrix.repository }}", workflow)
+            self.assertIn("${{ steps.test_source.outputs.root }}", workflow)
+        self.assertIn("if [[ '${{ matrix.sourceType }}' == 'self' ]]", linux)
+        self.assertIn('root="${GITHUB_WORKSPACE}"', linux)
+        self.assertIn("if ('${{ matrix.sourceType }}' -eq 'self')", windows)
+        self.assertIn('$root = $env:GITHUB_WORKSPACE', windows)
+        self.assertIn("if: matrix.name != 'irion_extension_security'", windows)
+        self.assertIn("Install native security QA dependencies", windows)
         self.assertIn(
             "python -m pip install --disable-pip-version-check -r requirements/qa.txt",
-            workflow,
+            windows,
         )
 
     def test_feature_pr_runs_all_batteries_on_both_platforms(self) -> None:

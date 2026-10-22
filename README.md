@@ -1,5 +1,10 @@
 # Irion DuckDB Extension Compatibility Tests
 
+GitHub Actions uses `.github/workflows/extension-qa.yml` as its common entry
+point, invoking independent Linux (`qa-linux.yml`) and Windows (`qa-windows.yml`)
+reusable workflows. Matrices and pinned test sources remain centralized.
+
+
 This repository verifies that the DuckDB extensions used by Irion remain compatible with the selected DuckDB release.
 
 The GitHub Actions workflow builds one DuckDB runtime and runs the enabled Irion and upstream extension test batteries against it.
