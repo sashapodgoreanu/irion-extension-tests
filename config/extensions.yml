@@ -205,7 +205,15 @@ testBatteries:
       isUsed: true
     - name: tpcds
       isUsed: true
-    ignoredTests: []
+    ignoredTests:
+    - path: test/sql/cloud/minio_local/minio_local.test
+      reason: Requires a MinIO S3 test server; Delta QA runs local filesystem fixtures only
+      profiles:
+      - all
+    - path: test/sql/cloud/minio_local/gcs_r2.test
+      reason: Requires the MinIO-compatible S3 endpoint for GCS and R2 credentials tests
+      profiles:
+      - all
   iceberg:
     isEnabled: true
     runner: standard
