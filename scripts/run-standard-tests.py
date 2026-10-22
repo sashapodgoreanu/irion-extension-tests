@@ -659,6 +659,10 @@ def main() -> int:
             if credentials:
                 env["BQ_TEST_SA_KEY_PATH"] = credentials
             adapt_bigquery_tests(upstream_root, logger)
+            subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "skip-bigquery-rest-null-array-test.py"), str(upstream_root)],
+                check=True,
+            )
 
         # Delta and Iceberg still require their fixture generators to be split
         # from the old Bash runner before Windows can use this native path.

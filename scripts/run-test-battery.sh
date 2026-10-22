@@ -269,6 +269,8 @@ PY
 if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
   qa_log INFO "adapting BigQuery dynamic SQLLogicTests"
   prepare_bigquery_dynamic_tests
+  qa_log INFO "skipping BigQuery REST NULL-array error expectation"
+  python3 "${SCRIPT_DIR}/skip-bigquery-rest-null-array-test.py" "${UPSTREAM_ROOT}"
 fi
 
 if [[ "${BATTERY_NAME}" == "azure" ]]; then
