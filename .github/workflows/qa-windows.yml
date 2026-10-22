@@ -188,7 +188,7 @@ jobs:
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
       fail-fast: true
-      max-parallel: 10
+      max-parallel: 8
       matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
 
     steps:
