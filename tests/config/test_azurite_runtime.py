@@ -13,7 +13,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 PREPARE_BATTERY = REPOSITORY_ROOT / "scripts" / "prepare-test-battery.py"
 SERVICE_MANAGER = REPOSITORY_ROOT / "scripts" / "service-manager.sh"
-WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
+WORKFLOW = REPOSITORY_ROOT / ".github" / "workflows" / "qa-linux.yml"
 
 
 class AzuriteRuntimeTestCase(unittest.TestCase):

@@ -12,7 +12,7 @@ from qa import load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
-WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "extension-qa.yml"
+WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "qa-linux.yml"
 PREPARE_BATTERY = REPOSITORY_ROOT / "scripts" / "prepare-test-battery.py"
 PREPARE_PROFILE = REPOSITORY_ROOT / "scripts" / "prepare-standard-profile.py"
 STANDARD_RUNNER = REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh"
