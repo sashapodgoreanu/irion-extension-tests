@@ -2,18 +2,24 @@
 set -Eeuo pipefail
 
 DUCKDB_VERSION="${DUCKDB_VERSION:-v1.5.4}"
-CI_TOOLS_VERSION="${CI_TOOLS_VERSION:-v1.5.4}"
+CI_TOOLS_VERSION="${CI_TOOLS_VERSION:?pinned extension-ci-tools SHA is required}"
 BUILD_JOBS="${BUILD_JOBS:-2}"
 
-checkout_ref() {
-  local directory=$1
-  local ref=$2
-  git -C "${directory}" fetch --depth 1 origin "${ref}"
-  git -C "${directory}" checkout --detach FETCH_HEAD
-}
-
-checkout_ref duckdb "${DUCKDB_VERSION}"
-checkout_ref extension-ci-tools "${CI_TOOLS_VERSION}"
+# The repository pins both sources as Git submodules. actions/checkout
+# already checks them out; refetching a version tag discards that reproducible
+# pin. In particular, extension-ci-tools does not have a v2.0.0 release tag.
+DUCKDB_TAG_COMMIT="$(git -C duckdb rev-parse --verify "refs/tags/${DUCKDB_VERSION}^{commit}")"
+DUCKDB_COMMIT="$(git -C duckdb rev-parse HEAD)"
+CI_TOOLS_COMMIT="$(git -C extension-ci-tools rev-parse HEAD)"
+if [[ "${DUCKDB_COMMIT}" != "${DUCKDB_TAG_COMMIT}" ]]; then
+  echo "DuckDB submodule does not match release ${DUCKDB_VERSION}: ${DUCKDB_COMMIT} != ${DUCKDB_TAG_COMMIT}" >&2
+  exit 1
+fi
+if [[ "${CI_TOOLS_COMMIT}" != "${CI_TOOLS_VERSION}" ]]; then
+  echo "extension-ci-tools submodule does not match configured SHA: ${CI_TOOLS_COMMIT} != ${CI_TOOLS_VERSION}" >&2
+  exit 1
+fi
+echo "Using pinned DuckDB ${DUCKDB_COMMIT} and extension-ci-tools ${CI_TOOLS_COMMIT}"
 
 # The upstream HTTPFS fixture script invokes DBGEN in a fresh DuckDB CLI process.
 # Keep normal CLI autoload/autoinstall available; unittest still uses our explicit

@@ -1,7 +1,8 @@
 # DuckDB 2.0.0 LTS migration
 
 Target branch: `aggiornamento_duckdb_2_0` (created from `main`).
-Target DuckDB and CI tools version: `v2.0.0`.
+Target DuckDB version: `v2.0.0`.
+`extension-ci-tools` is pinned at SHA `969bc76276acec1c0a3922ff500d2ec3a1a3b037` because it does **not** provide a `v2.0.0` git tag.
 Selection date: 2026-10-23.
 
 | Battery | Upstream repository | Pinned reference | Selection |

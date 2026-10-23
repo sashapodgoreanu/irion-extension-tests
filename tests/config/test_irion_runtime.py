@@ -31,7 +31,7 @@ class IrionRuntimeTest(unittest.TestCase):
             irion["runtime"],
             {
                 "duckdbVersion": "v2.0.0",
-                "ciToolsVersion": "v2.0.0",
+                "ciToolsVersion": "969bc76276acec1c0a3922ff500d2ec3a1a3b037",
                 "operatingSystem": "linux",
                 "architecture": "x86_64",
                 "githubRunner": "ubuntu-24.04",
