@@ -44,8 +44,10 @@ class Phase5FinalizationTest(unittest.TestCase):
         iceberg = config["testBatteries"]["iceberg"]
         self.assertEqual(iceberg["prerequisites"], [])
         self.assertEqual(
-            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
+            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], []
         )
+        self.assertFalse(iceberg["isEnabled"])
+        self.assertEqual(iceberg["extensions"], [])
 
 
 if __name__ == "__main__":

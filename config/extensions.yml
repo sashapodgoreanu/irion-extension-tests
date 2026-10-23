@@ -230,20 +230,13 @@ testBatteries:
       testConfig:
         kind: generated
         description: Iceberg local suite with dynamic repository loading
-        excludedExtensions:
-        - iceberg
+        excludedExtensions: []
         staticallyLoadedExtensions:
         - core_functions
         - parquet
-    extensions:
-    - name: httpfs
-      isUsed: true
-    - name: avro
-      isUsed: true
-    - name: iceberg
-      isUsed: true
-    - name: tpch
-      isUsed: true
+    # Iceberg is disabled indefinitely, including its Avro/HTTPFS/TPCH test
+    # dependencies. Re-enabling requires an explicit configuration change.
+    extensions: []
     ignoredTests:
     - path: test/sql/local/iceberg_scans/iceberg_partition_stats.test
       reason: The shared dynamic extension repository autoloads Iceberg before the file's pre-require negative assertion; functional metadata coverage is enforced by verify-iceberg-metadata.py

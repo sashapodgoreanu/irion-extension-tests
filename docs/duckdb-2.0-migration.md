@@ -27,7 +27,7 @@ Selection date: 2026-10-23.
 - Azure 2.0 expects four HEAD requests rather than three in its private HTTP
   statistics assertion. Only the variable cache-sensitive GET statistic is adapted.
 - Delta remains local-only, with MinIO tests explicitly excluded.
-- Iceberg is temporarily disabled for this migration: both `testBatteries.iceberg.isEnabled` and the `defaultExtensions` Iceberg `isUsed` flag are `false`. Its upstream pin and test configuration remain in place for reactivation.
+- Iceberg is disabled indefinitely: both `testBatteries.iceberg.isEnabled` and the `defaultExtensions` Iceberg `isUsed` flag are `false`. Its dedicated extensions are an empty list, so the Avro/HTTPFS/TPCH dependencies formerly declared for Iceberg are not installed by this battery. There are no Iceberg services or prerequisites. Reactivation requires explicitly restoring this configuration; the upstream reference and fixture files remain dormant.
 - MSSQL v0.3.0's upstream tests and previous excluded cases require CI revalidation.
 - Windows is disabled in `config/runners.yml` on `main`; it remains disabled
   in this branch until the new Linux baseline is verified.

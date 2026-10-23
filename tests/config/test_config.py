@@ -162,9 +162,8 @@ class ConfigTestCase(unittest.TestCase):
         self.assertFalse(iceberg["isEnabled"])
         self.assertEqual(iceberg["pin"], "b0ef95eda41c44734b2d229659190b18a5716eab")
         self.assertEqual(iceberg["prerequisites"], [])
-        self.assertEqual(
-            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
-        )
+        self.assertEqual(iceberg["profiles"][0]["testConfig"]["excludedExtensions"], [])
+        self.assertEqual(iceberg["extensions"], [])
         self.assertEqual(
             [item["path"] for item in iceberg["ignoredTests"]],
             [
