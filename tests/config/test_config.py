@@ -58,14 +58,14 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(
             plan.runtime.payload(),
             {
-                "duckdbVersion": "v1.5.5",
-                "ciToolsVersion": "v1.5.5",
+                "duckdbVersion": "v2.0.0",
+                "ciToolsVersion": "v2.0.0",
                 "operatingSystem": "linux",
                 "architecture": "x86_64",
                 "githubRunner": "ubuntu-24.04",
             },
         )
-        self.assertTrue(all(item["duckdbVersion"] == "v1.5.5" for item in matrix))
+        self.assertTrue(all(item["duckdbVersion"] == "v2.0.0" for item in matrix))
         self.assertTrue(all(item["runtime"] == plan.runtime.payload() for item in matrix))
         self.assertTrue(all("setup" not in item for item in matrix))
 
@@ -128,7 +128,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
 
         unity = next(case for case in matrix if case["name"] == "unity_catalog")
-        self.assertEqual(unity["pin"], "fd851475780ca064d9706a5025ea6e5d1d9d7e23")
+        self.assertEqual(unity["pin"], "d8035e4fed353bce957a047a36179344a9c3edf1")
         self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
         self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
@@ -155,7 +155,7 @@ class ConfigTestCase(unittest.TestCase):
         )
 
         iceberg = next(case for case in matrix if case["name"] == "iceberg")
-        self.assertEqual(iceberg["pin"], "45163a28e0ed6a2071a82a1bf1dd432d0216cf9c")
+        self.assertEqual(iceberg["pin"], "b0ef95eda41c44734b2d229659190b18a5716eab")
         self.assertEqual(iceberg["prerequisites"], [])
         self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(

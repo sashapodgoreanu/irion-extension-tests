@@ -30,8 +30,8 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertEqual(
             irion["runtime"],
             {
-                "duckdbVersion": "v1.5.5",
-                "ciToolsVersion": "v1.5.5",
+                "duckdbVersion": "v2.0.0",
+                "ciToolsVersion": "v2.0.0",
                 "operatingSystem": "linux",
                 "architecture": "x86_64",
                 "githubRunner": "ubuntu-24.04",

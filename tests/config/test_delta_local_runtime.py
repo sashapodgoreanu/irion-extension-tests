@@ -10,7 +10,7 @@ from qa import load_config, resolve_config
 
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "config" / "extensions.yml"
-DELTA_COMMIT = "45c40878601b54b4188b09e08732fe0d576ad222"
+DELTA_COMMIT = "8a12490ad047fcc626dae3c47fc21c9f9fd9d540"
 
 
 class DeltaLocalRuntimeTest(unittest.TestCase):
