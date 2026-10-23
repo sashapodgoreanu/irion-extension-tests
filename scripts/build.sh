@@ -24,17 +24,23 @@ echo "Using pinned DuckDB ${DUCKDB_COMMIT} and extension-ci-tools ${CI_TOOLS_COM
 # The upstream HTTPFS fixture script invokes DBGEN in a fresh DuckDB CLI process.
 # Keep normal CLI autoload/autoinstall available; unittest still uses our explicit
 # test configuration with autoloading disabled.
-ENABLE_EXTENSION_AUTOLOADING=1 \
-ENABLE_EXTENSION_AUTOINSTALL=1 \
 GEN=ninja \
 make release -j"${BUILD_JOBS}"
 cmake --build build/release --target unittest --parallel "${BUILD_JOBS}"
 
 rm -rf build/artifact
-mkdir -p build/artifact/bin build/artifact/extensions build/artifact/logs
+mkdir -p build/artifact/bin build/artifact/lib build/artifact/extensions build/artifact/logs
 
 install -m 0755 build/release/duckdb build/artifact/bin/duckdb
 install -m 0755 build/release/test/unittest build/artifact/bin/unittest
+
+# DuckDB 2.0 Linux unittest links libduckdb.so; bundle the shared library.
+if [[ ! -f build/release/src/libduckdb.so ]]; then
+  echo "Missing DuckDB 2.0 shared library: build/release/src/libduckdb.so" >&2
+  exit 1
+fi
+cp -a build/release/src/libduckdb.so* build/artifact/lib/
+export LD_LIBRARY_PATH="$(pwd)/build/artifact/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 find build/release/extension/qa_test -type f -name '*.duckdb_extension' \
   -exec install -m 0644 {} build/artifact/extensions/ \;
@@ -49,10 +55,16 @@ fi
   echo "duckdb_commit=$(git -C duckdb rev-parse HEAD)"
   echo "ci_tools_version=${CI_TOOLS_VERSION}"
   echo "ci_tools_commit=$(git -C extension-ci-tools rev-parse HEAD)"
+  echo "shared_library=libduckdb.so"
   echo "compiled_extension=qa_test"
   echo "cli_extension_autoloading=enabled"
   echo "cli_extension_autoinstall=enabled"
 } | tee build/artifact/logs/build-info.txt
 
 build/artifact/bin/duckdb --version
+ldd build/artifact/bin/unittest | tee build/artifact/logs/unittest-ldd.txt
+if grep -q 'not found' build/artifact/logs/unittest-ldd.txt; then
+  echo "Unresolved shared dependencies in Linux unittest" >&2
+  exit 1
+fi
 build/artifact/bin/unittest --help >/dev/null
