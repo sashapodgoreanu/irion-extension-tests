@@ -543,6 +543,7 @@ def run_ducklake_postgres_isolated(
         run_logged(
             [
                 str(unittest),
+                "--keep-home",
                 "--test-config",
                 str(config),
                 "--test-dir",
@@ -581,6 +582,7 @@ def run_profile(
         run_logged(
             [
                 str(unittest),
+                "--keep-home",
                 "--test-config",
                 str(config),
                 "--test-dir",
