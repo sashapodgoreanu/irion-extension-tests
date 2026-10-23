@@ -46,7 +46,6 @@ class ConfigTestCase(unittest.TestCase):
                 "ducklake",
                 "postgres_scanner",
                 "delta",
-                "iceberg",
                 "azure",
                 "unity_catalog",
                 "bigquery",
@@ -154,10 +153,15 @@ class ConfigTestCase(unittest.TestCase):
             bigquery["capabilities"], ["google-cloud-auth", "accepted-failure"]
         )
 
-        iceberg = next(case for case in matrix if case["name"] == "iceberg")
+        self.assertNotIn("iceberg", [case["name"] for case in matrix])
+        self.assertTrue(all(
+            "iceberg" not in [ext["name"] for ext in case["extensions"]]
+            for case in matrix
+        ))
+        iceberg = self.load_source()["testBatteries"]["iceberg"]
+        self.assertFalse(iceberg["isEnabled"])
         self.assertEqual(iceberg["pin"], "b0ef95eda41c44734b2d229659190b18a5716eab")
         self.assertEqual(iceberg["prerequisites"], [])
-        self.assertEqual(iceberg["capabilities"], [])
         self.assertEqual(
             iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
         )
