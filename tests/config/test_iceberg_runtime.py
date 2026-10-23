@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
 from pathlib import Path
+
+import yaml
 
 from qa import load_config, resolve_config
 
@@ -16,7 +19,19 @@ IGNORED_METADATA_TESTS = [
 
 class IcebergRuntimeTest(unittest.TestCase):
     def test_iceberg_profile_is_strict_and_has_complete_local_fixtures(self) -> None:
-        plan = resolve_config(load_config(CONFIG_PATH))
+        raw = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+        self.assertFalse(raw["testBatteries"]["iceberg"]["isEnabled"])
+        self.assertFalse(next(
+            extension["isUsed"]
+            for extension in raw["defaultExtensions"]
+            if extension["name"] == "iceberg"
+        ))
+        # Keep the dormant Iceberg profile validated for future reactivation.
+        raw["testBatteries"]["iceberg"]["isEnabled"] = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "extensions.yml"
+            path.write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+            plan = resolve_config(load_config(path))
         matrix_case = next(
             item for item in plan.matrix()["include"] if item["name"] == "iceberg"
         )
