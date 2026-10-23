@@ -20,6 +20,7 @@ concurrency:
 
 env:
   BQ_TEST_EXPORT_URI: ${{ secrets.BQ_TEST_EXPORT_URI }}
+  LD_LIBRARY_PATH: ${{ github.workspace }}/build/artifact/lib
 
 jobs:
   configure:
@@ -98,7 +99,7 @@ jobs:
           CI_TOOLS_SHA="$(git rev-parse HEAD:extension-ci-tools)"
           BUILD_INPUT_HASH="$({
             printf '%s\n' \
-              'cache-schema=v3' \
+              'cache-schema=v4' \
               'runner=${{ needs.configure.outputs.github_runner }}' \
               'operating-system=${{ needs.configure.outputs.operating_system }}' \
               'architecture=${{ needs.configure.outputs.architecture }}' \
@@ -109,7 +110,7 @@ jobs:
             git ls-files -s -- \
               .gitmodules CMakeLists.txt extension_config.cmake Makefile scripts/build.sh src
           } | sha256sum | cut -d' ' -f1)"
-          CACHE_KEY="duckdb-runtime-v3-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
+          CACHE_KEY="duckdb-runtime-v4-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
           echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
           echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
           echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
@@ -141,8 +142,14 @@ jobs:
           set -Eeuo pipefail
           test -f build/artifact/bin/duckdb
           test -f build/artifact/bin/unittest
+          test -f build/artifact/lib/libduckdb.so
           chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
           build/artifact/bin/duckdb --version
+          ldd build/artifact/bin/unittest | tee build/artifact/logs/unittest-ldd.txt
+          if grep -q 'not found' build/artifact/logs/unittest-ldd.txt; then
+            echo "Unresolved shared libraries in Linux runtime artifact" >&2
+            exit 1
+          fi
           build/artifact/bin/unittest --help >/dev/null
           {
             echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
@@ -234,10 +241,13 @@ jobs:
           name: duckdb-${{ needs.build-linux.outputs.duckdb_version }}-${{ needs.build-linux.outputs.operating_system }}-${{ needs.build-linux.outputs.architecture }}
           path: build/artifact
 
-      - name: Restore executable permissions
+      - name: Restore executable permissions and validate runtime dependencies
         run: |
+          test -f build/artifact/lib/libduckdb.so
           chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
           chmod +x scripts/*.sh scripts/*.py
+          ldd build/artifact/bin/unittest
+          build/artifact/bin/unittest --help >/dev/null
 
       - name: Report accepted external-account failure
         if: contains(matrix.capabilities, 'accepted-failure')
