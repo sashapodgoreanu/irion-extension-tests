@@ -23,7 +23,7 @@ defaultExtensions:
 - name: delta
   isUsed: true
 - name: iceberg
-  isUsed: true
+  isUsed: false
 - name: unity_catalog
   isUsed: true
 - name: bigquery
@@ -215,7 +215,7 @@ testBatteries:
       profiles:
       - all
   iceberg:
-    isEnabled: true
+    isEnabled: false
     runner: standard
     source: remote
     repository: duckdb/duckdb-iceberg
