@@ -29,6 +29,20 @@ class DuckDBTwoBuildPinTests(unittest.TestCase):
         self.assertEqual(config["duckdb"]["ciToolsVersion"], SHA)
         self.assertRegex(SHA, r"^[0-9a-f]{40}$")
 
+    def test_linux_unittest_packages_shared_library_for_duckdb_two(self) -> None:
+        build = (ROOT / "scripts/build.sh").read_text(encoding="utf-8")
+        workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
+        self.assertIn("cp -a build/release/src/libduckdb.so* build/artifact/lib/", build)
+        self.assertIn("export LD_LIBRARY_PATH=", build)
+        self.assertIn("ldd build/artifact/bin/unittest", build)
+        self.assertNotIn("ENABLE_EXTENSION_AUTOLOADING=1", build)
+        self.assertNotIn("ENABLE_EXTENSION_AUTOINSTALL=1", build)
+        self.assertIn("LD_LIBRARY_PATH: ${{ github.workspace }}/build/artifact/lib", workflow)
+        self.assertIn("cache-schema=v4", workflow)
+        self.assertIn("duckdb-runtime-v4-", workflow)
+        self.assertIn("test -f build/artifact/lib/libduckdb.so", workflow)
+        self.assertIn("Restore executable permissions and validate runtime dependencies", workflow)
+
 
 if __name__ == "__main__":
     unittest.main()
