@@ -25,7 +25,6 @@ EXPECTED = [
     "ducklake",
     "postgres_scanner",
     "delta",
-    "iceberg",
     "azure",
     "unity_catalog",
     "bigquery",
