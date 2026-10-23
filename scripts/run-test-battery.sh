@@ -238,9 +238,11 @@ public_dataset = test_root / "storage" / "attach_public_dataset.test"
 text = public_dataset.read_text(encoding="utf-8")
 old = "billing_project=${BQ_TEST_BILLING_PROJECT}"
 new = "billing_project='${BQ_TEST_BILLING_PROJECT}'"
-if old not in text:
+if old in text:
+    public_dataset.write_text(text.replace(old, new, 1), encoding="utf-8")
+elif new not in text and "billing_project={BQ_TEST_BILLING_PROJECT}" not in text:
     raise SystemExit("BigQuery billing project expression was not found")
-public_dataset.write_text(text.replace(old, new, 1), encoding="utf-8")
+# v0.13.0 uses DuckDB 2.0 {ENV_VAR} placeholders natively.
 
 jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
 text = jobs_test.read_text(encoding="utf-8")
