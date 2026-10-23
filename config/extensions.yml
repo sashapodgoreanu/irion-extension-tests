@@ -205,7 +205,15 @@ testBatteries:
       isUsed: true
     - name: tpcds
       isUsed: true
-    ignoredTests: []
+    ignoredTests:
+    - path: test/sql/cloud/minio_local/minio_local.test
+      reason: Requires a MinIO S3 test server; Delta QA runs local filesystem fixtures only
+      profiles:
+      - all
+    - path: test/sql/cloud/minio_local/gcs_r2.test
+      reason: Requires the MinIO-compatible S3 endpoint for GCS and R2 credentials tests
+      profiles:
+      - all
   iceberg:
     isEnabled: true
     runner: standard
@@ -338,7 +346,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: hafenkran/duckdb-bigquery
-    pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
+    pin: 27d85add08e4e2817c9400b2435935d7036844fa
     submodules: recursive
     services: []
     prerequisites:
@@ -365,7 +373,7 @@ testBatteries:
     runner: mssql-release
     source: remote
     repository: hugr-lab/mssql-extension
-    pin: v0.2.3
+    pin: v0.2.5
     submodules: false
     services:
     - name: sqlserver
@@ -421,5 +429,29 @@ testBatteries:
     - name: json
       isUsed: true
     - name: sqlite_scanner
+      isUsed: true
+    ignoredTests: []
+
+  irion_extension_security:
+    isEnabled: true
+    runner: standard
+    source: self
+    services: []
+    prerequisites: []
+    profiles:
+    - name: security
+      tests: test/sql/irion_security/extension_security.test
+      services: []
+      testConfig:
+        kind: generated
+        description: Irion extension repository and community loading restrictions
+        excludedExtensions:
+        - mssql
+        - bigquery
+        staticallyLoadedExtensions:
+        - core_functions
+        - parquet
+    extensions:
+    - name: json
       isUsed: true
     ignoredTests: []

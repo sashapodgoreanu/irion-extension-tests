@@ -127,6 +127,30 @@ def assert_unittest_passed(log_file: Path) -> None:
         )
 
 
+SECURITY_REQUIREMENT_SKIP = re.compile(
+    r"(?im)^\s*require-env\s+(?:IRION_APPROVED_EXTENSION_REPO|"
+    r"IRION_COMMUNITY_EXTENSION_PATH):\s*[1-9][0-9]*\s*$"
+)
+PASSED_TEST_SUMMARY = re.compile(
+    r"(?im)\bAll tests passed\b|^\s*test cases?:\s*[0-9]+\s*\|\s*[1-9][0-9]* passed\b"
+)
+ALL_TESTS_SKIPPED = re.compile(r"(?i)\bAll tests (?:were )?skipped\b")
+
+
+def assert_security_test_executed(log_file: Path) -> None:
+    """Security checks must not turn green by being skipped or undiscovered."""
+    output = log_file.read_text(encoding="utf-8", errors="replace")
+    if SECURITY_REQUIREMENT_SKIP.search(output):
+        raise RunnerError("Irion security test was skipped due to missing environment")
+    if ALL_TESTS_SKIPPED.search(output):
+        raise RunnerError("Irion security test was skipped instead of executed")
+    if not PASSED_TEST_SUMMARY.search(output):
+        raise RunnerError(
+            "Irion security test did not report any passed test cases; "
+            f"inspect {log_file}"
+        )
+
+
 def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
     test_root = upstream_root / "test" / "sql"
     files = sorted(
@@ -161,9 +185,11 @@ def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
     )
     for path, old, new in replacements:
         text = path.read_text(encoding="utf-8")
-        if old not in text:
+        if old in text:
+            path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        elif new not in text:
             raise RunnerError(f"BigQuery adaptation anchor was not found: {path}: {old}")
-        path.write_text(text.replace(old, new, 1), encoding="utf-8")
+        # Newer upstream test files already contain the adapted form.
     logger.info(
         f"BigQuery source adapted require_directives={require_count} normalized_locations={location_count}"
     )
@@ -230,6 +256,151 @@ def prepare_local_extension_repo(
     shutil.copytree(source_dir, target)
     logger.info(f"local extension repository source={source_dir} target={target}")
     return local_repo
+
+
+def prepare_approved_extension_repo(
+    source_dir: Path,
+    runtime_root: Path,
+    duckdb_version: str,
+    extensions_json: Path,
+    logger: Logger,
+) -> Path:
+    extensions = read_json(extensions_json)
+    community_names = {
+        extension["name"]
+        for extension in extensions
+        if extension.get("installFrom") == "community"
+    }
+    approved_repo = runtime_root / "approved-repository"
+    target = approved_repo / duckdb_version / source_dir.name
+    if target.exists():
+        shutil.rmtree(target)
+    target.mkdir(parents=True, exist_ok=True)
+
+    copied: list[str] = []
+    excluded: list[str] = []
+    for source in sorted(source_dir.glob("*.duckdb_extension*")):
+        extension_name = source.name.split(".duckdb_extension", 1)[0]
+        if extension_name in community_names:
+            excluded.append(extension_name)
+            continue
+        shutil.copy2(source, target / source.name)
+        copied.append(extension_name)
+
+    logger.info(
+        "approved extension repository "
+        f"target={target} copied={','.join(copied)} excluded_community={','.join(excluded)}"
+    )
+    return approved_repo
+
+
+def copy_extension_fixture(
+    source_dir: Path,
+    runtime_root: Path,
+    extension_name: str,
+    logger: Logger,
+) -> Path:
+    # DuckDB also writes a .duckdb_extension.info sidecar on Windows.
+    # LOAD needs the actual extension binary, not the accompanying metadata.
+    binary = source_dir / f"{extension_name}.duckdb_extension"
+    if not binary.is_file():
+        raise RunnerError(
+            f"installed {extension_name} extension binary is missing: {binary}"
+        )
+
+    fixture_dir = runtime_root / "extension-fixtures"
+    fixture_dir.mkdir(parents=True, exist_ok=True)
+    destination = fixture_dir / binary.name
+    shutil.copy2(binary, destination)
+    logger.info(f"extension fixture copied source={binary} target={destination}")
+    return destination
+
+
+def validate_approved_extension_repo(
+    duckdb: Path,
+    approved_repo: Path,
+    runtime_root: Path,
+    log_dir: Path,
+    logger: Logger,
+) -> None:
+    """Prove that the restricted repository actually serves trusted extensions.
+
+    A negative INSTALL alone is insufficient: it also passes if the repository
+    contains no usable binaries. Use a fresh DuckDB home so FORCE INSTALL does
+    not replace a DLL already loaded by the battery bootstrap on Windows.
+    """
+    probe_env = child_environment(runtime_root / "approved-repo-probe-home")
+    # Quoting the setting makes native Windows paths safe for DuckDB SQL.
+    repository_literal = approved_repo.as_posix().replace("'", "''")
+    sql = (
+        f"SET custom_extension_repository = '{repository_literal}'; "
+        "SET allow_community_extensions = false; "
+        "FORCE INSTALL httpfs; "
+        "LOAD httpfs; "
+        "SELECT extension_name, installed, loaded FROM duckdb_extensions() "
+        "WHERE extension_name = 'httpfs';"
+    )
+    run_logged(
+        [str(duckdb), "-csv", "-header", "-c", sql],
+        logger=logger,
+        log_file=log_dir / "approved-repository-probe.log",
+        env=probe_env,
+    )
+    logger.info("approved local repository accepted a trusted core extension")
+
+
+def validate_community_load_policy(
+    duckdb: Path,
+    community_fixture: Path,
+    runtime_root: Path,
+    log_dir: Path,
+    logger: Logger,
+) -> None:
+    """Test community signature enforcement in two fresh DuckDB processes.
+
+    SQLLogicTest's extension autoloading can make a repeated LOAD succeed
+    without rechecking the signature. Both probes load the same verified
+    binary with an otherwise identical configuration.
+    """
+    extension_literal = community_fixture.as_posix().replace("'", "''")
+    allowed_log = log_dir / "community-load-allowed.log"
+    denied_log = log_dir / "community-load-denied.log"
+
+    run_logged(
+        [str(duckdb), "-csv", "-header", "-c", f"LOAD '{extension_literal}';"],
+        logger=logger,
+        log_file=allowed_log,
+        env=child_environment(runtime_root / "community-allowed-probe-home"),
+    )
+    logger.info("community extension positive LOAD control passed")
+
+    denied_sql = (
+        "SET allow_community_extensions = false; "
+        "SELECT current_setting('allow_community_extensions')::VARCHAR "
+        "AS community_extensions_allowed; "
+        f"LOAD '{extension_literal}';"
+    )
+    denied_exit = run_logged(
+        [str(duckdb), "-csv", "-header", "-c", denied_sql],
+        logger=logger,
+        log_file=denied_log,
+        env=child_environment(runtime_root / "community-denied-probe-home"),
+        check=False,
+    )
+    if denied_exit == 0:
+        raise RunnerError(
+            "community-signed extension was unexpectedly loaded with "
+            "allow_community_extensions=false; inspect " + str(denied_log)
+        )
+    denied_output = denied_log.read_text(encoding="utf-8", errors="replace")
+    # The only policy difference from the successful control is the SET above.
+    # Also verify it executed successfully, rather than accepting a SET error.
+    if not re.search(r"(?m)^false\s*$", denied_output):
+        raise RunnerError(
+            "community LOAD rejection did not confirm that the restrictive "
+            f"setting was applied; inspect {denied_log}"
+        )
+    logger.info("community-signed extension LOAD rejected in a fresh process")
 
 
 def validate_probe(
@@ -419,6 +590,8 @@ def run_profile(
             cwd=upstream_root,
         )
         assert_unittest_passed(unittest_log)
+        if test_name == "irion_extension_security":
+            assert_security_test_executed(unittest_log)
 
     subprocess.run(
         [
@@ -473,6 +646,12 @@ def main() -> int:
         verify_upstream_ref(upstream_root, battery.get("pin", "self"), logger)
         move_ignored_tests(runtime_config, upstream_root, ignored_root, log_dir, logger)
 
+        if test_name == "azure":
+            subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "prepare-azure-tests.py"), str(upstream_root)],
+                check=True,
+            )
+
         if test_name == "bigquery":
             if os.environ.get("BQ_TEST_PROJECT"):
                 env["BQ_TEST_BILLING_PROJECT"] = os.environ["BQ_TEST_PROJECT"]
@@ -480,6 +659,10 @@ def main() -> int:
             if credentials:
                 env["BQ_TEST_SA_KEY_PATH"] = credentials
             adapt_bigquery_tests(upstream_root, logger)
+            subprocess.run(
+                [sys.executable, str(SCRIPT_DIR / "skip-bigquery-rest-null-array-test.py"), str(upstream_root)],
+                check=True,
+            )
 
         # Delta and Iceberg still require their fixture generators to be split
         # from the old Bash runner before Windows can use this native path.
@@ -520,6 +703,31 @@ def main() -> int:
             extension_dir, runtime_root, duckdb_version, logger
         )
         env["LOCAL_EXTENSION_REPO"] = str(local_repo)
+
+        if test_name == "irion_extension_security":
+            approved_repo = prepare_approved_extension_repo(
+                extension_dir,
+                runtime_root,
+                duckdb_version,
+                extensions_json,
+                logger,
+            )
+            community_fixture = copy_extension_fixture(
+                extension_dir,
+                runtime_root,
+                "mssql",
+                logger,
+            )
+            # Forward-slash paths are accepted by DuckDB on both Linux and Windows
+            # and avoid SQL string escaping issues with native Windows paths.
+            env["IRION_APPROVED_EXTENSION_REPO"] = approved_repo.as_posix()
+            env["IRION_COMMUNITY_EXTENSION_PATH"] = community_fixture.as_posix()
+            validate_approved_extension_repo(
+                duckdb, approved_repo, runtime_root, log_dir, logger
+            )
+            validate_community_load_policy(
+                duckdb, community_fixture, runtime_root, log_dir, logger
+            )
 
         for profile_name, test_filter in profile_rows(runtime_config):
             config = runtime_root / "profiles" / f"{profile_name}.json"

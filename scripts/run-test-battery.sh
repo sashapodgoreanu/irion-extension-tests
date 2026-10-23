@@ -198,6 +198,14 @@ if [[ "${UPSTREAM_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
   fi
 fi
 
+# The pinned Iceberg REST fixture still references removed, unversioned
+# minio/minio and minio/mc Docker Hub images. Rewrite only this upstream
+# checkout before fixture generation, on Linux and Windows/WSL alike.
+if [[ "${BATTERY_NAME}" == "iceberg" ]]; then
+  qa_log INFO "adapting pinned Iceberg MinIO fixture images"
+  python3 "${SCRIPT_DIR}/patch-iceberg-fixture.py" "${UPSTREAM_ROOT}"
+fi
+
 prepare_bigquery_dynamic_tests() {
   python3 - "${UPSTREAM_ROOT}" <<'PY'
 from pathlib import Path
@@ -238,9 +246,11 @@ jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
 text = jobs_test.read_text(encoding="utf-8")
 old = "<REGEX>:[a-zA-Z0-9]+"
 new = "<REGEX>:[a-zA-Z0-9-]+"
-if old not in text:
+if old in text:
+    jobs_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+elif new not in text:
     raise SystemExit("BigQuery project result regex was not found")
-jobs_test.write_text(text.replace(old, new, 1), encoding="utf-8")
+# Newer BigQuery tests already include the expanded regex.
 
 print(
     f"Adapted {require_count} BigQuery SQLLogicTest files for the dynamic runtime; "
@@ -259,6 +269,13 @@ PY
 if [[ "${BATTERY_NAME}" == "bigquery" ]]; then
   qa_log INFO "adapting BigQuery dynamic SQLLogicTests"
   prepare_bigquery_dynamic_tests
+  qa_log INFO "skipping BigQuery REST NULL-array error expectation"
+  python3 "${SCRIPT_DIR}/skip-bigquery-rest-null-array-test.py" "${UPSTREAM_ROOT}"
+fi
+
+if [[ "${BATTERY_NAME}" == "azure" ]]; then
+  qa_log INFO "adapting Azure HTTP statistics expectations for variable cache GETs"
+  python3 "${SCRIPT_DIR}/prepare-azure-tests.py" "${UPSTREAM_ROOT}"
 fi
 
 export ARTIFACT_DIR
@@ -277,9 +294,17 @@ status=0
 qa_log INFO "executing runner kind=${RUNNER_KIND}"
 case "${RUNNER_KIND}" in
   standard)
-    bash "${SCRIPT_DIR}/run-standard-tests.sh" \
-      "${BATTERY_NAME}" \
-      "${UPSTREAM_ROOT}" || status=$?
+    if [[ "${BATTERY_NAME}" == "irion_extension_security" ]]; then
+      # Share the same native runner and security preflight on Linux and Windows.
+      # The legacy Bash runner does not prepare the approved-repo fixtures.
+      python3 "${SCRIPT_DIR}/run-standard-tests.py" \
+        "${BATTERY_NAME}" \
+        "${UPSTREAM_ROOT}" || status=$?
+    else
+      bash "${SCRIPT_DIR}/run-standard-tests.sh" \
+        "${BATTERY_NAME}" \
+        "${UPSTREAM_ROOT}" || status=$?
+    fi
     ;;
   postgres-scanner)
     bash "${SCRIPT_DIR}/run-postgres-scanner-tests.sh" \

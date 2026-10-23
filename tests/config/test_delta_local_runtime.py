@@ -30,7 +30,8 @@ class DeltaLocalRuntimeTest(unittest.TestCase):
 
         self.assertIn('TEST_NAME}" == "delta"', runner)
         self.assertIn("prepare-delta-local-tests.sh", runner)
-        self.assertIn("DELTA_MINIO_CONTAINER", runner)
+        self.assertNotIn("DELTA_MINIO_CONTAINER", runner)
+        self.assertIn('source "${DELTA_ENV_FILE}"', runner)
 
         for upstream_contract in (
             "generate-data",
@@ -39,17 +40,17 @@ class DeltaLocalRuntimeTest(unittest.TestCase):
             "DAT_PATH",
             "GIT_REPOSITORY",
             "GIT_TAG",
-            "scripts/env_minio",
-            "scripts/create_minio_credential_file.sh",
-            "scripts/upload_test_files_to_minio.sh",
+            "GOLDEN_TABLES_PATH",
+            "GENERATED_DATA_AVAILABLE",
         ):
             self.assertIn(upstream_contract, preparer)
 
         self.assertIn("cargo build --manifest-path", preparer)
         self.assertIn("GENERATED_DATA_AVAILABLE=1", preparer)
         self.assertIn("GOLDEN_TABLES_PATH", preparer)
-        self.assertIn("DUCKDB_MINIO_TEST_SERVER_AVAILABLE=1", preparer)
-        self.assertIn("raw.githubusercontent.com/duckdb/duckdb-httpfs", preparer)
+        self.assertIn("unset S3_TEST_SERVER_AVAILABLE DUCKDB_MINIO_TEST_SERVER_AVAILABLE", preparer)
+        self.assertNotIn("docker run", preparer)
+        self.assertNotIn("raw.githubusercontent.com/duckdb/duckdb-httpfs", preparer)
 
         # Real cloud credentials remain intentionally outside the local profile.
         self.assertNotIn("export AZURE_CLIENT_ID", preparer)

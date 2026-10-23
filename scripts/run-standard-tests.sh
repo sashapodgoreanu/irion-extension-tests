@@ -363,9 +363,6 @@ for profile_row in "${profile_rows[@]}"; do
       "${UPSTREAM_ROOT}" \
       "${LOG_DIR}/services/${profile_name}"
     trap 'qa_service_stop_all' EXIT
-    if [[ "${TEST_NAME}" == "delta" && -n "${DELTA_MINIO_CONTAINER:-}" ]]; then
-      QA_SERVICE_CLEANUPS+=("container|delta-minio|${DELTA_MINIO_CONTAINER}")
-    fi
     qa_service_start_file "${profile_services}"
 
     status=0

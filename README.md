@@ -1,16 +1,28 @@
 # Irion DuckDB Extension Compatibility Tests
 
-This repository verifies that the DuckDB extensions used by Irion remain compatible with the selected DuckDB release.
+GitHub Actions has **two independent pipelines**, visible separately in Actions:
 
-The GitHub Actions workflow builds one DuckDB runtime and runs the enabled Irion and upstream extension test batteries against it.
+- `.github/workflows/qa-linux.yml` — Linux.
+- `.github/workflows/qa-windows.yml` — Windows.
+
+Both run on pull requests and have their own **Run workflow** manual trigger.
+Each accepts a `batteries` input with comma-separated test batteries
+(e.g. `irion,httpfs`); empty means all enabled tests. Each runs on its own
+OS, with separate build and reporting, reading the same pin/configuration data
+from `config/extensions.yml`.
+
+This repository verifies that DuckDB extensions used by Irion remain
+compatible with the selected DuckDB release.
 
 ## Running the tests
 
-The workflow runs automatically on:
-
-- pushes;
-- pull requests;
-- manual execution through `workflow_dispatch`.
+Choose **DuckDB Extension QA (Linux)** or **DuckDB Extension QA (Windows)**
+in Actions, then enter a battery such as `irion_extension_security` if desired.
+They are separate runs and neither depends on the other's status.
+There is no ordering or shared concurrency lock: Linux and Windows can run
+individually or in parallel. Some test batteries still share mutable external
+cloud fixtures, so concurrent tests targeting those accounts may interfere
+until the fixtures are isolated per platform.
 
 The main configuration file is:
 

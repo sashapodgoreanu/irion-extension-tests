@@ -116,6 +116,26 @@ qa_service_start_squid() {
   echo "[qa-services] squid-env name=${name} HTTP_PROXY_PUBLIC=${HTTP_PROXY_PUBLIC} HTTP_PROXY_RUNNING=${HTTP_PROXY_RUNNING}" >&2
 }
 
+
+qa_httpfs_rewrite_minio_images() {
+  local compose_file=$1
+  # The MinIO Docker Hub repositories were removed in September 2026.
+  # Adapt only the pinned test fixture checkout (never change upstream Git).
+  # Use versioned public mirrors of the same historical server/client releases.
+  # Fail closed if the upstream compose fixture changes unexpectedly.
+  local minio_server_original="image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1"
+  local minio_client_original="image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1"
+  if ! grep -Fq "${minio_server_original}" "${compose_file}" ||
+     ! grep -Fq "${minio_client_original}" "${compose_file}"; then
+    echo "HTTPFS MinIO compose image versions have changed; review mirrors" >&2
+    return 1
+  fi
+  sed -i \
+    -e 's#image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1#image: dappros/minio:RELEASE.2025-09-07T16-13-09Z#' \
+    -e 's#image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1#image: ghcr.io/golithus/mc:RELEASE.2025-08-13T08-35-41Z#' \
+    "${compose_file}"
+}
+
 qa_service_start_httpfs_minio() {
   local name=$1
   local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/minio_s3.yml"
@@ -129,6 +149,7 @@ qa_service_start_httpfs_minio() {
       return 1
     fi
   done
+  qa_httpfs_rewrite_minio_images "${compose_file}" || return 1
   if [[ -d "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets" ]]; then
     chmod -R 700 "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets"
   fi
