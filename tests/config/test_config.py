@@ -15,7 +15,7 @@ from qa import ConfigError, load_config, resolve_config
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
-UNITY_LOCAL_TESTS = "test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test"
+UNITY_LOCAL_TESTS = "test/oss_local"
 
 
 class ConfigTestCase(unittest.TestCase):
@@ -128,17 +128,12 @@ class ConfigTestCase(unittest.TestCase):
 
         unity = next(case for case in matrix if case["name"] == "unity_catalog")
         self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
-        self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
-        self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
+        self.assertEqual(unity["services"], [])
+        self.assertEqual(unity["capabilities"], ["docker"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
-        self.assertEqual(
-            [item["path"] for item in unity["ignoredTests"]],
-            [
-                "test/sql/local_oss_unity_catalog/uc_catalog_write.test",
-                "test/sql/local_oss_unity_catalog/checkpoint.test",
-            ],
-        )
+        self.assertEqual(unity["profiles"][0]["services"], [])
+        self.assertEqual(unity["ignoredTests"], [])
 
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
