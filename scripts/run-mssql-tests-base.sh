@@ -283,25 +283,14 @@ bash "${UPSTREAM_INTEGRATION_SCRIPT}" "${DUCKDB_BIN}" "${MSSQL_EXTENSION_PATH}" 
   SELECT count(*) FROM seedcheck.dbo.TestSimplePK;
 " >"${LOG_DIR}/seed-check.log"
 
-# Prepare a SQLLogicTest init profile that loads every compatibility extension
-# except MSSQL. `require mssql` must be the operation that dynamically loads it.
-python3 - "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}" <<'PY'
-import re
-import sys
-from pathlib import Path
-
-source = Path(sys.argv[1])
-target = Path(sys.argv[2])
-lines = source.read_text(encoding="utf-8").splitlines()
-filtered = [
-    line for line in lines
-    if not re.fullmatch(r"\s*LOAD\s+mssql\s*;\s*", line, flags=re.IGNORECASE)
-]
-if len(filtered) == len(lines):
-    raise SystemExit("LOAD mssql was not found in the shared init script")
-target.write_text("\n".join(filtered) + "\n", encoding="utf-8")
-PY
-cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-without-mssql.sql"
+# Preserve the community-signed MSSQL installation in unittest databases.
+# DuckDB 2.0 require mssql otherwise tries INSTALL from a user repository.
+if ! grep -Eqi '^[[:space:]]*LOAD[[:space:]]+mssql[[:space:]]*;' "${INIT_SCRIPT}"; then
+  echo "Required signed MSSQL LOAD missing from initialization" >&2
+  exit 1
+fi
+cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"
+cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"
 MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')"
 
 # Preserve the original signed community installation and its .info sidecar.
@@ -329,6 +318,52 @@ if row.get("installed_from", "").lower() != "community":
     raise SystemExit("MSSQL community signing origin was not preserved")
 print("Dynamic MSSQL community-signed LOAD probe passed")
 PY
+
+# DuckDB 2.0 require mssql silently skips tests by trying to re-install the
+# community-signed extension from a user-defined LOCAL_EXTENSION_REPO.
+# Preserve every query and assertion; adapt only exact prerequisite lines,
+# and record their hashes. The signed positive probe above MUST run first.
+python3 - "\${UPSTREAM_ROOT}" "\${LOG_DIR}/mssql-require-adaptation.json" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+report = Path(sys.argv[2])
+test_root = root / "test" / "sql"
+gate = re.compile(r"(?m)^([ \t]*)require[ \t]+mssql[ \t]*$", re.I)
+changes = []
+for file in sorted(test_root.rglob("*")):
+    if not file.is_file() or not file.name.endswith((".test", ".test_slow", ".test_coverage")):
+        continue
+    before = file.read_bytes()
+    updated, n = gate.subn(
+        lambda m: m.group(1) + "require-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE 1",
+        before.decode("utf-8"),
+    )
+    if n:
+        after = updated.encode("utf-8")
+        file.write_bytes(after)
+        changes.append({
+            "path": file.relative_to(root).as_posix(),
+            "replaced": n,
+            "original_sha256": hashlib.sha256(before).hexdigest(),
+            "adapted_sha256": hashlib.sha256(after).hexdigest(),
+        })
+if not changes:
+    raise SystemExit("No require mssql directives: upstream contract changed")
+report.write_text(json.dumps({
+    "contract": "duckdb2-mssql-signed-require",
+    "signed_community_probe_required": True,
+    "directives_changed": sum(item["replaced"] for item in changes),
+    "changes": changes,
+}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+print(f"Adapted {len(changes)} MSSQL upstream requirement gates")
+PY
+export MSSQL_QA_SIGNED_EXTENSION_AVAILABLE=1
+
 
 python3 - \
   "${TEST_CONFIG}" \
@@ -377,7 +412,23 @@ UNITTEST_LOG="${LOG_DIR}/unittest.log"
   "${TEST_PATH}" \
   2>&1 | tee "${UNITTEST_LOG}"
 
-if grep -Eq '^require mssql: [1-9][0-9]*$' "${UNITTEST_LOG}"; then
+if grep -Eq '^require mssql: [1-9][0-9]*$|^require-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE: [1-9][0-9]*
+  echo "MSSQL tests were skipped because the dynamic community extension was not resolved" >&2
+  echo "LOCAL_EXTENSION_REPO=${LOCAL_EXTENSION_REPO}" >&2
+  exit 1
+fi
+
+if grep -Eq '^require-env (MSSQL_TEST_DSN|MSSQL_TEST_URI|MSSQL_TESTDB_DSN|MSSQL_TESTDB_URI|MSSQL_TEST_SERVER|MSSQL_TEST_CONNECTION_STRING): [1-9][0-9]*$' "${UNITTEST_LOG}"; then
+  echo "Mandatory MSSQL integration variables were skipped" >&2
+  grep -E '^require-env MSSQL_TEST' "${UNITTEST_LOG}" >&2 || true
+  exit 1
+fi
+
+if ! grep -Eq '([1-9][0-9]* test cases|test cases:[[:space:]]+[1-9][0-9]*)' "${UNITTEST_LOG}"; then
+  echo "The MSSQL SQLLogicTest run did not report any executed test cases" >&2
+  exit 1
+fi
+ "${UNITTEST_LOG}"; then
   echo "MSSQL tests were skipped because the dynamic community extension was not resolved" >&2
   echo "LOCAL_EXTENSION_REPO=${LOCAL_EXTENSION_REPO}" >&2
   exit 1
