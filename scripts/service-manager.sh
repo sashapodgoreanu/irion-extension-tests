@@ -174,6 +174,9 @@ qa_service_start_azurite() {
   local root="${QA_SERVICE_RUNTIME_ROOT}/${name}"
   local log="${QA_SERVICE_LOG_DIR}/${name}.log"
   local upload_script="${QA_SERVICE_UPSTREAM_ROOT}/scripts/upload_test_files_to_azurite.sh"
+  local runtime_upload_script="${root}/upload_test_files_to_azurite.sh"
+  local queue_port=$((port + 1))
+  local table_port=$((port + 2))
 
   command -v azurite >/dev/null 2>&1 || {
     echo "Azurite executable is missing" >&2
@@ -213,9 +216,31 @@ qa_service_start_azurite() {
   export AZURE_PROVIDER="local"
   export DUCKDB_AZURE_PUBLIC_CONTAINER_AVAILABLE=1
 
+  # The pinned uploader uses its standalone defaults (28000-28002), while this
+  # service contract assigns the blob port and adjacent queue/table ports.
+  # Adapt a runtime copy so every profile uploads fixtures to its own Azurite.
+  python3 - "${upload_script}" "${runtime_upload_script}" "${port}" \
+    "${queue_port}" "${table_port}" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+ports = {"28000": sys.argv[3], "28001": sys.argv[4], "28002": sys.argv[5]}
+content = source.read_text(encoding="utf-8")
+for old, new in ports.items():
+    endpoint = f"127.0.0.1:{old}"
+    if content.count(endpoint) != 1:
+        raise SystemExit(f"unexpected Azurite uploader endpoint contract: {endpoint}")
+    content = content.replace(endpoint, f"127.0.0.1:{new}", 1)
+destination.write_text(content, encoding="utf-8")
+destination.chmod(0o755)
+PY
+  echo "Azurite fixture uploader endpoints blob=${port} queue=${queue_port} table=${table_port}" \
+    >>"${log}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
-    ./scripts/upload_test_files_to_azurite.sh
+    "${runtime_upload_script}"
   ) >>"${log}" 2>&1
 
   local secret_name

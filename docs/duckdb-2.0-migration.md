@@ -67,6 +67,10 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
 - DuckLake's SQLite and PostgreSQL profiles must leave JSON unloaded for the
   upstream `add_files_json_without_extension.test`. The JSON extension remains
   installed so tests that require it can still load it on demand.
+- The pinned Azure fixture uploader defaults to Azurite ports 28000–28002, while
+  this QA service assigns ports from its service manifest. The service manager
+  adapts a temporary uploader copy to the configured endpoints so each profile
+  loads its fixtures into its own emulator.
 - At the binary-matching Unity Catalog pin, upstream replaced its SQLLogicTest
   suite with pytest tests using the `duckdb-pytest-driver`. The QA workflow runs
   the pinned `oss_local` suite with the upstream OSS container image and test
