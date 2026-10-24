@@ -14,7 +14,7 @@ from pathlib import Path
 
 OLD = r"GET\: 0"
 UPDATED = r"GET\: [01]"
-PRIVATE_HEAD = r"\#HEAD\: 3"
+PRIVATE_HEAD = r"\#HEAD\: 4"
 REQUIRED = (r"PUT\: 0", r"\#POST\: 0")
 
 

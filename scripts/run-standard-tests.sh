@@ -161,6 +161,7 @@ run_suite() {
   local log_file="${LOG_DIR}/unittest-${label}.log"
 
   "${UNITTEST_BIN}" \
+    --keep-home \
     --test-config "${config}" \
     --test-dir "${UPSTREAM_ROOT}" \
     "${filter}" \
@@ -305,6 +306,7 @@ run_ducklake_postgres_isolated() {
 
     status=0
     "${UNITTEST_BIN}" \
+      --keep-home \
       --test-config "${config}" \
       --test-dir "${UPSTREAM_ROOT}" \
       "${relative_path}" \

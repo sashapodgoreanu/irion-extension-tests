@@ -26,19 +26,6 @@ function Invoke-Checked {
     }
 }
 
-function Checkout-Ref {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Directory,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Ref
-    )
-
-    Invoke-Checked -Command git -Arguments @('-C', $Directory, 'fetch', '--depth', '1', 'origin', $Ref)
-    Invoke-Checked -Command git -Arguments @('-C', $Directory, 'checkout', '--detach', 'FETCH_HEAD')
-}
-
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $DuckDBRoot = Join-Path $RepoRoot 'duckdb'
 $CiToolsRoot = Join-Path $RepoRoot 'extension-ci-tools'
@@ -46,8 +33,22 @@ $BuildRoot = Join-Path $RepoRoot 'build/windows/release'
 $ArtifactRoot = Join-Path $RepoRoot 'build/artifact-windows'
 $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-Checkout-Ref -Directory $DuckDBRoot -Ref $DuckDBVersion
-Checkout-Ref -Directory $CiToolsRoot -Ref $CiToolsVersion
+# Respect the exact commits checked out by actions/checkout (gitlinks).
+# CI tools are pinned by SHA because no v2.0.0 tag exists upstream.
+$DuckDBTagRef = "refs/tags/$DuckDBVersion^{commit}"
+$DuckDBTagCommit = (& git -C $DuckDBRoot rev-parse --verify $DuckDBTagRef).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "DuckDB release tag $DuckDBVersion could not be resolved locally"
+}
+$DuckDBHead = (& git -C $DuckDBRoot rev-parse HEAD).Trim()
+$CiToolsHead = (& git -C $CiToolsRoot rev-parse HEAD).Trim()
+if ($DuckDBHead -ne $DuckDBTagCommit) {
+    throw "DuckDB submodule $DuckDBHead does not match release $DuckDBVersion ($DuckDBTagCommit)"
+}
+if ($CiToolsHead -ne $CiToolsVersion) {
+    throw "extension-ci-tools submodule $CiToolsHead does not match configured SHA $CiToolsVersion"
+}
+Write-Host "Using pinned DuckDB $DuckDBHead and extension-ci-tools $CiToolsHead"
 
 # Match DuckDB's upstream Windows CI preparation before configuring MSVC.
 Push-Location $DuckDBRoot

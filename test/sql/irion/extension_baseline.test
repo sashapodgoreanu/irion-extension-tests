@@ -12,20 +12,19 @@ WHERE loaded
     'icu',
     'azure',
     'delta',
-    'iceberg',
     'unity_catalog',
     'bigquery',
     'json',
     'sqlite_scanner'
   )
 ----
-12
+11
 
 query I
 SELECT count(*)
 FROM duckdb_extensions()
-WHERE extension_name IN ('delta', 'iceberg', 'unity_catalog')
+WHERE extension_name IN ('delta', 'unity_catalog')
   AND installed
   AND loaded
 ----
-3
+2

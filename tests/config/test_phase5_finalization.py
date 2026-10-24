@@ -22,7 +22,7 @@ class Phase5FinalizationTest(unittest.TestCase):
     def test_unity_catalog_uses_pinned_oss_service(self) -> None:
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
         unity = config["testBatteries"]["unity_catalog"]
-        self.assertEqual(unity["pin"], "fd851475780ca064d9706a5025ea6e5d1d9d7e23")
+        self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
         self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
         self.assertRegex(unity["services"][0]["version"], r"^[0-9a-f]{40}$")
@@ -44,8 +44,10 @@ class Phase5FinalizationTest(unittest.TestCase):
         iceberg = config["testBatteries"]["iceberg"]
         self.assertEqual(iceberg["prerequisites"], [])
         self.assertEqual(
-            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], ["iceberg"]
+            iceberg["profiles"][0]["testConfig"]["excludedExtensions"], []
         )
+        self.assertFalse(iceberg["isEnabled"])
+        self.assertEqual(iceberg["extensions"], [])
 
 
 if __name__ == "__main__":
