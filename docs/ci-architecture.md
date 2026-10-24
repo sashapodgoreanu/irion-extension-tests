@@ -52,6 +52,13 @@ The main execution path is:
 5. `scripts/service-manager.sh` owns local service startup, environment setup,
    readiness checks, log capture and cleanup.
 
+The runner configuration exposes `failFast` per platform and passes that value
+to the matrix strategy. Linux disables matrix cancellation so each extension
+battery can finish after a different battery fails. The aggregate job still
+returns a failing verdict for any failed battery. Windows retains its configured
+fail-fast setting and skips jobs for pull requests from
+`aggiornamento_duckdb_2_0`, allowing that migration PR to validate Linux only.
+
 `config/extensions.yml` and `config/extension-binary-pins.yml` carry the battery
 and binary contracts. `tests/config` checks the compiled matrices, service inputs,
 source pins and fail-closed version gates before a runtime build begins.

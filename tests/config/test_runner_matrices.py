@@ -61,6 +61,8 @@ class RunnerMatricesTestCase(unittest.TestCase):
         windows = json.loads(outputs["windows_matrix"])["include"]
 
         self.assertEqual(outputs["enabled_batteries"].split(","), EXPECTED)
+        self.assertEqual(outputs["linux_fail_fast"], "false")
+        self.assertEqual(outputs["windows_fail_fast"], "true")
 
         matrices = {
             "linux": linux,
@@ -271,6 +273,22 @@ class RunnerMatricesTestCase(unittest.TestCase):
         linux_source = LINUX_WORKFLOW.read_text(encoding="utf-8")
         self.assertIn("init-azure-test-env.py", linux_source)
         self.assertIn("bootstrap-azure-test-data.py", linux_source)
+        linux_workflow = yaml.load(linux_source, Loader=yaml.BaseLoader)
+        self.assertEqual(
+            linux_workflow["jobs"]["test-linux"]["strategy"]["fail-fast"],
+            "${{ fromJSON(needs.build-linux.outputs.fail_fast) }}",
+        )
+        windows_workflow = yaml.load(
+            WINDOWS_WORKFLOW.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+        )
+        self.assertEqual(
+            windows_workflow["jobs"]["test-windows"]["strategy"]["fail-fast"],
+            "${{ fromJSON(needs.build-windows.outputs.fail_fast) }}",
+        )
+        self.assertEqual(
+            windows_workflow["jobs"]["configure"]["if"],
+            "${{ github.event_name != 'pull_request' || github.head_ref != 'aggiornamento_duckdb_2_0' }}",
+        )
 
     def test_windows_wsl_argument_bridge_preserves_cli_payloads(self) -> None:
         environment = os.environ.copy()
