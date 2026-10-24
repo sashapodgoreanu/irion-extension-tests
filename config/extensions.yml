@@ -103,6 +103,8 @@ testBatteries:
       testConfig:
         kind: upstream
         path: test/configs/sqlite.json
+        excludedExtensions:
+        - json
     - name: postgres
       tests: test/sql/*
       services:
@@ -115,6 +117,8 @@ testBatteries:
       testConfig:
         kind: upstream
         path: test/configs/postgres.json
+        excludedExtensions:
+        - json
     extensions:
     - name: ducklake
       isUsed: true

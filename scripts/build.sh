@@ -45,6 +45,20 @@ export LD_LIBRARY_PATH="$(pwd)/build/artifact/lib${LD_LIBRARY_PATH:+:${LD_LIBRAR
 find build/release/extension/qa_test -type f -name '*.duckdb_extension' \
   -exec install -m 0644 {} build/artifact/extensions/ \;
 
+# DuckDB 2.0 builds default autoinstalls from its local repository. Preserve the
+# test dependency repository with the runtime artifact and restore it at the
+# original build path in each test job.
+if [[ ! -d build/release/repository ]]; then
+  echo "DuckDB extension repository was not produced: build/release/repository" >&2
+  exit 1
+fi
+cp -a build/release/repository build/artifact/repository
+
+if [[ ! -f "build/artifact/repository/${DUCKDB_VERSION}/linux_amd64/tpch.duckdb_extension" ]]; then
+  echo "DuckDB tpch test extension is missing from the runtime repository" >&2
+  exit 1
+fi
+
 if ! find build/artifact/extensions -type f -name 'qa_test*.duckdb_extension' -print -quit | grep -q .; then
   echo "qa_test extension output was not produced" >&2
   exit 1
@@ -57,6 +71,7 @@ fi
   echo "ci_tools_commit=$(git -C extension-ci-tools rev-parse HEAD)"
   echo "shared_library=libduckdb.so"
   echo "compiled_extension=qa_test"
+  echo "test_extension_repository=repository"
   echo "cli_extension_autoloading=enabled"
   echo "cli_extension_autoinstall=enabled"
 } | tee build/artifact/logs/build-info.txt

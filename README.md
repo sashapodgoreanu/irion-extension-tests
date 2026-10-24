@@ -54,7 +54,7 @@ pins, profiles, extension requirements and service declarations.
 | `postgres_scanner` | PostgreSQL Scanner tests with a local PostgreSQL 17 service. |
 | `delta` | Delta SQL tests and local fixtures. Two upstream tests requiring MinIO are explicitly excluded. |
 | `azure` | Local Azurite and Squid profiles plus the upstream cloud profile against the configured Azure test account. |
-| `unity_catalog` | Unity Catalog tests using a local OSS catalog service. |
+| `unity_catalog` | Pinned upstream pytest suite; integration with this workflow's standard SQLLogicTest runner is outstanding. |
 | `bigquery` | BigQuery v0.13.0 SQL tests against the configured GCP project and dataset. |
 | `mssql` | MSSQL v0.3.0 tests with the upstream Docker SQL Server fixture and explicit trust for its self-signed test certificate. |
 | `irion`, `irion_extension_security` | Repository-owned SQLLogicTests. |

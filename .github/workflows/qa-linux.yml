@@ -243,6 +243,12 @@ jobs:
           name: duckdb-${{ needs.build-linux.outputs.duckdb_version }}-${{ needs.build-linux.outputs.operating_system }}-${{ needs.build-linux.outputs.architecture }}
           path: build/artifact
 
+      - name: Restore DuckDB local extension repository
+        run: |
+          test -d build/artifact/repository
+          mkdir -p build/release
+          cp -a build/artifact/repository build/release/repository
+
       - name: Restore executable permissions and validate runtime dependencies
         run: |
           test -f build/artifact/lib/libduckdb.so

@@ -59,8 +59,23 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
 - Iceberg is disabled indefinitely: both `testBatteries.iceberg.isEnabled` and the `defaultExtensions` Iceberg `isUsed` flag are `false`. Its dedicated extensions are an empty list, so the Avro/HTTPFS/TPCH dependencies formerly declared for Iceberg are not installed by this battery. There are no Iceberg services or prerequisites. Reactivation requires explicitly restoring this configuration; the upstream reference and fixture files remain dormant.
 - MSSQL v0.3.0 tests TLS against a local SQL Server with a self-signed
   certificate. The configured test connections explicitly trust that fixture
-  certificate while preserving caller-provided connection values and DuckDB's
-  signed-extension verification.
+  certificate in both the runner and service-manager defaults, while preserving
+  caller-provided connection values and DuckDB's signed-extension verification.
+- DuckDB 2.0 CLI autoinstalls use the build-local extension repository. Runtime
+  artifacts must carry that repository back to the same build path in test jobs;
+  HTTPFS fixture generation also needs the built `tpch` extension for `DBGEN`.
+- DuckLake's SQLite and PostgreSQL profiles must leave JSON unloaded for the
+  upstream `add_files_json_without_extension.test`. The JSON extension remains
+  installed so tests that require it can still load it on demand.
+- At the binary-matching Unity Catalog pin, upstream replaced its SQLLogicTest
+  suite with pytest tests using the `duckdb-pytest-driver`. The current QA standard
+  runner still expects the removed SQLLogicTest paths, so the battery is not yet
+  validated against that pin. Keep the source/binary pin unchanged until the QA
+  workflow can run the pinned pytest suite.
+- The current DuckLake binary run also reports that
+  `add_files_type_check_variant.test` unexpectedly succeeds when a STRUCT Parquet
+  file is added to a VARIANT table with `allow_missing => true`. This remains an
+  open compatibility failure; the test has not been suppressed.
 - HTTPFS at the selected commit has moved its S3 test service to SeaweedFS. Its
   fixture is `scripts/seaweedfs_s3.yml` plus `seaweedfs_s3_config.json`; the old
   `scripts/minio_s3.yml` no longer exists at this pin. The service manager now

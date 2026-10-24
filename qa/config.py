@@ -132,10 +132,14 @@ class GeneratedTestConfig:
 @dataclass(frozen=True, slots=True)
 class UpstreamTestConfig:
     path: str
+    excluded_extensions: tuple[str, ...] = ()
     kind: str = "upstream"
 
-    def payload(self) -> dict[str, str]:
-        return {"kind": self.kind, "path": self.path}
+    def payload(self) -> dict[str, Any]:
+        result = {"kind": self.kind, "path": self.path}
+        if self.excluded_extensions:
+            result["excludedExtensions"] = list(self.excluded_extensions)
+        return result
 
 
 TestConfig = GeneratedTestConfig | UpstreamTestConfig
@@ -346,7 +350,8 @@ def _parse_test_config(raw: Mapping[str, Any], path: str) -> TestConfig:
         )
     if kind == "upstream":
         return UpstreamTestConfig(
-            path=_ensure_relative_path(raw["path"], f"{path}.path")
+            path=_ensure_relative_path(raw["path"], f"{path}.path"),
+            excluded_extensions=tuple(raw.get("excludedExtensions", ())),
         )
     raise ConfigError(f"{path}.kind is unsupported: {kind}")
 
@@ -627,7 +632,9 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
             raise ConfigError(f"{path} resolves to an empty extension set")
         resolved_names = {extension.name for extension in resolved_extensions}
         for profile in battery.profiles:
-            if isinstance(profile.test_config, GeneratedTestConfig):
+            if isinstance(
+                profile.test_config, (GeneratedTestConfig, UpstreamTestConfig)
+            ):
                 unknown = sorted(
                     set(profile.test_config.excluded_extensions) - resolved_names
                 )

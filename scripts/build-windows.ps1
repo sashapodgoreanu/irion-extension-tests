@@ -78,7 +78,8 @@ $ConfigureArguments = @(
     '-DDISABLE_UNITY=1',
     '-DBUILD_UNITTESTS=TRUE',
     '-DENABLE_UNITTEST_CPP_TESTS=FALSE',
-    "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig"
+    "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig",
+    '-DBUILD_EXTENSIONS=tpch'
 )
 Invoke-Checked -Command cmake -Arguments $ConfigureArguments
 Invoke-Checked -Command cmake -Arguments @('--build', $BuildPath, '--config', 'Release', '--parallel', "$BuildJobs")
@@ -103,11 +104,20 @@ if (Test-Path $ArtifactRoot) {
 }
 $BinDir = Join-Path $ArtifactRoot 'bin'
 $ExtensionDir = Join-Path $ArtifactRoot 'extensions'
+$RepositoryDir = Join-Path $ArtifactRoot 'repository'
 $LogDir = Join-Path $ArtifactRoot 'logs'
-New-Item -ItemType Directory -Force -Path $BinDir, $ExtensionDir, $LogDir | Out-Null
+New-Item -ItemType Directory -Force -Path $BinDir, $ExtensionDir, $RepositoryDir, $LogDir | Out-Null
 Copy-Item $DuckDBExe (Join-Path $BinDir 'duckdb.exe')
 Copy-Item $UnitTestExe (Join-Path $BinDir 'unittest.exe')
 Copy-Item $QaExtension.FullName (Join-Path $ExtensionDir $QaExtension.Name)
+
+$BuildRepository = Join-Path $BuildRoot 'repository'
+$TpchExtension = Get-ChildItem -Path $BuildRepository -Recurse -File -Filter 'tpch.duckdb_extension' |
+    Select-Object -First 1
+if ($null -eq $TpchExtension) {
+    throw "DuckDB tpch test extension is missing from $BuildRepository"
+}
+Copy-Item -Path (Join-Path $BuildRepository '*') -Destination $RepositoryDir -Recurse -Force
 
 Invoke-Checked -Command (Join-Path $BinDir 'duckdb.exe') -Arguments @('--version')
 Invoke-Checked -Command (Join-Path $BinDir 'unittest.exe') -Arguments @('--help')
@@ -126,5 +136,6 @@ $CiToolsCommit = (& git -C $CiToolsRoot rev-parse HEAD).Trim()
     'compiler=msvc'
     'cmake_configuration=Release'
     'compiled_extension=qa_test'
+    'test_extension_repository=repository'
     "build_elapsed_seconds=$([math]::Round($Stopwatch.Elapsed.TotalSeconds, 1))"
 ) | Set-Content -Path (Join-Path $LogDir 'build-info.txt') -Encoding utf8
