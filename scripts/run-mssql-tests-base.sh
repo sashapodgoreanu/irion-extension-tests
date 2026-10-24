@@ -73,11 +73,8 @@ export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_CONNECTION_STRING:-${MSSQL_TES
 # metadata remains causes an origin-mismatch error; SQLLogicTest silently turns
 # that error into `require mssql: skipped`.
 #
-# Therefore, after the official smoke tests:
-#   1. remove the community-origin installed copy and its .info file;
-#   2. install the exact copied binary FROM LOCAL_EXTENSION_REPO;
-#   3. verify it can be dynamically loaded;
-#   4. run SQLLogicTest without preloading MSSQL, letting `require mssql` load it.
+# DuckDB 2.0 requires preserving the community .info origin for signature
+# verification; unittest --keep-home gives require mssql that signed copy.
 
 cleanup() {
   if [[ "${MSSQL_COMPOSE_STARTED:-0}" == "1" ]]; then
@@ -268,9 +265,21 @@ seed_sql "${UPSTREAM_ROOT}/docker/init/init-transaction-tests.sql" \
 bash "${UPSTREAM_INTEGRATION_SCRIPT}" "${DUCKDB_BIN}" "${MSSQL_EXTENSION_PATH}" \
   2>&1 | tee "${LOG_DIR}/upstream-integration-smoke.log"
 
-"${DUCKDB_BIN}" --unsigned -c "
-  LOAD '${MSSQL_EXTENSION_PATH}';
-  ATTACH '${MSSQL_TESTDB_DSN}' AS seedcheck (TYPE mssql);
+# Verify the signed MSSQL community extension with the upstream-documented
+# secret API. The local SQL Server has a self-signed certificate; explicitly
+# trust it for this isolated test, without downgrading TLS or allowing unsigned.
+"${DUCKDB_BIN}" -c "
+  LOAD mssql;
+  CREATE SECRET qa_mssql_seedcheck (
+    TYPE mssql,
+    host '${MSSQL_TEST_HOST}',
+    port ${MSSQL_TEST_PORT},
+    database 'TestDB',
+    user '${MSSQL_TEST_USER}',
+    password '${MSSQL_TEST_PASS}',
+    trust_server_certificate true
+  );
+  ATTACH '' AS seedcheck (TYPE mssql, SECRET qa_mssql_seedcheck);
   SELECT count(*) FROM seedcheck.dbo.TestSimplePK;
 " >"${LOG_DIR}/seed-check.log"
 
@@ -295,20 +304,17 @@ PY
 cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-without-mssql.sql"
 MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')"
 
-# Remove the community-origin installation metadata, then reinstall the exact
-# same signed binary from LOCAL_EXTENSION_REPO. This makes subsequent INSTALL
-# calls issued by `require mssql` idempotent instead of origin-mismatched.
-rm -f "${MSSQL_EXTENSION_PATH}" "${MSSQL_EXTENSION_PATH}.info"
-
+# Preserve the original signed community installation and its .info sidecar.
+# In DuckDB 2.0, direct loads from a custom repository are verified against
+# core keys; preserving the community origin is necessary for signed LOAD mssql.
 "${DUCKDB_BIN}" -csv -header -c "
-  INSTALL mssql FROM '${LOCAL_EXTENSION_REPO}';
   LOAD mssql;
-  SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
+  SELECT extension_name, installed, loaded, extension_version, installed_from
   FROM duckdb_extensions()
   WHERE extension_name = 'mssql';
 " | tee "${LOG_DIR}/dynamic-install-probe.csv"
 
-python3 - "${LOG_DIR}/dynamic-install-probe.csv" "${LOCAL_EXTENSION_REPO}" <<'PY'
+python3 - "${LOG_DIR}/dynamic-install-probe.csv" <<'PY'
 import csv
 import sys
 from pathlib import Path
@@ -318,10 +324,10 @@ if len(rows) != 1:
     raise SystemExit("Dynamic MSSQL probe did not return exactly one extension row")
 row = rows[0]
 if row.get("installed", "").lower() != "true" or row.get("loaded", "").lower() != "true":
-    raise SystemExit("Dynamic MSSQL probe did not install and load the extension")
-if row.get("install_mode", "").lower() != "repository":
-    raise SystemExit(f"Unexpected MSSQL install mode: {row.get('install_mode')}")
-print(f"Dynamic MSSQL repository probe passed using {sys.argv[2]}")
+    raise SystemExit("Dynamic MSSQL probe did not load the installed signed extension")
+if row.get("installed_from", "").lower() != "community":
+    raise SystemExit("MSSQL community signing origin was not preserved")
+print("Dynamic MSSQL community-signed LOAD probe passed")
 PY
 
 python3 - \
@@ -365,6 +371,7 @@ cp "${TEST_CONFIG}" "${LOG_DIR}/mssql-test-config.json"
 
 UNITTEST_LOG="${LOG_DIR}/unittest.log"
 "${UNITTEST_BIN}" \
+  --keep-home \
   --test-config "${TEST_CONFIG}" \
   --test-dir "${UPSTREAM_ROOT}" \
   "${TEST_PATH}" \

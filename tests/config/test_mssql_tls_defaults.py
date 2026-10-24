@@ -25,9 +25,13 @@ def evaluate_test_connections(overrides: dict[str, str] | None = None) -> dict[s
     source = RUNNER.read_text(encoding="utf-8")
     declarations = [
         line for line in source.splitlines()
-        if line.startswith("export MSSQL_TEST_")
+        if line.startswith("export ") and line.partition("=")[0][7:] in VARS
     ]
-    assert len(declarations) >= 12, "MSSQL test defaults were not found"
+    declared_names = {line.partition("=")[0][7:] for line in declarations}
+    assert declared_names == set(VARS) and len(declarations) == len(VARS), (
+        "MSSQL connection defaults missing or duplicated: "
+        f"missing={sorted(set(VARS) - declared_names)}"
+    )
     commands = [
         "set -Eeuo pipefail",
         *declarations,
@@ -44,6 +48,16 @@ def evaluate_test_connections(overrides: dict[str, str] | None = None) -> dict[s
 
 
 class MSSQLTLSDefaultsTest(unittest.TestCase):
+    def test_seed_check_trusts_only_the_local_fixture_certificate(self) -> None:
+        script = RUNNER.read_text(encoding="utf-8")
+        self.assertIn("CREATE SECRET qa_mssql_seedcheck", script)
+        self.assertIn("trust_server_certificate true", script)
+        self.assertIn("ATTACH '' AS seedcheck (TYPE mssql, SECRET qa_mssql_seedcheck)", script)
+        self.assertNotIn('"--unsigned"', script)
+        self.assertIn("  --keep-home", script)
+        self.assertIn('if row.get("installed_from", "").lower() != "community":', script)
+        self.assertNotIn('rm -f "${MSSQL_EXTENSION_PATH}"', script)
+
     def test_local_sql_server_uses_explicit_certificate_trust(self) -> None:
         connections = evaluate_test_connections()
         self.assertIn("TrustServerCertificate=yes", connections["MSSQL_TEST_DSN"])
