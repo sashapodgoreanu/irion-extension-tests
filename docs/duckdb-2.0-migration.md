@@ -74,8 +74,10 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
 - At the binary-matching Unity Catalog pin, upstream replaced its SQLLogicTest
   suite with pytest tests using the `duckdb-pytest-driver`. The QA workflow runs
   the pinned `oss_local` suite with the upstream OSS container image and test
-  binary. Its old Java service and ignored paths have been removed from this
-  battery because the pinned pytest fixtures own those resources.
+  binary. It stages the installed extension binaries in the build layout that
+  the pytest driver resolves, while retaining the local extension repository
+  for DuckDB 2.0 installs. Its old Java service and ignored paths have been
+  removed because the pinned pytest fixtures own those resources.
 - The current DuckLake binary run also reports that
   `add_files_type_check_variant.test` unexpectedly succeeds when a STRUCT Parquet
   file is added to a VARIANT table with `allow_missing => true`. This remains an
@@ -83,8 +85,9 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
 - HTTPFS at the selected commit has moved its S3 test service to SeaweedFS. Its
   fixture is `scripts/seaweedfs_s3.yml` plus `seaweedfs_s3_config.json`; the old
   `scripts/minio_s3.yml` no longer exists at this pin. The service manager now
-  starts and cleans up that pinned upstream fixture. The compose setup still
-  uses the MinIO Client `mc` as an S3 client, but does not run a MinIO server.
+  starts and cleans up that pinned upstream fixture, and checks the completion
+  marker from its one-shot `s3_setup` container. The compose setup still uses
+  the MinIO Client `mc` as an S3 client, but does not run a MinIO server.
 - Linux and Windows have separate workflows and explicitly select their own
   platform. This migration task targets Linux; a Windows workflow result is
   separate and does not establish the Linux baseline.

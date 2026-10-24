@@ -321,6 +321,10 @@ jobs:
           enable-cache: true
           cache-dependency-glob: upstream/unity_catalog/pyproject.toml
 
+      - name: Install QA result tooling for Unity Catalog
+        if: matrix.runner == 'unity-catalog-pytest'
+        run: uv pip install --python .venv/bin/python -r requirements/qa.txt
+
       - name: Run test battery
         id: run_battery
         env:

@@ -27,6 +27,8 @@ class ServiceManagerInputTestCase(unittest.TestCase):
                 self.assertIn(upstream_file, source)
         self.assertNotIn("minio_s3.yml", source)
         self.assertNotIn("qa_httpfs_rewrite_minio_images", source)
+        self.assertIn("ps --all --quiet s3_setup", source)
+        self.assertIn('docker logs "${setup_container}"', source)
 
 
     @unittest.skipUnless(shutil.which("bash"), "bash is required")

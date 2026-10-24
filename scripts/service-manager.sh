@@ -158,11 +158,16 @@ qa_service_start_httpfs_minio() {
   source ./scripts/set_s3_test_server_variables.sh
   popd >/dev/null
   qa_service_wait_for_port 9000 "HTTPFS SeaweedFS S3 service"
-  local server_container
+  local server_container setup_container setup_logs
   server_container="$(docker compose -f "${compose_file}" -p duckdb-minio ps -q seaweedfs)"
+  setup_container="$(docker compose -f "${compose_file}" -p duckdb-minio ps --all --quiet s3_setup)"
+  setup_logs=""
+  if [[ -n "${setup_container}" ]]; then
+    setup_logs="$(docker logs "${setup_container}" 2>&1)"
+  fi
   if [[ -z "${server_container}" ]] ||
-     ! docker logs "${server_container}" 2>&1 | grep -Fq 'FINISHED SETTING UP MINIO'; then
-    echo "HTTPFS SeaweedFS fixture did not finish initializing" >&2
+     ! grep -Fq 'FINISHED SETTING UP MINIO' <<<"${setup_logs}"; then
+    echo "HTTPFS SeaweedFS fixture setup container did not finish initializing" >&2
     return 1
   fi
   export TEST_PERSISTENT_SECRETS_AVAILABLE=true

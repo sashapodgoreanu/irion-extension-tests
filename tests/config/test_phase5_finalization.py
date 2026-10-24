@@ -32,6 +32,10 @@ class Phase5FinalizationTest(unittest.TestCase):
         runner = (ROOT / "scripts/run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
         self.assertIn('pytest -m oss_local -n0 -s', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
+        self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
+
+        workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
+        self.assertIn("uv pip install --python .venv/bin/python -r requirements/qa.txt", workflow)
 
     def test_iceberg_is_not_an_accepted_failure(self) -> None:
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))

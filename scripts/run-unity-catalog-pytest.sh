@@ -76,6 +76,13 @@ platform="$(basename "${extension_dir}")"
 repository_platform="${BUILD_DIR}/repository/${DUCKDB_VERSION}/${platform}"
 mkdir -p "${repository_platform}"
 cp -a "${extension_dir}/." "${repository_platform}/"
+while IFS= read -r -d '' extension_binary; do
+  extension_name="${extension_binary##*/}"
+  extension_name="${extension_name%.duckdb_extension}"
+  extension_build_dir="${BUILD_DIR}/extension/${extension_name}"
+  mkdir -p "${extension_build_dir}"
+  cp -a "${extension_binary}" "${extension_build_dir}/${extension_name}.duckdb_extension"
+done < <(find "${extension_dir}" -maxdepth 1 -type f -name '*.duckdb_extension' -print0)
 export LOCAL_EXTENSION_REPO="${BUILD_DIR}/repository"
 
 echo "Unity Catalog suite image: ${DUCKTEST_UC_IMAGE}" | tee "${LOG_DIR}/pytest.log"
