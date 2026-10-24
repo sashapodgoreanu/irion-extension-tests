@@ -41,7 +41,7 @@ class ExtensionBinaryPinsTest(unittest.TestCase):
                     )
                     self.assertNotIn("releaseCommit", binary)
                 else:
-                    self.assertRegex(version, r"^\\d+\\.\\d+\\.\\d+$")
+                    self.assertRegex(version, r"^\d+\.\d+\.\d+$")
                     self.assertEqual(pin.lower().removeprefix("v"), version)
                     self.assertRegex(binary["releaseCommit"], r"^[0-9a-f]{40}$")
 
