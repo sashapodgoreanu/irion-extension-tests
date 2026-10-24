@@ -29,6 +29,9 @@ class ServiceManagerInputTestCase(unittest.TestCase):
         self.assertNotIn("qa_httpfs_rewrite_minio_images", source)
         self.assertIn("ps --all --quiet s3_setup", source)
         self.assertIn('docker logs "${setup_container}"', source)
+        runner = (REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh").read_text(encoding="utf-8")
+        self.assertIn('"${TEST_NAME}" == "httpfs"', runner)
+        self.assertIn('INSTALL_SQL="${INSTALL_SQL/INSTALL tpch;/}"', runner)
 
 
     @unittest.skipUnless(shutil.which("bash"), "bash is required")

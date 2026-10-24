@@ -90,6 +90,19 @@ sql_from_file() {
 INSTALL_SQL="$(sql_from_file "${INSTALL_SCRIPT}")"
 INIT_SQL="$(sql_from_file "${INIT_SCRIPT}")"
 
+# The HTTPFS fixture generator calls DBGEN before this runner starts. That call
+# installs TPCH from DuckDB's build-local repository into the battery HOME, so
+# reinstalling the same extension from the public repository fails origin
+# validation. Keep the generated LOAD statement and reuse the installed binary.
+if [[ "${TEST_NAME}" == "httpfs" ]]; then
+  if [[ "${INSTALL_SQL}" == *"INSTALL tpch;"* ]]; then
+    INSTALL_SQL="${INSTALL_SQL/INSTALL tpch;/}"
+  else
+    echo "HTTPFS install contract is missing TPCH" >&2
+    exit 1
+  fi
+fi
+
 cp "${BATTERY_RUNTIME_CONFIG_DIR}/battery.json" "${LOG_DIR}/battery.json"
 cp "${EXTENSIONS_JSON}" "${LOG_DIR}/extensions.json"
 cp "${BATTERY_RUNTIME_CONFIG_DIR}/services.json" "${LOG_DIR}/services.json"
