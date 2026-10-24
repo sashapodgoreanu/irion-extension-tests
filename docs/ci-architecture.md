@@ -48,7 +48,8 @@ The main execution path is:
    starts battery services and finalizes its result.
 4. Standard SQLLogicTest batteries use `scripts/run-standard-tests.sh`; the
    PostgreSQL Scanner and MSSQL batteries use specialized runners that also
-   validate source-to-binary versions.
+   validate source-to-binary versions. Unity Catalog uses its pinned upstream
+   `duckdb-pytest-driver` suite and the suite-owned OSS container.
 5. `scripts/service-manager.sh` owns local service startup, environment setup,
    readiness checks, log capture and cleanup.
 
@@ -80,3 +81,9 @@ Two maintenance pressure points surfaced during the DuckDB 2.0 migration:
 The PostgreSQL Scanner and MSSQL source/binary gates are intentional safety
 checks. Advancing a test pin without updating its observed DuckDB binary version
 must stop configuration or runtime validation.
+
+The Unity Catalog pytest runner prepares the same installed extension set as
+the standard runner, exposes the downloaded `unittest` binary through
+`BUILD_DIR`, and runs only the upstream `oss_local` marker. Its Docker
+capability is derived from the runner kind because the upstream fixture owns
+container lifecycle instead of declaring a QA-managed service.

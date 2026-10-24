@@ -68,10 +68,10 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
   upstream `add_files_json_without_extension.test`. The JSON extension remains
   installed so tests that require it can still load it on demand.
 - At the binary-matching Unity Catalog pin, upstream replaced its SQLLogicTest
-  suite with pytest tests using the `duckdb-pytest-driver`. The current QA standard
-  runner still expects the removed SQLLogicTest paths, so the battery is not yet
-  validated against that pin. Keep the source/binary pin unchanged until the QA
-  workflow can run the pinned pytest suite.
+  suite with pytest tests using the `duckdb-pytest-driver`. The QA workflow runs
+  the pinned `oss_local` suite with the upstream OSS container image and test
+  binary. Its old Java service and ignored paths have been removed from this
+  battery because the pinned pytest fixtures own those resources.
 - The current DuckLake binary run also reports that
   `add_files_type_check_variant.test` unexpectedly succeeds when a STRUCT Parquet
   file is added to a VARIANT table with `allow_missing => true`. This remains an

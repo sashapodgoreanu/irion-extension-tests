@@ -296,28 +296,17 @@ testBatteries:
     ignoredTests: []
   unity_catalog:
     isEnabled: true
-    runner: standard
+    runner: unity-catalog-pytest
     source: remote
     repository: duckdb/unity_catalog
     pin: cc59382f5292997293a57c2ab336c9aa97c05f2d
     submodules: recursive
-    services:
-    - name: unity-catalog-oss
-      type: unity-catalog-oss
-      version: 1351641393665f5959b7b3d3c0c323a2b7e343c4
-      port: 8080
+    services: []
     prerequisites: []
     profiles:
     - name: oss
-      tests: test/sql/local_oss_unity_catalog/unity_catalog.test,test/sql/local_oss_unity_catalog/http_logs.test
+      tests: test/oss_local
       services: []
-      testConfig:
-        kind: generated
-        description: Unity Catalog compatibility against the local OSS server
-        excludedExtensions: []
-        staticallyLoadedExtensions:
-        - core_functions
-        - parquet
     extensions:
     - name: httpfs
       isUsed: true
@@ -329,15 +318,7 @@ testBatteries:
       isUsed: true
     - name: tpcds
       isUsed: true
-    ignoredTests:
-    - path: test/sql/local_oss_unity_catalog/uc_catalog_write.test
-      reason: Targets the separate uc_catalog extension rather than unity_catalog
-      profiles:
-      - oss
-    - path: test/sql/local_oss_unity_catalog/checkpoint.test
-      reason: Requires a writable UC_TEST_DATA fixture root not exposed by the OSS sample catalog lifecycle
-      profiles:
-      - oss
+    ignoredTests: []
   bigquery:
     isEnabled: true
     runner: standard

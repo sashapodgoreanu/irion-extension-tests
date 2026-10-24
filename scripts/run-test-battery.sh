@@ -319,6 +319,13 @@ case "${RUNNER_KIND}" in
       "${UPSTREAM_ROOT}" \
       "${TEST_FILTER}" || status=$?
     ;;
+  unity-catalog-pytest)
+    bash "${SCRIPT_DIR}/run-unity-catalog-pytest.sh" \
+      "${UPSTREAM_ROOT}" \
+      "${BATTERY_RUNTIME_CONFIG_DIR}" \
+      "${DUCKDB_VERSION}" \
+      "${UPSTREAM_REF}" || status=$?
+    ;;
   *)
     qa_log ERROR "unsupported test battery runner: ${RUNNER_KIND}"
     status=2

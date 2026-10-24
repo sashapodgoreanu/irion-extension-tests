@@ -313,6 +313,14 @@ jobs:
           docker version
           docker compose version
 
+      - name: Set up uv for Unity Catalog pytest
+        if: matrix.runner == 'unity-catalog-pytest'
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: upstream/unity_catalog/pyproject.toml
+
       - name: Run test battery
         id: run_battery
         env:

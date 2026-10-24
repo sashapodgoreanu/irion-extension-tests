@@ -219,7 +219,7 @@
       "required": ["isEnabled", "runner", "source", "services", "prerequisites", "profiles"],
       "properties": {
         "isEnabled": {"type": "boolean"},
-        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release", "unity-catalog-pytest"]},
         "source": {"enum": ["remote", "self"]},
         "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
         "pin": {"type": "string", "minLength": 1},

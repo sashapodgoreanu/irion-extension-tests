@@ -29,7 +29,9 @@ EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
-VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
+VALID_RUNNERS = frozenset(
+    {"standard", "postgres-scanner", "mssql-release", "unity-catalog-pytest"}
+)
 VALID_SOURCE_TYPES = frozenset({"remote", "self"})
 VALID_SERVICE_TYPES = frozenset(
     {
@@ -612,6 +614,8 @@ def _capabilities(battery: BatteryConfig) -> tuple[str, ...]:
             add(SERVICE_CAPABILITIES[service.service_type])
     for prerequisite in battery.prerequisites:
         add(PREREQUISITE_CAPABILITIES[prerequisite.prerequisite_type])
+    if battery.runner == "unity-catalog-pytest":
+        add(("docker",))
     return tuple(ordered)
 
 

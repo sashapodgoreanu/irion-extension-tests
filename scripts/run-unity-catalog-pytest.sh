@@ -1,0 +1,86 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+UPSTREAM_ROOT="${1:?upstream Unity Catalog checkout is required}"
+RUNTIME_CONFIG_DIR="${2:?resolved battery runtime config is required}"
+DUCKDB_VERSION="${3:?DuckDB version is required}"
+EXPECTED_UPSTREAM_REF="${4:?pinned Unity Catalog source commit is required}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+ARTIFACT_DIR="${ARTIFACT_DIR:-${REPOSITORY_ROOT}/build/artifact}"
+ARTIFACT_DIR="$(cd "${ARTIFACT_DIR}" && pwd)"
+BUILD_DIR="${REPOSITORY_ROOT}/build/release"
+LOG_DIR="${REPOSITORY_ROOT}/build/logs/unity_catalog"
+DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
+
+for required in \
+  "${UPSTREAM_ROOT}/pyproject.toml" \
+  "${UPSTREAM_ROOT}/test/conftest.py" \
+  "${ARTIFACT_DIR}/bin/duckdb" \
+  "${ARTIFACT_DIR}/bin/unittest" \
+  "${ARTIFACT_DIR}/lib/libduckdb.so" \
+  "${BUILD_DIR}/repository/${DUCKDB_VERSION}/linux_amd64" \
+  "${RUNTIME_CONFIG_DIR}/install-extensions.sql" \
+  "${RUNTIME_CONFIG_DIR}/init-extensions.sql" \
+  "${RUNTIME_CONFIG_DIR}/extensions.json"; do
+  if [[ ! -e "${required}" ]]; then
+    echo "Unity Catalog pytest prerequisite is missing: ${required}" >&2
+    exit 1
+  fi
+done
+
+actual_upstream_ref="$(git -C "${UPSTREAM_ROOT}" rev-parse HEAD)"
+if [[ "${actual_upstream_ref}" != "${EXPECTED_UPSTREAM_REF}" ]]; then
+  echo "Unity Catalog checkout must be ${EXPECTED_UPSTREAM_REF}; found ${actual_upstream_ref}" >&2
+  exit 1
+fi
+
+mkdir -p "${BUILD_DIR}/test" "${BUILD_DIR}/src" "${LOG_DIR}"
+ln -sfn "${ARTIFACT_DIR}/bin/unittest" "${BUILD_DIR}/test/unittest"
+ln -sfn "${ARTIFACT_DIR}/bin/duckdb" "${BUILD_DIR}/duckdb"
+ln -sfn "${ARTIFACT_DIR}/lib/libduckdb.so" "${BUILD_DIR}/src/libduckdb.so"
+
+export BUILD_DIR
+export DUCKTEST_UC_IMAGE="${DUCKTEST_UC_IMAGE:-ghcr.io/benfleis/ducktest-unitycatalog:ci}"
+export LD_LIBRARY_PATH="${ARTIFACT_DIR}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+SQL_FILE="${LOG_DIR}/install-extensions.sql"
+EXTENSION_CSV="${LOG_DIR}/extensions.csv"
+cat \
+  "${RUNTIME_CONFIG_DIR}/install-extensions.sql" \
+  "${RUNTIME_CONFIG_DIR}/init-extensions.sql" >"${SQL_FILE}"
+cat >>"${SQL_FILE}" <<'SQL'
+SELECT extension_name, installed, loaded, extension_version, install_mode, installed_from
+FROM duckdb_extensions()
+ORDER BY extension_name;
+SQL
+
+"${DUCKDB_BIN}" -csv -header <"${SQL_FILE}" >"${EXTENSION_CSV}"
+python3 "${SCRIPT_DIR}/validate-extension-probe.py" \
+  "${EXTENSION_CSV}" \
+  "${RUNTIME_CONFIG_DIR}/extensions.json"
+
+version_root="${HOME}/.duckdb/extensions/${DUCKDB_VERSION}"
+if [[ ! -d "${version_root}" ]]; then
+  echo "DuckDB extension version directory was not created: ${version_root}" >&2
+  exit 1
+fi
+extension_dir="$(find "${version_root}" -mindepth 2 -maxdepth 2 -type f \
+  -name '*.duckdb_extension' -printf '%h\n' -quit)"
+if [[ -z "${extension_dir}" ]]; then
+  echo "No installed extension binaries found under ${version_root}" >&2
+  exit 1
+fi
+platform="$(basename "${extension_dir}")"
+repository_platform="${BUILD_DIR}/repository/${DUCKDB_VERSION}/${platform}"
+mkdir -p "${repository_platform}"
+cp -a "${extension_dir}/." "${repository_platform}/"
+export LOCAL_EXTENSION_REPO="${BUILD_DIR}/repository"
+
+echo "Unity Catalog suite image: ${DUCKTEST_UC_IMAGE}" | tee "${LOG_DIR}/pytest.log"
+docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
+(
+  cd "${UPSTREAM_ROOT}"
+  uv run pytest -m oss_local -n0 -s
+) 2>&1 | tee -a "${LOG_DIR}/pytest.log"

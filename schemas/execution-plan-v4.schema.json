@@ -235,7 +235,7 @@
       "additionalProperties": false,
       "required": ["runner", "services", "prerequisites", "capabilities", "profiles"],
       "properties": {
-        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release", "unity-catalog-pytest"]},
         "services": {"type": "array", "items": {"$ref": "#/$defs/service"}},
         "prerequisites": {"type": "array", "items": {"$ref": "#/$defs/prerequisite"}},
         "capabilities": {
