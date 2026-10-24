@@ -34,8 +34,8 @@ Recheck the distribution's version before advancing this pin again.
 The pinned sources are the revisions identified by `duckdb_extensions()` after
 installing extensions with the DuckDB v2.0.0 CI runtime, **not** the latest upstream
 `main`. For source commit revisions, the pinned full SHA must start with the
-binary's reported shortened SHA; for tagged releases, the installed semantic version
-must match the pinned release tag (and that tag must resolve to its exact commit).
+binary's reported shortened SHA; for tagged releases, the installed semantic version must match the verified
+source tag, and the pin must equal that tag or its immutable commit.
 
 The reproducible versions are recorded in `config/extension-binary-pins.yml` and
 enforced by `tests/config/test_extension_binary_pins.py`.

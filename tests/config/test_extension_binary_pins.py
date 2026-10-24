@@ -42,8 +42,12 @@ class ExtensionBinaryPinsTest(unittest.TestCase):
                     self.assertNotIn("releaseCommit", binary)
                 else:
                     self.assertRegex(version, r"^\d+\.\d+\.\d+$")
-                    self.assertEqual(pin.lower().removeprefix("v"), version)
+                    self.assertEqual(binary["sourceTag"].lower().removeprefix("v"), version)
                     self.assertRegex(binary["releaseCommit"], r"^[0-9a-f]{40}$")
+                    self.assertIn(
+                        pin, (binary["sourceTag"], binary["releaseCommit"]),
+                        f"{name}: source pin must be the signed release tag or its exact commit",
+                    )
 
     def test_runners_keep_fail_closed_alignment_checks(self) -> None:
         pg = (ROOT / "scripts/run-postgres-scanner-tests.sh").read_text(encoding="utf-8")

@@ -23,8 +23,10 @@ batteries:
   bigquery:
     repository: hafenkran/duckdb-bigquery
     binaryVersion: "v0.13.0"
+    sourceTag: v0.13.0
     releaseCommit: 5439a6a58439af4c05064f80a28b159c5a1424e7
   mssql:
     repository: hugr-lab/mssql-extension
     binaryVersion: "v0.3.0"
+    sourceTag: v0.3.0
     releaseCommit: bfd347ffa89dc520eb0fb82c857b3c7af12673dc

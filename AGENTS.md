@@ -17,10 +17,13 @@ the configured DuckDB runtime**, not the newest upstream extension commit.
    to precisely that commit; the pin must begin with the binary's reported SHA.
    Do **not** pin the latest `main` or a newer tag without proving the binary
    comes from that exact revision.
-3. For release-versioned community extensions (BigQuery, MSSQL), use the exact
-   released source tag reported by the binary and verify that the tag resolves
-   to the recorded immutable commit. Normalization of an optional `v`
-   prefix is allowed; do not compare a semver to a Git SHA or assume they match.
+3. For release-versioned community extensions (BigQuery, MSSQL), use the
+   exact published tag **or the immutable commit to which that tag resolves**.
+   Record the tag, its verified 40-char commit and the binary's reported
+   semantic version in `config/extension-binary-pins.yml`. The pin must equal
+   that tag or precisely that commit; normalization of an optional `v` prefix
+   applies only to semantic-version comparison, never to Git commit matching.
+   Do not compare a semver to a Git SHA or assume they are equivalent.
 4. Preserve **fail-closed** source/binary alignment checks (in particular
    `scripts/run-postgres-scanner-tests.sh` and the MSSQL configured runner).
    Extend checks when a new extension is introduced. Never skip a mismatch,
