@@ -1,0 +1,30 @@
+# Observed in the signed extension binaries installed by DuckDB v2.0.0
+# on Linux (GitHub Actions). Recheck using duckdb_extensions() on every upgrade.
+duckdbVersion: v2.0.0
+batteries:
+  httpfs:
+    repository: duckdb/duckdb-httpfs
+    binaryVersion: "77392a7207"
+  ducklake:
+    repository: duckdb/ducklake
+    binaryVersion: "417a9117f5"
+  postgres_scanner:
+    repository: duckdb/duckdb-postgres
+    binaryVersion: "c0f5a3c0c4"
+  delta:
+    repository: duckdb/duckdb-delta
+    binaryVersion: "9dcfb65b99"
+  azure:
+    repository: duckdb/duckdb-azure
+    binaryVersion: "906e92458c"
+  unity_catalog:
+    repository: duckdb/unity_catalog
+    binaryVersion: "cc59382f52"
+  bigquery:
+    repository: hafenkran/duckdb-bigquery
+    binaryVersion: "v0.13.0"
+    releaseCommit: 5439a6a58439af4c05064f80a28b159c5a1424e7
+  mssql:
+    repository: hugr-lab/mssql-extension
+    binaryVersion: "v0.3.0"
+    releaseCommit: bfd347ffa89dc520eb0fb82c857b3c7af12673dc

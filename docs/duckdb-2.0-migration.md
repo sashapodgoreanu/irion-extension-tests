@@ -8,12 +8,12 @@ Selection date: 2026-10-23.
 | Battery | Upstream repository | Pinned reference | Selection |
 | --- | --- | --- | --- |
 | httpfs | duckdb/duckdb-httpfs | `77392a72077a85897db2519fae11e2c0da972b8a` | DuckDB 2.0 release-ready `main` |
-| ducklake | duckdb/ducklake | `f67b3648787f6ede9ad6a26dbbaa9f8cc72b84cf` | Latest `main`, independently versioned |
+| ducklake | duckdb/ducklake | `417a9117f590e8141742ac0579d02f6a90162e37` | Exact DuckDB 2.0 distributed binary revision (`417a9117f5`) |
 | postgres_scanner | duckdb/duckdb-postgres | `c0f5a3c0c4b68b02afbf669d36d7f0e503985c88` | Exact upstream revision reported by the DuckDB 2.0.0 distributed extension (`c0f5a3c0c4`) |
-| delta | duckdb/duckdb-delta | `8a12490ad047fcc626dae3c47fc21c9f9fd9d540` | Submodules updated for DuckDB 2.0 |
+| delta | duckdb/duckdb-delta | `9dcfb65b99fcafaa068222c2490abc143da4cc8e` | Exact DuckDB 2.0 distributed binary revision (`9dcfb65b99`) |
 | iceberg | duckdb/duckdb-iceberg | `b0ef95eda41c44734b2d229659190b18a5716eab` | Latest DuckDB 2.0 `main` |
-| azure | duckdb/duckdb-azure | `2ea75dda3f86ebb05d07261b29074492090e1be3` | Explicit upstream DuckDB 2.0 bump |
-| unity_catalog | duckdb/unity_catalog | `d8035e4fed353bce957a047a36179344a9c3edf1` | Explicit upstream DuckDB 2.0 bump |
+| azure | duckdb/duckdb-azure | `906e92458c33309e5d9413e14a85aad7b4d2275f` | Exact DuckDB 2.0 distributed binary revision (`906e92458c`) |
+| unity_catalog | duckdb/unity_catalog | `cc59382f5292997293a57c2ab336c9aa97c05f2d` | Exact DuckDB 2.0 distributed binary revision (`cc59382f52`) |
 | bigquery | hafenkran/duckdb-bigquery | `5439a6a58439af4c05064f80a28b159c5a1424e7` | v0.13.0 release commit (DuckDB 2.0) |
 | mssql | hugr-lab/mssql-extension | `v0.3.0` | First DuckDB 2.0 release, commit `bfd347ffa89dc520eb0fb82c857b3c7af12673dc` |
 | irion / irion_extension_security | Local repository | `self` | No external upstream pin |
@@ -28,6 +28,19 @@ column support and newer SQLLogicTests that cannot be assumed to work against
 the existing binary. We use the exact matching source commit and retain the
 fail-closed source/binary version check in `scripts/run-postgres-scanner-tests.sh`.
 Recheck the distribution's version before advancing this pin again.
+
+## All active extension test pins follow the binaries
+
+The pinned sources are the revisions identified by `duckdb_extensions()` after
+installing extensions with the DuckDB v2.0.0 CI runtime, **not** the latest upstream
+`main`. For source commit revisions, the pinned full SHA must start with the
+binary's reported shortened SHA; for tagged releases, the installed semantic version
+must match the pinned release tag (and that tag must resolve to its exact commit).
+
+The reproducible versions are recorded in `config/extension-binary-pins.yml` and
+enforced by `tests/config/test_extension_binary_pins.py`.
+Iceberg remains disabled and is intentionally outside the active binary contract
+until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI green.
 
 ## Known migration considerations
 

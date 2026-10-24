@@ -79,7 +79,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/ducklake
-    pin: f67b3648787f6ede9ad6a26dbbaa9f8cc72b84cf
+    pin: 417a9117f590e8141742ac0579d02f6a90162e37
     submodules: recursive
     services: []
     prerequisites: []
@@ -176,7 +176,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/duckdb-delta
-    pin: 8a12490ad047fcc626dae3c47fc21c9f9fd9d540
+    pin: 9dcfb65b99fcafaa068222c2490abc143da4cc8e
     submodules: recursive
     services: []
     prerequisites: []
@@ -251,7 +251,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/duckdb-azure
-    pin: 2ea75dda3f86ebb05d07261b29074492090e1be3
+    pin: 906e92458c33309e5d9413e14a85aad7b4d2275f
     submodules: recursive
     services:
     - name: storage-emulator
@@ -295,7 +295,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/unity_catalog
-    pin: d8035e4fed353bce957a047a36179344a9c3edf1
+    pin: cc59382f5292997293a57c2ab336c9aa97c05f2d
     submodules: recursive
     services:
     - name: unity-catalog-oss

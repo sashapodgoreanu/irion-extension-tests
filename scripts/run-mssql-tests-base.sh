@@ -46,9 +46,11 @@ export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_CONNECTION_STRING:-${MSSQL_TES
 # confirm DuckDB community-extensions publishes the binary from the same tag.
 # Keep consuming Docker, seed SQL and test/sql/* from the pinned checkout.
 #
-# DuckDB community metadata exposes the source commit abbreviation in
-# duckdb_extensions().extension_version. Validate the exact tag and then compare
-# extension_version with that tag's commit SHA; do not compare it with "0.2.1".
+# DuckDB 2.0 community binaries may report a semantic release (e.g. 0.3.0)
+# rather than an upstream commit abbreviation. Resolve the release tag to the
+# exact checkout above; validate the reported release version or, when emitted,
+# the shortened source commit. Never accept an arbitrary version or disable
+# this source/binary alignment gate.
 #
 # AI MAINTAINER NOTE — DYNAMIC MSSQL TEST CONTRACT
 # ------------------------------------------------------------
@@ -153,17 +155,27 @@ if installed_from != "community":
         f"installed_from={installed_from or '<empty>'}"
     )
 
-reported_commit = mssql.get("extension_version", "").lower().removeprefix("v")
-if len(reported_commit) < 7 or not expected_commit.startswith(reported_commit):
+reported_version = mssql.get("extension_version", "").strip().lower().removeprefix("v")
+expected_release_version = release_tag.lower().removeprefix("v")
+# The exact tag and checkout are checked above with git describe/rev-parse.
+# Accept a matching released semantic version, or a source commit prefix
+# when the binary publishes a git revision instead.
+matches_release = reported_version == expected_release_version
+matches_commit = (
+    len(reported_version) >= 7
+    and all(c in "0123456789abcdef" for c in reported_version)
+    and expected_commit.startswith(reported_version)
+)
+if not (matches_release or matches_commit):
     raise SystemExit(
-        "MSSQL source/binary commit mismatch: "
+        "MSSQL source/binary version mismatch: "
         f"tests use {release_tag} at {expected_commit}, "
-        f"community binary reports {reported_commit or '<empty>'}"
+        f"community binary reports {reported_version or '<empty>'}"
     )
 
 print(
     "MSSQL release alignment verified: "
-    f"{release_tag} -> {expected_commit}, community binary -> {reported_commit}"
+    f"{release_tag} -> {expected_commit}, community binary -> {reported_version}"
 )
 PY
 
