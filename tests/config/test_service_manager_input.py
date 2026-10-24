@@ -31,7 +31,9 @@ class ServiceManagerInputTestCase(unittest.TestCase):
         self.assertIn('docker logs "${setup_container}"', source)
         runner = (REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh").read_text(encoding="utf-8")
         self.assertIn('"${TEST_NAME}" == "httpfs"', runner)
-        self.assertIn('INSTALL_SQL="${INSTALL_SQL/INSTALL tpch;/}"', runner)
+        self.assertIn(
+            'INSTALL_SQL="${INSTALL_SQL/INSTALL tpch;/FORCE INSTALL tpch;}"', runner
+        )
 
 
     @unittest.skipUnless(shutil.which("bash"), "bash is required")
