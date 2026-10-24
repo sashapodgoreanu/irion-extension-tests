@@ -323,7 +323,7 @@ PY
 # community-signed extension from a user-defined LOCAL_EXTENSION_REPO.
 # Preserve every query and assertion; adapt only exact prerequisite lines,
 # and record their hashes. The signed positive probe above MUST run first.
-python3 - "\${UPSTREAM_ROOT}" "\${LOG_DIR}/mssql-require-adaptation.json" <<'PY'
+python3 - "${UPSTREAM_ROOT}" "${LOG_DIR}/mssql-require-adaptation.json" <<'PY'
 import hashlib
 import json
 import re
