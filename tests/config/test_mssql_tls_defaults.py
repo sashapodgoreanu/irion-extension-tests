@@ -9,6 +9,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER = ROOT / "scripts" / "run-mssql-tests-base.sh"
+BASE_VARS = (
+    "MSSQL_TEST_HOST",
+    "MSSQL_TEST_PORT",
+    "MSSQL_TEST_USER",
+    "MSSQL_TEST_PASS",
+    "MSSQL_TEST_DB",
+)
 VARS = (
     "MSSQL_TEST_DSN",
     "MSSQL_TEST_URI",
@@ -23,14 +30,15 @@ VARS = (
 def evaluate_test_connections(overrides: dict[str, str] | None = None) -> dict[str, str]:
     # Evaluate only the environment-default declarations; never start Docker or DuckDB.
     source = RUNNER.read_text(encoding="utf-8")
+    all_vars = set(BASE_VARS) | set(VARS)
     declarations = [
         line for line in source.splitlines()
-        if line.startswith("export ") and line.partition("=")[0][7:] in VARS
+        if line.startswith("export ") and line.partition("=")[0][7:] in all_vars
     ]
     declared_names = {line.partition("=")[0][7:] for line in declarations}
-    assert declared_names == set(VARS) and len(declarations) == len(VARS), (
-        "MSSQL connection defaults missing or duplicated: "
-        f"missing={sorted(set(VARS) - declared_names)}"
+    assert declared_names == all_vars and len(declarations) == len(all_vars), (
+        "MSSQL connection defaults or prerequisites missing or duplicated: "
+        f"missing={sorted(all_vars - declared_names)}"
     )
     commands = [
         "set -Eeuo pipefail",
