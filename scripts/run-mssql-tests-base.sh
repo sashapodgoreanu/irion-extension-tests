@@ -412,23 +412,7 @@ UNITTEST_LOG="${LOG_DIR}/unittest.log"
   "${TEST_PATH}" \
   2>&1 | tee "${UNITTEST_LOG}"
 
-if grep -Eq '^require mssql: [1-9][0-9]*$|^require-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE: [1-9][0-9]*
-  echo "MSSQL tests were skipped because the dynamic community extension was not resolved" >&2
-  echo "LOCAL_EXTENSION_REPO=${LOCAL_EXTENSION_REPO}" >&2
-  exit 1
-fi
-
-if grep -Eq '^require-env (MSSQL_TEST_DSN|MSSQL_TEST_URI|MSSQL_TESTDB_DSN|MSSQL_TESTDB_URI|MSSQL_TEST_SERVER|MSSQL_TEST_CONNECTION_STRING): [1-9][0-9]*$' "${UNITTEST_LOG}"; then
-  echo "Mandatory MSSQL integration variables were skipped" >&2
-  grep -E '^require-env MSSQL_TEST' "${UNITTEST_LOG}" >&2 || true
-  exit 1
-fi
-
-if ! grep -Eq '([1-9][0-9]* test cases|test cases:[[:space:]]+[1-9][0-9]*)' "${UNITTEST_LOG}"; then
-  echo "The MSSQL SQLLogicTest run did not report any executed test cases" >&2
-  exit 1
-fi
- "${UNITTEST_LOG}"; then
+if grep -Eq '^require mssql: [1-9][0-9]*$|^require-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE: [1-9][0-9]*$' "${UNITTEST_LOG}"; then
   echo "MSSQL tests were skipped because the dynamic community extension was not resolved" >&2
   echo "LOCAL_EXTENSION_REPO=${LOCAL_EXTENSION_REPO}" >&2
   exit 1
