@@ -117,39 +117,23 @@ qa_service_start_squid() {
 }
 
 
-qa_httpfs_rewrite_minio_images() {
-  local compose_file=$1
-  # The MinIO Docker Hub repositories were removed in September 2026.
-  # Adapt only the pinned test fixture checkout (never change upstream Git).
-  # Use versioned public mirrors of the same historical server/client releases.
-  # Fail closed if the upstream compose fixture changes unexpectedly.
-  local minio_server_original="image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1"
-  local minio_client_original="image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1"
-  if ! grep -Fq "${minio_server_original}" "${compose_file}" ||
-     ! grep -Fq "${minio_client_original}" "${compose_file}"; then
-    echo "HTTPFS MinIO compose image versions have changed; review mirrors" >&2
-    return 1
-  fi
-  sed -i \
-    -e 's#image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1#image: dappros/minio:RELEASE.2025-09-07T16-13-09Z#' \
-    -e 's#image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1#image: ghcr.io/golithus/mc:RELEASE.2025-08-13T08-35-41Z#' \
-    "${compose_file}"
-}
-
 qa_service_start_httpfs_minio() {
   local name=$1
-  local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/minio_s3.yml"
+  # `httpfs-minio` is the existing service contract name. At the current
+  # HTTPFS pin the upstream S3 fixture is SeaweedFS, not a MinIO server.
+  local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/seaweedfs_s3.yml"
   for required in \
     "${compose_file}" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/seaweedfs_s3_config.json" \
     "${QA_SERVICE_UPSTREAM_ROOT}/scripts/generate_presigned_url.sh" \
     "${QA_SERVICE_UPSTREAM_ROOT}/scripts/run_s3_test_server.sh" \
-    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/set_s3_test_server_variables.sh"; do
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/set_s3_test_server_variables.sh" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/cleanup_s3_test_server.sh"; do
     if [[ ! -e "${required}" ]]; then
-      echo "HTTPFS MinIO service input is missing: ${required}" >&2
+      echo "HTTPFS S3 service input is missing: ${required}" >&2
       return 1
     fi
   done
-  qa_httpfs_rewrite_minio_images "${compose_file}" || return 1
   if [[ -d "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets" ]]; then
     chmod -R 700 "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets"
   fi
@@ -166,12 +150,22 @@ qa_service_start_httpfs_minio() {
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
     ./scripts/generate_presigned_url.sh
   )
+  # Register cleanup before starting containers so the battery EXIT handler
+  # can remove partially-created services if upstream startup fails.
+  QA_SERVICE_CLEANUPS+=("httpfs-minio|${name}|${compose_file}")
   pushd "${QA_SERVICE_UPSTREAM_ROOT}" >/dev/null
   source ./scripts/run_s3_test_server.sh
   source ./scripts/set_s3_test_server_variables.sh
   popd >/dev/null
+  qa_service_wait_for_port 9000 "HTTPFS SeaweedFS S3 service"
+  local server_container
+  server_container="$(docker compose -f "${compose_file}" -p duckdb-minio ps -q seaweedfs)"
+  if [[ -z "${server_container}" ]] ||
+     ! docker logs "${server_container}" 2>&1 | grep -Fq 'FINISHED SETTING UP MINIO'; then
+    echo "HTTPFS SeaweedFS fixture did not finish initializing" >&2
+    return 1
+  fi
   export TEST_PERSISTENT_SECRETS_AVAILABLE=true
-  QA_SERVICE_CLEANUPS+=("httpfs-minio|${name}|${compose_file}")
 }
 
 qa_service_start_azurite() {
@@ -505,7 +499,7 @@ qa_service_stop_all() {
         ) >"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
         (
           cd "${QA_SERVICE_UPSTREAM_ROOT}"
-          docker compose -f "${value}" -p duckdb-minio down --volumes --remove-orphans
+          ./scripts/cleanup_s3_test_server.sh
         ) >>"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
         ;;
       container)

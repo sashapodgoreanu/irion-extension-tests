@@ -30,6 +30,7 @@ class ExtensionBinaryPinsTest(unittest.TestCase):
             with self.subTest(extension=name):
                 battery = batteries[name]
                 self.assertTrue(battery["isEnabled"])
+                self.assertEqual(battery.get("source"), "remote")
                 self.assertEqual(battery["repository"], binary["repository"])
                 pin = battery["pin"]
                 version = binary["binaryVersion"].lower().removeprefix("v")

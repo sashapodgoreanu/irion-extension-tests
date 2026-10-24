@@ -30,8 +30,9 @@ defaultExtensions:
     installFrom: community
 ```
 
-The current maintained contract treats BigQuery as globally required. Configuration
-tests verify that every matrix case contains `bigquery` with `installFrom: community`.
+BigQuery remains in the shared extension set even though its test battery is
+temporarily disabled. Configuration tests verify that every selected matrix case
+contains `bigquery` with `installFrom: community`.
 
 ## Generated configurations
 
@@ -71,28 +72,44 @@ profile rather than by moving or individually skipping the upstream files.
 ## BigQuery scope
 
 The BigQuery battery is pinned to the source revision registered by DuckDB community
-extensions and runs the upstream `test/sql/*` suite:
+extensions and runs the upstream `test/sql/*` suite against the configured GCP
+project, dataset and service account. The source pin and binary lock are checked
+alongside the enabled battery.
 
 ```yaml
 bigquery:
+  isEnabled: true
   repository: hafenkran/duckdb-bigquery
-  pin: 0c55a9b81646002edc0c73f36b703c8c39cea2ab
-  setup: bigquery-gcp
+  pin: 5439a6a58439af4c05064f80a28b159c5a1424e7
+  prerequisites:
+    - type: google-bigquery
+    - type: external-cloud-account
   profiles:
     - name: all
       tests: test/sql/*
 ```
 
-The `bigquery-gcp` setup requires these repository secrets:
+These GitHub Actions secrets and values supply its external account:
 
 - `GCS_SERVICE_ACCOUNT_KEY`: the service-account JSON used by the Google auth action;
 - `BQ_TEST_PROJECT`: the Google Cloud project used by the upstream tests;
 - `BQ_TEST_DATASET`: the disposable dataset used by the upstream tests.
 
-The workflow selects authentication from `matrix.setup`, not from the battery name.
-The standard runner also validates `GOOGLE_APPLICATION_CREDENTIALS`,
-`BQ_TEST_PROJECT` and `BQ_TEST_DATASET`, so local executions fail clearly when the
-GCP prerequisite is missing.
+The workflow needs `GCS_SERVICE_ACCOUNT_KEY`, `BQ_TEST_PROJECT` and
+`BQ_TEST_DATASET`. The standard runner validates `GOOGLE_APPLICATION_CREDENTIALS`,
+`BQ_TEST_PROJECT` and `BQ_TEST_DATASET`, so a run fails clearly when the GCP
+prerequisite is missing.
+
+## Azure cloud profile
+
+The matrix resolver adds a `cloud` profile for `test/sql/cloud/*`. Linux and
+Windows workflows initialize and bootstrap the configured Azure test account
+before starting that profile. The workflows read `AZURE_TENANT_ID`,
+`AZURE_CLIENT_ID` and `AZURE_CLIENT_SECRET` from Actions secrets, and the Azure
+storage account and fixture roots from Actions variables. The bootstrap uploads
+the pinned upstream fixtures and creates isolated write prefixes for each run.
+Keep the credentials and account configuration in GitHub Actions settings; the
+repository stores only the variable names and setup code.
 
 ## Upstream configurations
 
@@ -108,18 +125,29 @@ summary behavior and profile-scoped ignored tests.
     path: test/configs/sqlite.json
 ```
 
-## Runtime setup
+## Services
 
-A profile can currently request one maintained runtime setup:
+A profile declares local dependencies using its `services` list. For example, the
+DuckLake PostgreSQL profile starts a PostgreSQL service for that profile only:
 
 ```yaml
-runtimeSetup: ducklake-postgres-15
+profiles:
+  - name: postgres
+    tests: test/sql/*
+    services:
+      - name: postgres-catalog
+        type: postgres
+        version: "15"
+        database: ducklakedb
+        username: postgres
+        port: 5432
 ```
 
-Battery-level setup currently includes HTTPFS services, PostgreSQL, SQL Server and
-BigQuery GCP credentials. These remain closed, non-composable contracts during phase
-3. Service and prerequisite lifecycle will be extracted into composable contracts in
-the next refactoring phase.
+Battery-level services and prerequisites are declared in the configuration and
+started by the shared service manager. Both platform matrices include Azure's local
+Azurite and proxy profiles plus its cloud profile. The cloud profile uses the
+configured account and the workflow bootstrap. BigQuery's external prerequisites
+are declared separately from its local services.
 
 ## Execution order
 
@@ -128,7 +156,7 @@ compiled profile list and performs the same sequence for every battery:
 
 1. validate the battery-level prerequisite;
 2. prepare the profile-specific SQLLogicTest configuration;
-3. start the requested runtime setup;
+3. start the requested profile services;
 4. execute the declared test filter;
 5. validate that configured extension requirements were not silently skipped.
 

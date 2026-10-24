@@ -3,7 +3,8 @@
 Target branch: `aggiornamento_duckdb_2_0` (created from `main`).
 Target DuckDB version: `v2.0.0`.
 `extension-ci-tools` is pinned at SHA `969bc76276acec1c0a3922ff500d2ec3a1a3b037` because it does **not** provide a `v2.0.0` git tag.
-Selection date: 2026-10-23.
+Selection date: 2026-10-23. Linux CI is the migration target; all DuckDB builds
+run in GitHub Actions.
 
 | Battery | Upstream repository | Pinned reference | Selection |
 | --- | --- | --- | --- |
@@ -47,14 +48,27 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
 - DuckDB 2.0 defaults to the extensible PEG SQL parser and requires C++17.
 - BigQuery v0.13.0 changes SQLLogicTest environment variable placeholders to
   `{BQ_TEST_BILLING_PROJECT}` and fixes the older REST NULL-array error test.
-  The new upstream tests should remain active.
+  The BigQuery battery remains active against the configured GCP project, dataset
+  and service account; its source/binary lock is retained with the shared default.
+- Both Azure matrices include Azurite and Squid profiles plus the upstream cloud
+  profile. The cloud profile uses the configured Azure test account and its workflow
+  bootstrap, so the fixtures are mutable shared resources across Linux and Windows.
 - Azure 2.0 expects four HEAD requests rather than three in its private HTTP
   statistics assertion. Only the variable cache-sensitive GET statistic is adapted.
 - Delta remains local-only, with MinIO tests explicitly excluded.
 - Iceberg is disabled indefinitely: both `testBatteries.iceberg.isEnabled` and the `defaultExtensions` Iceberg `isUsed` flag are `false`. Its dedicated extensions are an empty list, so the Avro/HTTPFS/TPCH dependencies formerly declared for Iceberg are not installed by this battery. There are no Iceberg services or prerequisites. Reactivation requires explicitly restoring this configuration; the upstream reference and fixture files remain dormant.
-- MSSQL v0.3.0's upstream tests and previous excluded cases require CI revalidation.
-- Windows is disabled in `config/runners.yml` on `main`; it remains disabled
-  in this branch until the new Linux baseline is verified.
+- MSSQL v0.3.0 tests TLS against a local SQL Server with a self-signed
+  certificate. The configured test connections explicitly trust that fixture
+  certificate while preserving caller-provided connection values and DuckDB's
+  signed-extension verification.
+- HTTPFS at the selected commit has moved its S3 test service to SeaweedFS. Its
+  fixture is `scripts/seaweedfs_s3.yml` plus `seaweedfs_s3_config.json`; the old
+  `scripts/minio_s3.yml` no longer exists at this pin. The service manager now
+  starts and cleans up that pinned upstream fixture. The compose setup still
+  uses the MinIO Client `mc` as an S3 client, but does not run a MinIO server.
+- Linux and Windows have separate workflows and explicitly select their own
+  platform. This migration task targets Linux; a Windows workflow result is
+  separate and does not establish the Linux baseline.
 - DuckDB 2.0 may create database files older DuckDB releases cannot read.
   Use isolated CI fixtures and shadow systems, not shared 1.x databases.
 

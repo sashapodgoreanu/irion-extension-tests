@@ -36,8 +36,17 @@ EXPECTED = [
 
 class RunnerMatricesTestCase(unittest.TestCase):
     def test_enabled_runners_receive_the_full_battery_matrix(self) -> None:
+        # The workflows explicitly select their OS even when runners.yml
+        # keeps Windows disabled by default.
         result = subprocess.run(
-            [sys.executable, str(RESOLVER), str(EXTENSIONS), str(RUNNERS)],
+            [
+                sys.executable,
+                str(RESOLVER),
+                str(EXTENSIONS),
+                str(RUNNERS),
+                "--platforms",
+                "linux,windows",
+            ],
             cwd=REPOSITORY_ROOT,
             check=True,
             text=True,
@@ -73,9 +82,20 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 )
 
         if outputs["linux_enabled"] == "true" and outputs["windows_enabled"] == "true":
+            self.assertEqual([item["name"] for item in linux], [item["name"] for item in windows])
+            linux_azure = next(item for item in linux if item["name"] == "azure")
+            windows_azure = next(item for item in windows if item["name"] == "azure")
             self.assertEqual(
-                [item["name"] for item in linux],
-                [item["name"] for item in windows],
+                [profile["name"] for profile in linux_azure["profiles"]],
+                ["azurite", "proxy", "cloud"],
+            )
+            self.assertEqual(
+                [profile["name"] for profile in windows_azure["profiles"]],
+                ["azurite", "proxy", "cloud"],
+            )
+            self.assertEqual(
+                [profile["name"] for profile in linux_azure["profiles"]],
+                [profile["name"] for profile in windows_azure["profiles"]],
             )
 
     def test_battery_filter_selects_only_requested_batteries(self) -> None:
@@ -248,6 +268,9 @@ class RunnerMatricesTestCase(unittest.TestCase):
                 self.assertIn("repository: ${{ matrix.repository }}", source)
                 self.assertIn("ref: ${{ matrix.pin }}", source)
                 self.assertIn("qa-execution-plan", source)
+        linux_source = LINUX_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn("init-azure-test-env.py", linux_source)
+        self.assertIn("bootstrap-azure-test-data.py", linux_source)
 
     def test_windows_wsl_argument_bridge_preserves_cli_payloads(self) -> None:
         environment = os.environ.copy()

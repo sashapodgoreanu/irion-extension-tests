@@ -152,7 +152,6 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(
             bigquery["capabilities"], ["google-cloud-auth", "accepted-failure"]
         )
-
         self.assertNotIn("iceberg", [case["name"] for case in matrix])
         self.assertTrue(all(
             "iceberg" not in [ext["name"] for ext in case["extensions"]]
