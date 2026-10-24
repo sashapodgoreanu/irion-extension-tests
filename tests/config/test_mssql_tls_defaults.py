@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -90,6 +93,59 @@ class MSSQLTLSDefaultsTest(unittest.TestCase):
         self.assertEqual(
             connections["MSSQL_TEST_CONNECTION_STRING"], overrides["MSSQL_TEST_DSN"]
         )
+
+
+    def test_signed_requirement_adapter_preserves_upstream_statements(self) -> None:
+        source = RUNNER.read_text(encoding="utf-8")
+        marker = 'mssql-require-adaptation.json" <<\x27PY\x27'
+        self.assertIn(marker, source)
+        code = source.split(marker, 1)[1].split("\nPY\n", 1)[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            folder = root / "test" / "sql"
+            folder.mkdir(parents=True)
+            original = (
+                "# require mssql is documented here\n"
+                "require mssql\n"
+                "require-env MSSQL_TEST_DSN\n"
+                "statement ok\nSELECT 42;\n"
+            )
+            target = folder / "sample.test"
+            target.write_text(original, encoding="utf-8")
+            report = root / "report.json"
+            result = subprocess.run(
+                [sys.executable, "-c", code, str(root), str(report)],
+                capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                target.read_text(encoding="utf-8"),
+                original.replace(
+                    "\nrequire mssql\n",
+                    "\nrequire-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE 1\n",
+                ),
+            )
+            payload = json.loads(report.read_text(encoding="utf-8"))
+            self.assertTrue(payload["signed_community_probe_required"])
+            self.assertEqual(payload["directives_changed"], 1)
+            self.assertEqual(payload["changes"][0]["path"], "test/sql/sample.test")
+            self.assertNotEqual(
+                payload["changes"][0]["original_sha256"],
+                payload["changes"][0]["adapted_sha256"],
+            )
+
+    def test_mssql_gate_remains_signature_protected(self) -> None:
+        source = RUNNER.read_text(encoding="utf-8")
+        first = source.index('print("Dynamic MSSQL community-signed LOAD probe passed")')
+        adapter = source.index("mssql-require-adaptation.json")
+        active = source.index("export MSSQL_QA_SIGNED_EXTENSION_AVAILABLE=1")
+        self.assertLess(first, adapter)
+        self.assertLess(adapter, active)
+        self.assertIn("MSSQL_TEST_INIT_SCRIPT", source)
+        self.assertIn("^require-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE:", source)
+        self.assertIn("No require mssql directives", source)
+        self.assertNotIn("allow_unsigned_extensions=true", source)
+
 
 
 if __name__ == "__main__":
