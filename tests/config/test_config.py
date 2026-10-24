@@ -127,7 +127,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
 
         unity = next(case for case in matrix if case["name"] == "unity_catalog")
-        self.assertEqual(unity["pin"], "d8035e4fed353bce957a047a36179344a9c3edf1")
+        self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
         self.assertEqual(unity["services"][0]["type"], "unity-catalog-oss")
         self.assertEqual(unity["capabilities"], ["unity-catalog-oss"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
