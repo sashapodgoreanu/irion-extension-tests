@@ -9,7 +9,7 @@ Selection date: 2026-10-23.
 | --- | --- | --- | --- |
 | httpfs | duckdb/duckdb-httpfs | `77392a72077a85897db2519fae11e2c0da972b8a` | DuckDB 2.0 release-ready `main` |
 | ducklake | duckdb/ducklake | `f67b3648787f6ede9ad6a26dbbaa9f8cc72b84cf` | Latest `main`, independently versioned |
-| postgres_scanner | duckdb/duckdb-postgres | `e53270e1afdd45d6e4d6b41375ec54f5e17c1fae` | Submodules updated for DuckDB 2.0 |
+| postgres_scanner | duckdb/duckdb-postgres | `c0f5a3c0c4b68b02afbf669d36d7f0e503985c88` | Exact upstream revision reported by the DuckDB 2.0.0 distributed extension (`c0f5a3c0c4`) |
 | delta | duckdb/duckdb-delta | `8a12490ad047fcc626dae3c47fc21c9f9fd9d540` | Submodules updated for DuckDB 2.0 |
 | iceberg | duckdb/duckdb-iceberg | `b0ef95eda41c44734b2d229659190b18a5716eab` | Latest DuckDB 2.0 `main` |
 | azure | duckdb/duckdb-azure | `2ea75dda3f86ebb05d07261b29074492090e1be3` | Explicit upstream DuckDB 2.0 bump |
@@ -17,6 +17,17 @@ Selection date: 2026-10-23.
 | bigquery | hafenkran/duckdb-bigquery | `5439a6a58439af4c05064f80a28b159c5a1424e7` | v0.13.0 release commit (DuckDB 2.0) |
 | mssql | hugr-lab/mssql-extension | `v0.3.0` | First DuckDB 2.0 release, commit `bfd347ffa89dc520eb0fb82c857b3c7af12673dc` |
 | irion / irion_extension_security | Local repository | `self` | No external upstream pin |
+
+## PostgreSQL scanner pin and release alignment
+
+The DuckDB 2.0.0 repository binary reports extension version `c0f5a3c0c4`,
+corresponding to the full upstream commit `c0f5a3c0c4b68b02afbf669d36d7f0e503985c88`.
+Our previous pin `e53270e1afdd45d6e4d6b41375ec54f5e17c1fae` was four commits newer than
+the distributed binary. The intervening commits add PostgreSQL insertion/default
+column support and newer SQLLogicTests that cannot be assumed to work against
+the existing binary. We use the exact matching source commit and retain the
+fail-closed source/binary version check in `scripts/run-postgres-scanner-tests.sh`.
+Recheck the distribution's version before advancing this pin again.
 
 ## Known migration considerations
 

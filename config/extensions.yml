@@ -138,7 +138,7 @@ testBatteries:
     runner: postgres-scanner
     source: remote
     repository: duckdb/duckdb-postgres
-    pin: e53270e1afdd45d6e4d6b41375ec54f5e17c1fae
+    pin: c0f5a3c0c4b68b02afbf669d36d7f0e503985c88
     submodules: recursive
     services:
     - name: postgres
