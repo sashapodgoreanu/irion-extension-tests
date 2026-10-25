@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-DUCKDB_VERSION="${DUCKDB_VERSION:-v1.5.4}"
+DUCKDB_VERSION="${DUCKDB_VERSION:-v2.0.0}"
 CI_TOOLS_VERSION="${CI_TOOLS_VERSION:?pinned extension-ci-tools SHA is required}"
 BUILD_JOBS="${BUILD_JOBS:-2}"
 

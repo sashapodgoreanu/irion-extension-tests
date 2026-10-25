@@ -29,6 +29,9 @@ class DuckDBTwoBuildPinTests(unittest.TestCase):
         self.assertEqual(config["duckdb"]["ciToolsVersion"], SHA)
         self.assertRegex(SHA, r"^[0-9a-f]{40}$")
 
+        build = (ROOT / "scripts/build.sh").read_text(encoding="utf-8")
+        self.assertIn('DUCKDB_VERSION="${DUCKDB_VERSION:-v2.0.0}"', build)
+
     def test_linux_unittest_packages_shared_library_for_duckdb_two(self) -> None:
         build = (ROOT / "scripts/build.sh").read_text(encoding="utf-8")
         workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
