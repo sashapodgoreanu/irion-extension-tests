@@ -88,6 +88,10 @@ $ConfigureArguments = @(
     "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig",
     '-DBUILD_EXTENSIONS=tpch'
 )
+# Match the release version used to validate the DuckDB gitlink. Without this,
+# CMake labels the pinned release as a development build and extension installs
+# request binaries from the short commit hash, which may not exist for Windows.
+$env:DUCKDB_VERSION = $DuckDBVersion
 Invoke-Checked -Command cmake -Arguments $ConfigureArguments
 Invoke-Checked -Command cmake -Arguments @('--build', $BuildPath, '--config', 'Release', '--parallel', "$BuildJobs")
 

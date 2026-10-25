@@ -27,6 +27,7 @@ class DuckDBTwoBuildPinTests(unittest.TestCase):
         self.assertIn('refs/tags/$DuckDBVersion^{commit}', windows)
         self.assertIn("CI_TOOLS_COMMIT", shell)
         self.assertIn("$CiToolsHead", windows)
+        self.assertIn("$env:DUCKDB_VERSION = $DuckDBVersion", windows)
         self.assertIn(windows_patch, windows)
         self.assertIn("'cache-schema=v2'", windows_workflow)
         self.assertIn(windows_patch, windows_workflow)
