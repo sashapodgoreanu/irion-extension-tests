@@ -27,6 +27,14 @@ _ASSERTIONS_RE = re.compile(
     r"assertions:\s*(\d+)\s*\|\s*(\d+) passed\s*\|\s*(\d+) failed(?:\s*\|\s*(\d+) skipped)?",
     re.IGNORECASE,
 )
+_PYTEST_SUMMARY_RE = re.compile(
+    r"={3,}\s*(.*?)\s+in\s+[\d.]+s(?:\s+\([^)]*\))?\s*={3,}",
+    re.IGNORECASE,
+)
+_PYTEST_COUNT_RE = re.compile(
+    r"\b(\d+)\s+(failed|passed|skipped|deselected|errors?|xfailed|xpassed)\b",
+    re.IGNORECASE,
+)
 
 
 def utc_now() -> str:
@@ -74,6 +82,54 @@ def parse_unittest_log(text: str) -> dict[str, Any]:
         "passed": None,
         "failed": None,
         "skipped": None,
+        "assertions": None,
+    }
+
+
+def parse_pytest_log(text: str) -> dict[str, Any]:
+    """Parse pytest's terminal summary into the common battery metrics."""
+    summaries = _PYTEST_SUMMARY_RE.findall(text)
+    if not summaries:
+        return {
+            "summaryFound": False,
+            "discovered": None,
+            "executed": None,
+            "passed": None,
+            "failed": None,
+            "skipped": None,
+            "assertions": None,
+        }
+
+    counts: dict[str, int] = {}
+    for count, kind in _PYTEST_COUNT_RE.findall(summaries[-1]):
+        normalized = kind.lower()
+        if normalized in {"error", "errors"}:
+            normalized = "errors"
+        counts[normalized] = counts.get(normalized, 0) + int(count)
+
+    if not counts:
+        return {
+            "summaryFound": False,
+            "discovered": None,
+            "executed": None,
+            "passed": None,
+            "failed": None,
+            "skipped": None,
+            "assertions": None,
+        }
+
+    passed = counts.get("passed", 0) + counts.get("xpassed", 0)
+    failed = counts.get("failed", 0) + counts.get("errors", 0)
+    skipped = counts.get("skipped", 0) + counts.get("xfailed", 0)
+    deselected = counts.get("deselected", 0)
+    discovered = passed + failed + skipped + deselected
+    return {
+        "summaryFound": True,
+        "discovered": discovered,
+        "executed": passed + failed,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
         "assertions": None,
     }
 
@@ -126,8 +182,12 @@ def _extension_states(
 
 
 def _profile_logs(
-    log_dir: Path, profile_name: str, profile_count: int
+    log_dir: Path, profile_name: str, profile_count: int, runner: str
 ) -> list[Path]:
+    if runner == "unity-catalog-pytest":
+        pytest_log = log_dir / "pytest.log"
+        return [pytest_log] if pytest_log.is_file() else []
+
     exact = log_dir / f"unittest-{profile_name}.log"
     if exact.is_file():
         return [exact]
@@ -204,10 +264,11 @@ def build_case_result(
     accepted = "accepted-failure" in battery.get("capabilities", [])
     profiles_config = list(battery.get("profiles", []))
     profiles: list[dict[str, Any]] = []
+    runner = str(battery.get("runner", ""))
 
     for profile in profiles_config:
         name = str(profile["name"])
-        log_paths = _profile_logs(log_dir, name, len(profiles_config))
+        log_paths = _profile_logs(log_dir, name, len(profiles_config), runner)
         if not log_paths:
             parsed = {
                 "summaryFound": False,
@@ -221,10 +282,13 @@ def build_case_result(
             profile_status = "not_run"
             log_name = None
         else:
+            parse_log = (
+                parse_pytest_log
+                if runner == "unity-catalog-pytest"
+                else parse_unittest_log
+            )
             parsed_logs = [
-                parse_unittest_log(
-                    path.read_text(encoding="utf-8", errors="replace")
-                )
+                parse_log(path.read_text(encoding="utf-8", errors="replace"))
                 for path in log_paths
             ]
             parsed = _combine_unittest_summaries(parsed_logs)
