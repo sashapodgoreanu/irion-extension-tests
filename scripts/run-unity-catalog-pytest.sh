@@ -5,17 +5,19 @@ UPSTREAM_ROOT="${1:?upstream Unity Catalog checkout is required}"
 RUNTIME_CONFIG_DIR="${2:?resolved battery runtime config is required}"
 DUCKDB_VERSION="${3:?DuckDB version is required}"
 EXPECTED_UPSTREAM_REF="${4:?pinned Unity Catalog source commit is required}"
+UPSTREAM_ROOT="$(cd "${UPSTREAM_ROOT}" && pwd)"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 ARTIFACT_DIR="${ARTIFACT_DIR:-${REPOSITORY_ROOT}/build/artifact}"
 ARTIFACT_DIR="$(cd "${ARTIFACT_DIR}" && pwd)"
-BUILD_DIR="${REPOSITORY_ROOT}/build/release"
+BUILD_DIR="${UPSTREAM_ROOT}/build/release"
 LOG_DIR="${REPOSITORY_ROOT}/build/logs/unity_catalog"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 
 for required in \
   "${UPSTREAM_ROOT}/pyproject.toml" \
+  "${UPSTREAM_ROOT}/pytest.ini" \
   "${UPSTREAM_ROOT}/test/conftest.py" \
   "${ARTIFACT_DIR}/bin/duckdb" \
   "${ARTIFACT_DIR}/bin/unittest" \
@@ -38,12 +40,15 @@ fi
 
 mkdir -p "${BUILD_DIR}/test" "${BUILD_DIR}/src" "${LOG_DIR}"
 ln -sfn "${ARTIFACT_DIR}/bin/unittest" "${BUILD_DIR}/test/unittest"
+if [[ -x "${ARTIFACT_DIR}/bin/unittest_cpp" ]]; then
+  ln -sfn "${ARTIFACT_DIR}/bin/unittest_cpp" "${BUILD_DIR}/test/unittest_cpp"
+fi
 ln -sfn "${ARTIFACT_DIR}/bin/duckdb" "${BUILD_DIR}/duckdb"
 ln -sfn "${ARTIFACT_DIR}/lib/libduckdb.so" "${BUILD_DIR}/src/libduckdb.so"
 
 export BUILD_DIR
 export DUCKTEST_UC_IMAGE="${DUCKTEST_UC_IMAGE:-ghcr.io/benfleis/ducktest-unitycatalog:ci}"
-export LD_LIBRARY_PATH="${ARTIFACT_DIR}/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+export LD_LIBRARY_PATH="${BUILD_DIR}/src"
 
 SQL_FILE="${LOG_DIR}/install-extensions.sql"
 EXTENSION_CSV="${LOG_DIR}/extensions.csv"
@@ -89,5 +94,7 @@ echo "Unity Catalog suite image: ${DUCKTEST_UC_IMAGE}" | tee "${LOG_DIR}/pytest.
 docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
 (
   cd "${UPSTREAM_ROOT}"
-  uv run pytest -m oss_local -n0 -s
+  # Match the pinned upstream Integration Tests workflow. Its pytest driver
+  # selects all default local suites and deselects Databricks unless requested.
+  BUILD_DIR=build/release LD_LIBRARY_PATH="${PWD}/build/release/src" uv run pytest -n0 -s
 ) 2>&1 | tee -a "${LOG_DIR}/pytest.log"

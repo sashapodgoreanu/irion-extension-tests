@@ -7,7 +7,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
-UNITY_LOCAL_TESTS = "test/oss_local"
+UNITY_LOCAL_TESTS = "test"
 
 
 class Phase5FinalizationTest(unittest.TestCase):
@@ -30,7 +30,9 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertEqual(unity["ignoredTests"], [])
 
         runner = (ROOT / "scripts/run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
-        self.assertIn('pytest -m oss_local -n0 -s', runner)
+        self.assertIn('uv run pytest -n0 -s', runner)
+        self.assertIn('LD_LIBRARY_PATH="${PWD}/build/release/src"', runner)
+        self.assertIn('BUILD_DIR=build/release', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
 

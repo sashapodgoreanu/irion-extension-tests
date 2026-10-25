@@ -308,7 +308,7 @@ testBatteries:
     prerequisites: []
     profiles:
     - name: oss
-      tests: test/oss_local
+      tests: test
       services: []
     extensions:
     - name: httpfs

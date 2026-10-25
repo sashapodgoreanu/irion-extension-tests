@@ -82,8 +82,10 @@ The PostgreSQL Scanner and MSSQL source/binary gates are intentional safety
 checks. Advancing a test pin without updating its observed DuckDB binary version
 must stop configuration or runtime validation.
 
-The Unity Catalog pytest runner prepares the same installed extension set as
-the standard runner, exposes the downloaded `unittest` binary through
-`BUILD_DIR`, and runs only the upstream `oss_local` marker. Its Docker
-capability is derived from the runner kind because the upstream fixture owns
-container lifecycle instead of declaring a QA-managed service.
+The Unity Catalog pytest runner stages the downloaded `unittest` binary and
+extensions under the pinned checkout's `build/release` layout, then runs the
+upstream command `uv run pytest -n0 -s` with `LD_LIBRARY_PATH` pointing at that
+build's `src` directory. This preserves the upstream driver's default local
+suite selection (OSS, functions, and IRC; Databricks is deselected by default).
+The Docker capability is derived from the runner kind because the upstream
+fixture owns container lifecycle instead of declaring a QA-managed service.

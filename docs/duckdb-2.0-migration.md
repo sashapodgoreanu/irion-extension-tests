@@ -75,12 +75,16 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
   adapts a temporary uploader copy to the configured endpoints so each profile
   loads its fixtures into its own emulator.
 - At the binary-matching Unity Catalog pin, upstream replaced its SQLLogicTest
-  suite with pytest tests using the `duckdb-pytest-driver`. The QA workflow runs
-  the pinned `oss_local` suite with the upstream OSS container image and test
-  binary. It stages the installed extension binaries in the build layout that
-  the pytest driver resolves, while retaining the local extension repository
-  for DuckDB 2.0 installs. Its old Java service and ignored paths have been
-  removed because the pinned pytest fixtures own those resources.
+  suite with pytest tests using the `duckdb-pytest-driver`. The QA workflow
+  follows the pinned upstream local invocation (`uv run pytest -n0 -s`), which
+  selects the OSS, functions, and IRC suites by default and leaves Databricks
+  deselected. It stages the installed extension binaries in the pinned
+  checkout's `build/release` layout and points `LD_LIBRARY_PATH` at its `src`
+  directory, while retaining the local extension repository for DuckDB 2.0
+  installs. The upstream fixture owns the OSS container lifecycle, so the
+  battery declares no QA-managed Java service or ignored paths. The upstream
+  pipeline builds the extension from source; this migration battery continues
+  to validate the distributed DuckDB 2.0 binary for the same pinned source.
 - DuckDB's Delta extension enables legacy structural VARIANT detection when it
   loads. That makes a Parquet STRUCT shaped like VARIANT's physical storage look
   like a VARIANT to the reader, which conflicts with DuckLake's

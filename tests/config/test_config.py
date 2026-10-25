@@ -15,7 +15,7 @@ from qa import ConfigError, load_config, resolve_config
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = REPOSITORY_ROOT / "config" / "extensions.yml"
 AZURE_LOCAL_TESTS = "test/sql/http.test,test/sql/azure.test,test/sql/fs_logs.test,test/sql/azure_glob.test,test/sql/azure_writes.test,test/sql/azure_secret.test,test/sql/azure_vfs_ops.test,test/sql/http_log_redaction.test,test/sql/azure_scope_and_full_path.test"
-UNITY_LOCAL_TESTS = "test/oss_local"
+UNITY_LOCAL_TESTS = "test"
 
 
 class ConfigTestCase(unittest.TestCase):
