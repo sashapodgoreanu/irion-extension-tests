@@ -22,7 +22,6 @@ for required in \
   "${ARTIFACT_DIR}/bin/duckdb" \
   "${ARTIFACT_DIR}/bin/unittest" \
   "${ARTIFACT_DIR}/lib/libduckdb.so" \
-  "${BUILD_DIR}/repository/${DUCKDB_VERSION}/linux_amd64" \
   "${RUNTIME_CONFIG_DIR}/install-extensions.sql" \
   "${RUNTIME_CONFIG_DIR}/init-extensions.sql" \
   "${RUNTIME_CONFIG_DIR}/extensions.json"; do
@@ -81,6 +80,10 @@ platform="$(basename "${extension_dir}")"
 repository_platform="${BUILD_DIR}/repository/${DUCKDB_VERSION}/${platform}"
 mkdir -p "${repository_platform}"
 cp -a "${extension_dir}/." "${repository_platform}/"
+if ! compgen -G "${repository_platform}/*.duckdb_extension" >/dev/null; then
+  echo "No installed extensions were staged under ${repository_platform}" >&2
+  exit 1
+fi
 while IFS= read -r -d '' extension_binary; do
   extension_name="${extension_binary##*/}"
   extension_name="${extension_name%.duckdb_extension}"

@@ -31,6 +31,7 @@ class Phase5FinalizationTest(unittest.TestCase):
 
         runner = (ROOT / "scripts/run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
         self.assertIn('uv run pytest -n0 -s', runner)
+        self.assertIn('BUILD_DIR="${UPSTREAM_ROOT}/build/release"', runner)
         self.assertIn('LD_LIBRARY_PATH="${PWD}/build/release/src"', runner)
         self.assertIn('BUILD_DIR=build/release', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
