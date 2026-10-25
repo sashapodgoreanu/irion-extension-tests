@@ -2,7 +2,7 @@ schemaVersion: 1
 runners:
   linux:
     isEnabled: true
-    failFast: false
+    failFast: true
     operatingSystem: linux
     architecture: x86_64
     githubRunner: ubuntu-24.04

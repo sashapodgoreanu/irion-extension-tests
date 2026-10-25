@@ -54,9 +54,8 @@ The main execution path is:
    readiness checks, log capture and cleanup.
 
 The runner configuration exposes `failFast` per platform and passes that value
-to the matrix strategy. Linux disables matrix cancellation so each extension
-battery can finish after a different battery fails. The aggregate job still
-returns a failing verdict for any failed battery. Windows retains its configured
+to the matrix strategy. Linux enables matrix cancellation, so the first failed
+battery stops the remaining Linux jobs. Windows retains its configured
 fail-fast setting and skips jobs for pull requests from
 `aggiornamento_duckdb_2_0`, allowing that migration PR to validate Linux only.
 

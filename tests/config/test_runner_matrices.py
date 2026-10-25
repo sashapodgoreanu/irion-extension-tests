@@ -61,7 +61,7 @@ class RunnerMatricesTestCase(unittest.TestCase):
         windows = json.loads(outputs["windows_matrix"])["include"]
 
         self.assertEqual(outputs["enabled_batteries"].split(","), EXPECTED)
-        self.assertEqual(outputs["linux_fail_fast"], "false")
+        self.assertEqual(outputs["linux_fail_fast"], "true")
         self.assertEqual(outputs["windows_fail_fast"], "true")
 
         matrices = {

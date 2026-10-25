@@ -34,9 +34,8 @@ The pipeline works in this order:
    publish per-battery results for aggregation.
 
 `config/runners.yml` controls matrix fail-fast behavior per platform. Linux sets
-`failFast: false`, so one battery failure does not cancel the other Linux jobs;
-the final aggregate still reports failed batteries. Windows keeps its configured
-fail-fast setting, and its jobs are skipped for pull requests from
+`failFast: true`, so a battery failure cancels the remaining Linux jobs. Windows
+keeps its configured fail-fast setting, and its jobs are skipped for pull requests from
 `aggiornamento_duckdb_2_0` so this migration PR verifies Linux only.
 
 DuckDB builds belong to GitHub Actions. Do not run `scripts/build.sh` locally
