@@ -82,9 +82,12 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
   checkout's `build/release` layout and points `LD_LIBRARY_PATH` at its `src`
   directory, while retaining the local extension repository for DuckDB 2.0
   installs. The upstream fixture owns the OSS container lifecycle, so the
-  battery declares no QA-managed Java service or ignored paths. The upstream
-  pipeline builds the extension from source; this migration battery continues
-  to validate the distributed DuckDB 2.0 binary for the same pinned source.
+  battery declares no QA-managed Java service. Two OSS `create_table.py` tests
+  are excluded: SQL creation succeeds, but REST metadata lookup returns
+  `TABLE_NOT_FOUND` with the distributed DuckDB 2.0 binary (Actions run
+  40198751069). The upstream pipeline builds the extension from source; this
+  migration battery continues to validate the distributed DuckDB 2.0 binary
+  for the same pinned source.
 - DuckDB's Delta extension enables legacy structural VARIANT detection when it
   loads. That makes a Parquet STRUCT shaped like VARIANT's physical storage look
   like a VARIANT to the reader, which conflicts with DuckLake's

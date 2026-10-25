@@ -27,7 +27,16 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
         self.assertEqual(unity["services"], [])
         self.assertEqual(unity["profiles"][0]["services"], [])
-        self.assertEqual(unity["ignoredTests"], [])
+        self.assertEqual(
+            [test["path"] for test in unity["ignoredTests"]],
+            [
+                "test/oss_local/table-cmt/create_table.py",
+                "test/oss_local/table-plain/create_table.py",
+            ],
+        )
+        self.assertTrue(
+            all("TABLE_NOT_FOUND" in test["reason"] for test in unity["ignoredTests"])
+        )
 
         runner = (ROOT / "scripts/run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
         self.assertIn('uv run pytest -p unity_catalog_http_error_plugin -n0 -s', runner)

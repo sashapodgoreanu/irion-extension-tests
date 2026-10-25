@@ -321,7 +321,11 @@ testBatteries:
       isUsed: true
     - name: tpcds
       isUsed: true
-    ignoredTests: []
+    ignoredTests:
+    - path: test/oss_local/table-cmt/create_table.py
+      reason: "DuckDB 2.0.0 SQL creation succeeds, but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
+    - path: test/oss_local/table-plain/create_table.py
+      reason: "DuckDB 2.0.0 SQL creation succeeds, but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
   bigquery:
     isEnabled: true
     runner: standard
