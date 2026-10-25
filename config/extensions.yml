@@ -94,6 +94,7 @@ testBatteries:
         - httpfs
         - postgres_scanner
         - sqlite_scanner
+        - delta
         staticallyLoadedExtensions:
         - core_functions
         - parquet
@@ -105,6 +106,7 @@ testBatteries:
         path: test/configs/sqlite.json
         excludedExtensions:
         - json
+        - delta
     - name: postgres
       tests: test/sql/*
       services:
@@ -119,6 +121,7 @@ testBatteries:
         path: test/configs/postgres.json
         excludedExtensions:
         - json
+        - delta
     extensions:
     - name: ducklake
       isUsed: true

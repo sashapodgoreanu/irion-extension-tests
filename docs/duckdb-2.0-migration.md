@@ -81,10 +81,13 @@ until explicitly re-enabled. Never weaken a mismatched runtime gate to make CI g
   the pytest driver resolves, while retaining the local extension repository
   for DuckDB 2.0 installs. Its old Java service and ignored paths have been
   removed because the pinned pytest fixtures own those resources.
-- The current DuckLake binary run also reports that
-  `add_files_type_check_variant.test` unexpectedly succeeds when a STRUCT Parquet
-  file is added to a VARIANT table with `allow_missing => true`. This remains an
-  open compatibility failure; the test has not been suppressed.
+- DuckDB's Delta extension enables legacy structural VARIANT detection when it
+  loads. That makes a Parquet STRUCT shaped like VARIANT's physical storage look
+  like a VARIANT to the reader, which conflicts with DuckLake's
+  `add_files_type_check_variant.test` expectation. DuckLake profiles keep Delta
+  installed but do not preload it; the Delta battery remains enabled and runs
+  separately. The test passes with the DuckDB 2.0 runtime and pinned DuckLake
+  binary when Delta's global compatibility setting is not enabled.
 - HTTPFS at the selected commit has moved its S3 test service to SeaweedFS. Its
   fixture is `scripts/seaweedfs_s3.yml` plus `seaweedfs_s3_config.json`; the old
   `scripts/minio_s3.yml` no longer exists at this pin. The service manager now
