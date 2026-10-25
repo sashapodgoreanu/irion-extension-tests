@@ -95,6 +95,13 @@ These GitHub Actions secrets and values supply its external account:
 - `BQ_TEST_PROJECT`: the Google Cloud project used by the upstream tests;
 - `BQ_TEST_DATASET`: the disposable dataset used by the upstream tests.
 
+The public dataset case `attach_public_dataset.test` reads
+`bigquery-public-data.geo_us_boundaries.cnecta`; that table is hosted by
+Google's public BigQuery project. `BQ_TEST_PROJECT` supplies the billing
+project for this read, while `BQ_TEST_DATASET` is used by tests that need the
+configured disposable dataset. The public table itself does not come from the
+Irion test account.
+
 The workflow needs `GCS_SERVICE_ACCOUNT_KEY`, `BQ_TEST_PROJECT` and
 `BQ_TEST_DATASET`. The standard runner validates `GOOGLE_APPLICATION_CREDENTIALS`,
 `BQ_TEST_PROJECT` and `BQ_TEST_DATASET`, so a run fails clearly when the GCP

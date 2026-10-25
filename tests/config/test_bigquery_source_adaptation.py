@@ -46,7 +46,7 @@ class TestBigQueryAdaptation(unittest.TestCase):
         self.assertTrue(all("require bigquery" not in s for s in files.values()))
         self.assertIn(CURRENT, files["function_bigquery_jobs.test"])
         self.assertIn(
-            "billing_project={BQ_TEST_BILLING_PROJECT}"
+            "billing_project='{BQ_TEST_BILLING_PROJECT}'"
             if v2 else "billing_project='${BQ_TEST_BILLING_PROJECT}'",
             files["attach_public_dataset.test"],
         )

@@ -171,12 +171,32 @@ def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
     if require_count == 0:
         raise RunnerError("No BigQuery SQLLogicTest requirement guards were found")
 
-    replacements = (
+    public_dataset = test_root / "storage" / "attach_public_dataset.test"
+    text = public_dataset.read_text(encoding="utf-8")
+    billing_project_replacements = (
         (
-            test_root / "storage" / "attach_public_dataset.test",
             "billing_project=${BQ_TEST_BILLING_PROJECT}",
             "billing_project='${BQ_TEST_BILLING_PROJECT}'",
         ),
+        (
+            "billing_project={BQ_TEST_BILLING_PROJECT}",
+            "billing_project='{BQ_TEST_BILLING_PROJECT}'",
+        ),
+    )
+    adapted = False
+    for old, new in billing_project_replacements:
+        if old in text:
+            text = text.replace(old, new, 1)
+            adapted = True
+        elif new in text:
+            adapted = True
+    if not adapted:
+        raise RunnerError(
+            f"BigQuery billing project expression was not found: {public_dataset}"
+        )
+    public_dataset.write_text(text, encoding="utf-8")
+
+    replacements = (
         (
             test_root / "functions" / "function_bigquery_jobs.test",
             "<REGEX>:[a-zA-Z0-9]+",
@@ -187,12 +207,8 @@ def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
         text = path.read_text(encoding="utf-8")
         if old in text:
             path.write_text(text.replace(old, new, 1), encoding="utf-8")
-        elif new not in text and not (
-            path.name == "attach_public_dataset.test"
-            and "billing_project={BQ_TEST_BILLING_PROJECT}" in text
-        ):
+        elif new not in text:
             raise RunnerError(f"BigQuery adaptation anchor was not found: {path}: {old}")
-        # Preserve the native DuckDB 2.0 SQLLogicTest {ENV_VAR} placeholder.
     logger.info(
         f"BigQuery source adapted require_directives={require_count} normalized_locations={location_count}"
     )
