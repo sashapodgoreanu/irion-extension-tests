@@ -9,7 +9,12 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator
 
-from qa.results import aggregate_results, build_case_result, parse_unittest_log
+from qa.results import (
+    aggregate_results,
+    build_case_result,
+    parse_pytest_log,
+    parse_unittest_log,
+)
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 RESULT_WRITER = REPOSITORY_ROOT / "scripts" / "write-test-result.py"
@@ -103,6 +108,44 @@ class ResultTestCase(unittest.TestCase):
         self.assertEqual(parsed["passed"], 0)
         self.assertEqual(parsed["failed"], 0)
         self.assertEqual(parsed["skipped"], 27)
+
+    def test_parse_pytest_summary_tracks_passes_skips_and_deselections(self) -> None:
+        parsed = parse_pytest_log(
+            "collected 108 items / 12 deselected / 96 selected\n"
+            "========== 95 passed, 1 skipped, 12 deselected in 197.76s (0:03:17) ==========\n"
+        )
+        self.assertTrue(parsed["summaryFound"])
+        self.assertEqual(parsed["discovered"], 108)
+        self.assertEqual(parsed["executed"], 95)
+        self.assertEqual(parsed["passed"], 95)
+        self.assertEqual(parsed["failed"], 0)
+        self.assertEqual(parsed["skipped"], 1)
+
+    def test_unity_pytest_summary_produces_a_valid_passed_result(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            log_dir = Path(directory)
+            (log_dir / "pytest.log").write_text(
+                "collected 108 items / 12 deselected / 96 selected\n"
+                "========== 95 passed, 1 skipped, 12 deselected in 197.76s (0:03:17) ==========\n",
+                encoding="utf-8",
+            )
+            unity = battery()
+            unity.update(
+                name="unity_catalog",
+                runner="unity-catalog-pytest",
+                extensions=[{"name": "unity_catalog"}],
+                profiles=[{"name": "oss", "tests": "test", "services": []}],
+            )
+
+            result = build_case_result(unity, log_dir, exit_code=0)
+
+            self.assertEqual(result["status"], "passed")
+            self.assertEqual(result["profiles"][0]["status"], "passed")
+            self.assertEqual(result["profiles"][0]["log"], "pytest.log")
+            self.assertEqual(result["profiles"][0]["discovered"], 108)
+            self.assertEqual(result["profiles"][0]["executed"], 95)
+            self.assertEqual(result["profiles"][0]["skipped"], 1)
+            self.assertFalse(list(Draft202012Validator(RESULT_SCHEMA).iter_errors(result)))
 
     def test_result_fails_on_real_failed_test_case(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

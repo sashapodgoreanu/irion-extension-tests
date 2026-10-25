@@ -79,6 +79,19 @@ class ServiceRuntimeTestCase(unittest.TestCase):
                 [],
             )
 
+    def test_ducklake_keeps_delta_installed_but_does_not_preload_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            runtime, _ = self.prepare_case("ducklake", Path(directory))
+            profiles = json.loads((runtime / "profiles.json").read_text(encoding="utf-8"))
+            for profile_name in ("autoload", "sqlite", "postgres"):
+                profile = next(item for item in profiles if item["name"] == profile_name)
+                self.assertIn("delta", profile["testConfig"]["excludedExtensions"])
+                init_sql = (runtime / profile["initScript"]).read_text(encoding="utf-8")
+                self.assertNotIn("LOAD delta;", init_sql)
+
+            install_sql = (runtime / "install-extensions.sql").read_text(encoding="utf-8")
+            self.assertIn("INSTALL delta;", install_sql)
+
     def test_bigquery_prerequisite_is_separate_from_services(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             runtime, _ = self.prepare_case("bigquery", Path(directory))

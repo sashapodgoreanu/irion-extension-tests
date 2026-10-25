@@ -29,7 +29,9 @@ EXTENSION_NAME = re.compile(r"^[a-z][a-z0-9_]*$")
 PROFILE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 SERVICE_NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 REPOSITORY_NAME = re.compile(r"^[^/\s]+/[^/\s]+$")
-VALID_RUNNERS = frozenset({"standard", "postgres-scanner", "mssql-release"})
+VALID_RUNNERS = frozenset(
+    {"standard", "postgres-scanner", "mssql-release", "unity-catalog-pytest"}
+)
 VALID_SOURCE_TYPES = frozenset({"remote", "self"})
 VALID_SERVICE_TYPES = frozenset(
     {
@@ -132,10 +134,14 @@ class GeneratedTestConfig:
 @dataclass(frozen=True, slots=True)
 class UpstreamTestConfig:
     path: str
+    excluded_extensions: tuple[str, ...] = ()
     kind: str = "upstream"
 
-    def payload(self) -> dict[str, str]:
-        return {"kind": self.kind, "path": self.path}
+    def payload(self) -> dict[str, Any]:
+        result = {"kind": self.kind, "path": self.path}
+        if self.excluded_extensions:
+            result["excludedExtensions"] = list(self.excluded_extensions)
+        return result
 
 
 TestConfig = GeneratedTestConfig | UpstreamTestConfig
@@ -346,7 +352,8 @@ def _parse_test_config(raw: Mapping[str, Any], path: str) -> TestConfig:
         )
     if kind == "upstream":
         return UpstreamTestConfig(
-            path=_ensure_relative_path(raw["path"], f"{path}.path")
+            path=_ensure_relative_path(raw["path"], f"{path}.path"),
+            excluded_extensions=tuple(raw.get("excludedExtensions", ())),
         )
     raise ConfigError(f"{path}.kind is unsupported: {kind}")
 
@@ -607,6 +614,8 @@ def _capabilities(battery: BatteryConfig) -> tuple[str, ...]:
             add(SERVICE_CAPABILITIES[service.service_type])
     for prerequisite in battery.prerequisites:
         add(PREREQUISITE_CAPABILITIES[prerequisite.prerequisite_type])
+    if battery.runner == "unity-catalog-pytest":
+        add(("docker",))
     return tuple(ordered)
 
 
@@ -627,7 +636,9 @@ def resolve_config(config: QaConfig) -> ExecutionPlan:
             raise ConfigError(f"{path} resolves to an empty extension set")
         resolved_names = {extension.name for extension in resolved_extensions}
         for profile in battery.profiles:
-            if isinstance(profile.test_config, GeneratedTestConfig):
+            if isinstance(
+                profile.test_config, (GeneratedTestConfig, UpstreamTestConfig)
+            ):
                 unknown = sorted(
                     set(profile.test_config.excluded_extensions) - resolved_names
                 )

@@ -208,6 +208,7 @@ def main() -> int:
                 "summarize_failures": True,
             }
         elif kind == "upstream":
+            excluded_extensions = set(test_config.get("excludedExtensions", []))
             source = (upstream_root / test_config["path"]).resolve()
             try:
                 source.relative_to(upstream_root)
@@ -218,11 +219,15 @@ def main() -> int:
                 raise ProfileError("upstream test config must be an object")
             config["autoloading"] = "all"
             config["summarize_failures"] = True
-            loaded_extensions = list(config.get("statically_loaded_extensions", []))
+            loaded_extensions = [
+                name
+                for name in config.get("statically_loaded_extensions", [])
+                if name not in excluded_extensions
+            ]
             for name in ["core_functions", "parquet"] + [
                 item["name"] for item in extensions
             ]:
-                if name not in loaded_extensions:
+                if name not in excluded_extensions and name not in loaded_extensions:
                     loaded_extensions.append(name)
             config["statically_loaded_extensions"] = loaded_extensions
             existing_connection_sql = config.get("on_new_connection", "")

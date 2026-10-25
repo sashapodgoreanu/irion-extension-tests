@@ -13,44 +13,27 @@ SERVICE_MANAGER = REPOSITORY_ROOT / "scripts" / "service-manager.sh"
 
 class ServiceManagerInputTestCase(unittest.TestCase):
     @unittest.skipUnless(shutil.which("bash"), "bash is required")
-    def test_httpfs_minio_fixture_rewrites_only_pinned_unavailable_images(self) -> None:
-        original = (
-            "services:\\n"
-            "  minio:\\n"
-            "    image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1\\n"
-            "  minio_setup:\\n"
-            "    image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1\\n"
+    def test_httpfs_service_uses_the_pinned_seaweedfs_fixture(self) -> None:
+        source = SERVICE_MANAGER.read_text(encoding="utf-8")
+        for upstream_file in (
+            "scripts/seaweedfs_s3.yml",
+            "scripts/seaweedfs_s3_config.json",
+            "scripts/generate_presigned_url.sh",
+            "scripts/run_s3_test_server.sh",
+            "scripts/set_s3_test_server_variables.sh",
+            "scripts/cleanup_s3_test_server.sh",
+        ):
+            with self.subTest(upstream_file=upstream_file):
+                self.assertIn(upstream_file, source)
+        self.assertNotIn("minio_s3.yml", source)
+        self.assertNotIn("qa_httpfs_rewrite_minio_images", source)
+        self.assertIn("ps --all --quiet s3_setup", source)
+        self.assertIn('docker logs "${setup_container}"', source)
+        runner = (REPOSITORY_ROOT / "scripts" / "run-standard-tests.sh").read_text(encoding="utf-8")
+        self.assertIn('"${TEST_NAME}" == "httpfs"', runner)
+        self.assertIn(
+            'INSTALL_SQL="${INSTALL_SQL/INSTALL tpch;/FORCE INSTALL tpch;}"', runner
         )
-        command = 'source "$1"; qa_httpfs_rewrite_minio_images "$2"'
-        with tempfile.TemporaryDirectory() as directory:
-            compose = Path(directory) / "minio_s3.yml"
-            compose.write_text(original, encoding="utf-8")
-            result = subprocess.run(
-                ["bash", "-c", command, "bash", str(SERVICE_MANAGER), str(compose)],
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            patched = compose.read_text(encoding="utf-8")
-            self.assertIn(
-                "image: dappros/minio:RELEASE.2025-09-07T16-13-09Z",
-                patched,
-            )
-            self.assertIn(
-                "image: ghcr.io/golithus/mc:RELEASE.2025-08-13T08-35-41Z",
-                patched,
-            )
-            self.assertNotIn("image: minio/mc:", patched)
-
-            # If upstream updates its fixture, do not silently keep old mirrors.
-            compose.write_text(original.replace("cpuv1", "changed"), encoding="utf-8")
-            rejected = subprocess.run(
-                ["bash", "-c", command, "bash", str(SERVICE_MANAGER), str(compose)],
-                capture_output=True,
-                text=True,
-            )
-            self.assertNotEqual(rejected.returncode, 0)
-            self.assertIn("versions have changed", rejected.stderr)
 
 
     @unittest.skipUnless(shutil.which("bash"), "bash is required")

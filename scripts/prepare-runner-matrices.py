@@ -55,11 +55,15 @@ def load_runners(path: Path) -> dict[str, dict[str, Any]]:
         enabled = value.get("isEnabled")
         if not isinstance(enabled, bool):
             raise RunnerConfigError(f"runners.{name}.isEnabled must be a boolean")
+        fail_fast = value.get("failFast", True)
+        if not isinstance(fail_fast, bool):
+            raise RunnerConfigError(f"runners.{name}.failFast must be a boolean")
         operating_system = required_string(value, "operatingSystem", f"runners.{name}")
         architecture = required_string(value, "architecture", f"runners.{name}")
         github_runner = required_string(value, "githubRunner", f"runners.{name}")
         normalized[name] = {
             "isEnabled": enabled,
+            "failFast": fail_fast,
             "operatingSystem": operating_system,
             "architecture": architecture,
             "githubRunner": github_runner,
@@ -287,6 +291,7 @@ def main() -> int:
         for name, item in runners.items():
             prefix = name.replace("-", "_")
             print(f"{prefix}_enabled={str(item['isEnabled']).lower()}")
+            print(f"{prefix}_fail_fast={str(item['failFast']).lower()}")
             print(
                 f"{prefix}_matrix="
                 + json.dumps(item["matrix"], separators=(",", ":"))

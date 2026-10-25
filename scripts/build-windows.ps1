@@ -26,19 +26,6 @@ function Invoke-Checked {
     }
 }
 
-function Checkout-Ref {
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Directory,
-
-        [Parameter(Mandatory = $true)]
-        [string]$Ref
-    )
-
-    Invoke-Checked -Command git -Arguments @('-C', $Directory, 'fetch', '--depth', '1', 'origin', $Ref)
-    Invoke-Checked -Command git -Arguments @('-C', $Directory, 'checkout', '--detach', 'FETCH_HEAD')
-}
-
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $DuckDBRoot = Join-Path $RepoRoot 'duckdb'
 $CiToolsRoot = Join-Path $RepoRoot 'extension-ci-tools'
@@ -46,8 +33,22 @@ $BuildRoot = Join-Path $RepoRoot 'build/windows/release'
 $ArtifactRoot = Join-Path $RepoRoot 'build/artifact-windows'
 $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-Checkout-Ref -Directory $DuckDBRoot -Ref $DuckDBVersion
-Checkout-Ref -Directory $CiToolsRoot -Ref $CiToolsVersion
+# Respect the exact commits checked out by actions/checkout (gitlinks).
+# CI tools are pinned by SHA because no v2.0.0 tag exists upstream.
+$DuckDBTagRef = "refs/tags/$DuckDBVersion^{commit}"
+$DuckDBTagCommit = (& git -C $DuckDBRoot rev-parse --verify $DuckDBTagRef).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "DuckDB release tag $DuckDBVersion could not be resolved locally"
+}
+$DuckDBHead = (& git -C $DuckDBRoot rev-parse HEAD).Trim()
+$CiToolsHead = (& git -C $CiToolsRoot rev-parse HEAD).Trim()
+if ($DuckDBHead -ne $DuckDBTagCommit) {
+    throw "DuckDB submodule $DuckDBHead does not match release $DuckDBVersion ($DuckDBTagCommit)"
+}
+if ($CiToolsHead -ne $CiToolsVersion) {
+    throw "extension-ci-tools submodule $CiToolsHead does not match configured SHA $CiToolsVersion"
+}
+Write-Host "Using pinned DuckDB $DuckDBHead and extension-ci-tools $CiToolsHead"
 
 # Match DuckDB's upstream Windows CI preparation before configuring MSVC.
 Push-Location $DuckDBRoot
@@ -77,7 +78,8 @@ $ConfigureArguments = @(
     '-DDISABLE_UNITY=1',
     '-DBUILD_UNITTESTS=TRUE',
     '-DENABLE_UNITTEST_CPP_TESTS=FALSE',
-    "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig"
+    "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig",
+    '-DBUILD_EXTENSIONS=tpch'
 )
 Invoke-Checked -Command cmake -Arguments $ConfigureArguments
 Invoke-Checked -Command cmake -Arguments @('--build', $BuildPath, '--config', 'Release', '--parallel', "$BuildJobs")
@@ -102,11 +104,20 @@ if (Test-Path $ArtifactRoot) {
 }
 $BinDir = Join-Path $ArtifactRoot 'bin'
 $ExtensionDir = Join-Path $ArtifactRoot 'extensions'
+$RepositoryDir = Join-Path $ArtifactRoot 'repository'
 $LogDir = Join-Path $ArtifactRoot 'logs'
-New-Item -ItemType Directory -Force -Path $BinDir, $ExtensionDir, $LogDir | Out-Null
+New-Item -ItemType Directory -Force -Path $BinDir, $ExtensionDir, $RepositoryDir, $LogDir | Out-Null
 Copy-Item $DuckDBExe (Join-Path $BinDir 'duckdb.exe')
 Copy-Item $UnitTestExe (Join-Path $BinDir 'unittest.exe')
 Copy-Item $QaExtension.FullName (Join-Path $ExtensionDir $QaExtension.Name)
+
+$BuildRepository = Join-Path $BuildRoot 'repository'
+$TpchExtension = Get-ChildItem -Path $BuildRepository -Recurse -File -Filter 'tpch.duckdb_extension' |
+    Select-Object -First 1
+if ($null -eq $TpchExtension) {
+    throw "DuckDB tpch test extension is missing from $BuildRepository"
+}
+Copy-Item -Path (Join-Path $BuildRepository '*') -Destination $RepositoryDir -Recurse -Force
 
 Invoke-Checked -Command (Join-Path $BinDir 'duckdb.exe') -Arguments @('--version')
 Invoke-Checked -Command (Join-Path $BinDir 'unittest.exe') -Arguments @('--help')
@@ -125,5 +136,6 @@ $CiToolsCommit = (& git -C $CiToolsRoot rev-parse HEAD).Trim()
     'compiler=msvc'
     'cmake_configuration=Release'
     'compiled_extension=qa_test'
+    'test_extension_repository=repository'
     "build_elapsed_seconds=$([math]::Round($Stopwatch.Elapsed.TotalSeconds, 1))"
 ) | Set-Content -Path (Join-Path $LogDir 'build-info.txt') -Encoding utf8

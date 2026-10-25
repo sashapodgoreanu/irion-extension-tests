@@ -117,39 +117,23 @@ qa_service_start_squid() {
 }
 
 
-qa_httpfs_rewrite_minio_images() {
-  local compose_file=$1
-  # The MinIO Docker Hub repositories were removed in September 2026.
-  # Adapt only the pinned test fixture checkout (never change upstream Git).
-  # Use versioned public mirrors of the same historical server/client releases.
-  # Fail closed if the upstream compose fixture changes unexpectedly.
-  local minio_server_original="image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1"
-  local minio_client_original="image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1"
-  if ! grep -Fq "${minio_server_original}" "${compose_file}" ||
-     ! grep -Fq "${minio_client_original}" "${compose_file}"; then
-    echo "HTTPFS MinIO compose image versions have changed; review mirrors" >&2
-    return 1
-  fi
-  sed -i \
-    -e 's#image: minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1#image: dappros/minio:RELEASE.2025-09-07T16-13-09Z#' \
-    -e 's#image: minio/mc:RELEASE.2025-08-13T08-35-41Z-cpuv1#image: ghcr.io/golithus/mc:RELEASE.2025-08-13T08-35-41Z#' \
-    "${compose_file}"
-}
-
 qa_service_start_httpfs_minio() {
   local name=$1
-  local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/minio_s3.yml"
+  # `httpfs-minio` is the existing service contract name. At the current
+  # HTTPFS pin the upstream S3 fixture is SeaweedFS, not a MinIO server.
+  local compose_file="${QA_SERVICE_UPSTREAM_ROOT}/scripts/seaweedfs_s3.yml"
   for required in \
     "${compose_file}" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/seaweedfs_s3_config.json" \
     "${QA_SERVICE_UPSTREAM_ROOT}/scripts/generate_presigned_url.sh" \
     "${QA_SERVICE_UPSTREAM_ROOT}/scripts/run_s3_test_server.sh" \
-    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/set_s3_test_server_variables.sh"; do
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/set_s3_test_server_variables.sh" \
+    "${QA_SERVICE_UPSTREAM_ROOT}/scripts/cleanup_s3_test_server.sh"; do
     if [[ ! -e "${required}" ]]; then
-      echo "HTTPFS MinIO service input is missing: ${required}" >&2
+      echo "HTTPFS S3 service input is missing: ${required}" >&2
       return 1
     fi
   done
-  qa_httpfs_rewrite_minio_images "${compose_file}" || return 1
   if [[ -d "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets" ]]; then
     chmod -R 700 "${QA_SERVICE_UPSTREAM_ROOT}/data/secrets"
   fi
@@ -166,12 +150,27 @@ qa_service_start_httpfs_minio() {
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
     ./scripts/generate_presigned_url.sh
   )
+  # Register cleanup before starting containers so the battery EXIT handler
+  # can remove partially-created services if upstream startup fails.
+  QA_SERVICE_CLEANUPS+=("httpfs-minio|${name}|${compose_file}")
   pushd "${QA_SERVICE_UPSTREAM_ROOT}" >/dev/null
   source ./scripts/run_s3_test_server.sh
   source ./scripts/set_s3_test_server_variables.sh
   popd >/dev/null
+  qa_service_wait_for_port 9000 "HTTPFS SeaweedFS S3 service"
+  local server_container setup_container setup_logs
+  server_container="$(docker compose -f "${compose_file}" -p duckdb-minio ps -q seaweedfs)"
+  setup_container="$(docker compose -f "${compose_file}" -p duckdb-minio ps --all --quiet s3_setup)"
+  setup_logs=""
+  if [[ -n "${setup_container}" ]]; then
+    setup_logs="$(docker logs "${setup_container}" 2>&1)"
+  fi
+  if [[ -z "${server_container}" ]] ||
+     ! grep -Fq 'FINISHED SETTING UP MINIO' <<<"${setup_logs}"; then
+    echo "HTTPFS SeaweedFS fixture setup container did not finish initializing" >&2
+    return 1
+  fi
   export TEST_PERSISTENT_SECRETS_AVAILABLE=true
-  QA_SERVICE_CLEANUPS+=("httpfs-minio|${name}|${compose_file}")
 }
 
 qa_service_start_azurite() {
@@ -180,6 +179,9 @@ qa_service_start_azurite() {
   local root="${QA_SERVICE_RUNTIME_ROOT}/${name}"
   local log="${QA_SERVICE_LOG_DIR}/${name}.log"
   local upload_script="${QA_SERVICE_UPSTREAM_ROOT}/scripts/upload_test_files_to_azurite.sh"
+  local runtime_upload_script="${root}/upload_test_files_to_azurite.sh"
+  local queue_port=$((port + 1))
+  local table_port=$((port + 2))
 
   command -v azurite >/dev/null 2>&1 || {
     echo "Azurite executable is missing" >&2
@@ -219,9 +221,31 @@ qa_service_start_azurite() {
   export AZURE_PROVIDER="local"
   export DUCKDB_AZURE_PUBLIC_CONTAINER_AVAILABLE=1
 
+  # The pinned uploader uses its standalone defaults (28000-28002), while this
+  # service contract assigns the blob port and adjacent queue/table ports.
+  # Adapt a runtime copy so every profile uploads fixtures to its own Azurite.
+  python3 - "${upload_script}" "${runtime_upload_script}" "${port}" \
+    "${queue_port}" "${table_port}" <<'PY'
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+ports = {"28000": sys.argv[3], "28001": sys.argv[4], "28002": sys.argv[5]}
+content = source.read_text(encoding="utf-8")
+for old, new in ports.items():
+    endpoint = f"127.0.0.1:{old}"
+    if content.count(endpoint) != 1:
+        raise SystemExit(f"unexpected Azurite uploader endpoint contract: {endpoint}")
+    content = content.replace(endpoint, f"127.0.0.1:{new}", 1)
+destination.write_text(content, encoding="utf-8")
+destination.chmod(0o755)
+PY
+  echo "Azurite fixture uploader endpoints blob=${port} queue=${queue_port} table=${table_port}" \
+    >>"${log}"
   (
     cd "${QA_SERVICE_UPSTREAM_ROOT}"
-    ./scripts/upload_test_files_to_azurite.sh
+    "${runtime_upload_script}"
   ) >>"${log}" 2>&1
 
   local secret_name
@@ -359,10 +383,11 @@ qa_service_start_sqlserver() {
   export MSSQL_TEST_USER="${username}"
   export MSSQL_TEST_PASS="${password}"
   export MSSQL_TEST_DB="${database}"
-  export MSSQL_TEST_DSN="Server=${MSSQL_TEST_HOST},${MSSQL_TEST_PORT};Database=${MSSQL_TEST_DB};User Id=${MSSQL_TEST_USER};Password=${MSSQL_TEST_PASS}"
-  export MSSQL_TEST_URI="mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/${MSSQL_TEST_DB}"
-  export MSSQL_TESTDB_DSN="Server=${MSSQL_TEST_HOST},${MSSQL_TEST_PORT};Database=TestDB;User Id=${MSSQL_TEST_USER};Password=${MSSQL_TEST_PASS}"
-  export MSSQL_TESTDB_URI="mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/TestDB"
+  export MSSQL_TEST_DSN="${MSSQL_TEST_DSN:-Server=${MSSQL_TEST_HOST},${MSSQL_TEST_PORT};Database=${MSSQL_TEST_DB};User Id=${MSSQL_TEST_USER};Password=${MSSQL_TEST_PASS};TrustServerCertificate=yes}"
+  export MSSQL_TEST_URI="${MSSQL_TEST_URI:-mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/${MSSQL_TEST_DB}?trustservercertificate=true}"
+  export MSSQL_TESTDB_DSN="${MSSQL_TESTDB_DSN:-Server=${MSSQL_TEST_HOST},${MSSQL_TEST_PORT};Database=TestDB;User Id=${MSSQL_TEST_USER};Password=${MSSQL_TEST_PASS};TrustServerCertificate=yes}"
+  export MSSQL_TESTDB_URI="${MSSQL_TESTDB_URI:-mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/TestDB?trustservercertificate=true}"
+  export MSSQL_TEST_DSN_TLS="${MSSQL_TEST_DSN_TLS:-mssql://${MSSQL_TEST_USER}:${MSSQL_TEST_PASS}@${MSSQL_TEST_HOST}:${MSSQL_TEST_PORT}/${MSSQL_TEST_DB}?encrypt=true&trustservercertificate=true}"
   export MSSQL_TEST_SERVER="${MSSQL_TEST_DSN}"
   export MSSQL_TEST_CONNECTION_STRING="${MSSQL_TEST_DSN}"
 
@@ -505,7 +530,7 @@ qa_service_stop_all() {
         ) >"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
         (
           cd "${QA_SERVICE_UPSTREAM_ROOT}"
-          docker compose -f "${value}" -p duckdb-minio down --volumes --remove-orphans
+          ./scripts/cleanup_s3_test_server.sh
         ) >>"${QA_SERVICE_LOG_DIR}/${name}.log" 2>&1 || true
         ;;
       container)

@@ -20,6 +20,7 @@ concurrency:
 
 env:
   BQ_TEST_EXPORT_URI: ${{ secrets.BQ_TEST_EXPORT_URI }}
+  LD_LIBRARY_PATH: ${{ github.workspace }}/build/artifact/lib
 
 jobs:
   configure:
@@ -32,6 +33,7 @@ jobs:
       operating_system: ${{ steps.resolve.outputs.linux_operating_system }}
       architecture: ${{ steps.resolve.outputs.linux_architecture }}
       github_runner: ${{ steps.resolve.outputs.linux_github_runner }}
+      fail_fast: ${{ steps.resolve.outputs.linux_fail_fast }}
     steps:
       - name: Checkout QA repository
         uses: actions/checkout@v4
@@ -81,6 +83,7 @@ jobs:
       operating_system: ${{ needs.configure.outputs.operating_system }}
       architecture: ${{ needs.configure.outputs.architecture }}
       github_runner: ${{ needs.configure.outputs.github_runner }}
+      fail_fast: ${{ needs.configure.outputs.fail_fast }}
 
     steps:
       - name: Checkout repository
@@ -98,7 +101,7 @@ jobs:
           CI_TOOLS_SHA="$(git rev-parse HEAD:extension-ci-tools)"
           BUILD_INPUT_HASH="$({
             printf '%s\n' \
-              'cache-schema=v3' \
+              'cache-schema=v4' \
               'runner=${{ needs.configure.outputs.github_runner }}' \
               'operating-system=${{ needs.configure.outputs.operating_system }}' \
               'architecture=${{ needs.configure.outputs.architecture }}' \
@@ -109,7 +112,7 @@ jobs:
             git ls-files -s -- \
               .gitmodules CMakeLists.txt extension_config.cmake Makefile scripts/build.sh src
           } | sha256sum | cut -d' ' -f1)"
-          CACHE_KEY="duckdb-runtime-v3-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
+          CACHE_KEY="duckdb-runtime-v4-${{ needs.configure.outputs.operating_system }}-${{ needs.configure.outputs.architecture }}-${BUILD_INPUT_HASH}"
           echo "key=${CACHE_KEY}" >>"${GITHUB_OUTPUT}"
           echo "duckdb_sha=${DUCKDB_SHA}" >>"${GITHUB_OUTPUT}"
           echo "ci_tools_sha=${CI_TOOLS_SHA}" >>"${GITHUB_OUTPUT}"
@@ -141,8 +144,14 @@ jobs:
           set -Eeuo pipefail
           test -f build/artifact/bin/duckdb
           test -f build/artifact/bin/unittest
+          test -f build/artifact/lib/libduckdb.so
           chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
           build/artifact/bin/duckdb --version
+          ldd build/artifact/bin/unittest | tee build/artifact/logs/unittest-ldd.txt
+          if grep -q 'not found' build/artifact/logs/unittest-ldd.txt; then
+            echo "Unresolved shared libraries in Linux runtime artifact" >&2
+            exit 1
+          fi
           build/artifact/bin/unittest --help >/dev/null
           {
             echo "cache_key=${{ steps.duckdb-runtime-key.outputs.key }}"
@@ -169,7 +178,7 @@ jobs:
     timeout-minutes: 120
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
-      fail-fast: true
+      fail-fast: ${{ fromJSON(needs.build-linux.outputs.fail_fast) }}
       max-parallel: 16
       matrix: ${{ fromJSON(needs.build-linux.outputs.matrix) }}
 
@@ -234,10 +243,19 @@ jobs:
           name: duckdb-${{ needs.build-linux.outputs.duckdb_version }}-${{ needs.build-linux.outputs.operating_system }}-${{ needs.build-linux.outputs.architecture }}
           path: build/artifact
 
-      - name: Restore executable permissions
+      - name: Restore DuckDB local extension repository
         run: |
+          test -d build/artifact/repository
+          mkdir -p build/release
+          cp -a build/artifact/repository build/release/repository
+
+      - name: Restore executable permissions and validate runtime dependencies
+        run: |
+          test -f build/artifact/lib/libduckdb.so
           chmod +x build/artifact/bin/duckdb build/artifact/bin/unittest
           chmod +x scripts/*.sh scripts/*.py
+          ldd build/artifact/bin/unittest
+          build/artifact/bin/unittest --help >/dev/null
 
       - name: Report accepted external-account failure
         if: contains(matrix.capabilities, 'accepted-failure')
@@ -294,6 +312,18 @@ jobs:
         run: |
           docker version
           docker compose version
+
+      - name: Set up uv for Unity Catalog pytest
+        if: matrix.runner == 'unity-catalog-pytest'
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: upstream/unity_catalog/pyproject.toml
+
+      - name: Install QA result tooling for Unity Catalog
+        if: matrix.runner == 'unity-catalog-pytest'
+        run: uv pip install --python .venv/bin/python -r requirements/qa.txt
 
       - name: Run test battery
         id: run_battery

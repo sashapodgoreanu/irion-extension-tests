@@ -172,7 +172,24 @@ def normalize_profiles(
                     raise BatteryError(
                         f"profile {name} upstream path must stay inside the checkout"
                     )
+                raw_excluded = raw_test_config.get("excludedExtensions", [])
+                if not isinstance(raw_excluded, list):
+                    raise BatteryError(f"profile {name} excludedExtensions must be a list")
+                for extension_name in raw_excluded:
+                    if not isinstance(extension_name, str) or not EXTENSION_NAME.fullmatch(
+                        extension_name
+                    ):
+                        raise BatteryError(
+                            f"profile {name} contains an invalid excluded extension"
+                        )
+                    if extension_name not in resolved_names:
+                        raise BatteryError(
+                            f"profile {name} excludes unresolved extension {extension_name}"
+                        )
+                    excluded.add(extension_name)
                 test_config["path"] = path
+                if raw_excluded:
+                    test_config["excludedExtensions"] = list(raw_excluded)
             else:
                 raise BatteryError(f"profile {name} has unsupported testConfig kind {kind}")
             normalized["testConfig"] = test_config

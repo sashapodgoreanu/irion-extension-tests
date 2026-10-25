@@ -236,11 +236,28 @@ if require_count == 0:
 
 public_dataset = test_root / "storage" / "attach_public_dataset.test"
 text = public_dataset.read_text(encoding="utf-8")
-old = "billing_project=${BQ_TEST_BILLING_PROJECT}"
-new = "billing_project='${BQ_TEST_BILLING_PROJECT}'"
-if old not in text:
+replacements = (
+    (
+        "billing_project=${BQ_TEST_BILLING_PROJECT}",
+        "billing_project='${BQ_TEST_BILLING_PROJECT}'",
+    ),
+    (
+        "billing_project={BQ_TEST_BILLING_PROJECT}",
+        "billing_project='{BQ_TEST_BILLING_PROJECT}'",
+    ),
+)
+adapted = False
+for old, new in replacements:
+    if old in text:
+        text = text.replace(old, new, 1)
+        adapted = True
+    elif new in text:
+        adapted = True
+if not adapted:
     raise SystemExit("BigQuery billing project expression was not found")
-public_dataset.write_text(text.replace(old, new, 1), encoding="utf-8")
+public_dataset.write_text(text, encoding="utf-8")
+# Preserve the native DuckDB 2.0 placeholder while quoting its substituted
+# project ID, which may contain hyphens.
 
 jobs_test = test_root / "functions" / "function_bigquery_jobs.test"
 text = jobs_test.read_text(encoding="utf-8")
@@ -316,6 +333,13 @@ case "${RUNNER_KIND}" in
     bash "${SCRIPT_DIR}/run-mssql-configured-tests.sh" \
       "${UPSTREAM_ROOT}" \
       "${TEST_FILTER}" || status=$?
+    ;;
+  unity-catalog-pytest)
+    bash "${SCRIPT_DIR}/run-unity-catalog-pytest.sh" \
+      "${UPSTREAM_ROOT}" \
+      "${BATTERY_RUNTIME_CONFIG_DIR}" \
+      "${DUCKDB_VERSION}" \
+      "${UPSTREAM_REF}" || status=$?
     ;;
   *)
     qa_log ERROR "unsupported test battery runner: ${RUNNER_KIND}"

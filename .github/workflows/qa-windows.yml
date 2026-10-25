@@ -23,6 +23,7 @@ env:
 
 jobs:
   configure:
+    if: ${{ github.event_name != 'pull_request' || github.head_ref != 'aggiornamento_duckdb_2_0' }}
     name: Resolve Windows test matrix
     runs-on: ubuntu-24.04
     outputs:
@@ -32,6 +33,7 @@ jobs:
       operating_system: ${{ steps.resolve.outputs.windows_operating_system }}
       architecture: ${{ steps.resolve.outputs.windows_architecture }}
       github_runner: ${{ steps.resolve.outputs.windows_github_runner }}
+      fail_fast: ${{ steps.resolve.outputs.windows_fail_fast }}
     steps:
       - name: Checkout QA repository
         uses: actions/checkout@v4
@@ -81,6 +83,7 @@ jobs:
       operating_system: ${{ needs.configure.outputs.operating_system }}
       architecture: ${{ needs.configure.outputs.architecture }}
       github_runner: ${{ needs.configure.outputs.github_runner }}
+      fail_fast: ${{ needs.configure.outputs.fail_fast }}
 
     steps:
       - name: Checkout repository
@@ -187,7 +190,7 @@ jobs:
     timeout-minutes: 180
     continue-on-error: ${{ contains(matrix.capabilities, 'accepted-failure') }}
     strategy:
-      fail-fast: true
+      fail-fast: ${{ fromJSON(needs.build-windows.outputs.fail_fast) }}
       max-parallel: 16
       matrix: ${{ fromJSON(needs.build-windows.outputs.matrix) }}
 
@@ -269,6 +272,15 @@ jobs:
         with:
           name: duckdb-${{ needs.build-windows.outputs.duckdb_version }}-${{ needs.build-windows.outputs.operating_system }}-${{ needs.build-windows.outputs.architecture }}
           path: build/artifact-windows
+
+      - name: Restore DuckDB local extension repository
+        shell: pwsh
+        run: |
+          $source = 'build/artifact-windows/repository'
+          $destination = 'build/windows/release/repository'
+          if (-not (Test-Path $source)) { throw "DuckDB extension repository is missing: $source" }
+          New-Item -ItemType Directory -Force -Path $destination | Out-Null
+          Copy-Item -Path (Join-Path $source '*') -Destination $destination -Recurse -Force
 
       - name: Report accepted external-account failure
         if: contains(matrix.capabilities, 'accepted-failure')

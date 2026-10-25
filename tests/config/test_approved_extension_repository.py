@@ -68,7 +68,9 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
         )
         self.assertEqual(fixture.name, "mssql.duckdb_extension")
         self.assertEqual(fixture.read_bytes(), b"community-extension")
-        self.assertFalse((fixture.parent / "mssql.duckdb_extension.info").exists())
+        self.assertEqual((fixture.parent / "mssql.duckdb_extension.info").read_text(encoding="utf-8"), '{"name": "mssql"}')
+        self.assertEqual(fixture.parent.parent.name, "v1.5.5")
+        self.assertEqual(fixture.parent.name, "windows_amd64")
         self.assertNotEqual(fixture.parent, self.platform_dir)
 
     def test_community_fixture_rejects_info_only_installation(self) -> None:
@@ -102,10 +104,13 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
         self.assertEqual(kwargs["log_file"], log_dir / "approved-repository-probe.log")
 
 
-    def test_community_load_policy_uses_fresh_processes_and_a_positive_control(self) -> None:
-        fixture = self.root / "extension-fixtures" / "mssql.duckdb_extension"
-        fixture.parent.mkdir()
-        fixture.write_bytes(b"community-extension")
+    def stage_community_fixture(self) -> Path:
+        return self.runner.copy_extension_fixture(
+            self.platform_dir, self.runtime, "mssql", self.logger
+        )
+
+    def test_community_load_policy_uses_signed_origin_and_fresh_homes(self) -> None:
+        fixture = self.stage_community_fixture()
         calls: list[tuple[list[str], dict]] = []
 
         def simulate_cli(command, **kwargs):
@@ -113,7 +118,7 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
             if kwargs["log_file"].name == "community-load-denied.log":
                 kwargs["log_file"].write_text(
                     "community_extensions_allowed\nfalse\n"
-                    "Error: community extension signature rejected\n",
+                    'IO Error: Extension signature is either missing or invalid\n',
                     encoding="utf-8",
                 )
                 return 1
@@ -125,21 +130,53 @@ class ApprovedExtensionRepositoryTest(unittest.TestCase):
             )
 
         self.assertEqual(len(calls), 2)
-        self.assertIn("LOAD '", calls[0][0][-1])
+        self.assertEqual(calls[0][0][-1], "LOAD mssql;")
         self.assertNotIn("allow_community_extensions", calls[0][0][-1])
         self.assertIn("SET allow_community_extensions = false;", calls[1][0][-1])
-        self.assertIn("LOAD '", calls[1][0][-1])
+        self.assertIn("LOAD mssql;", calls[1][0][-1])
         self.assertFalse(calls[1][1]["check"])
-        self.assertNotEqual(
-            calls[0][1]["env"]["HOME"], calls[1][1]["env"]["HOME"]
-        )
+        self.assertNotIn("-unsigned", str(calls))
+        homes = [Path(call[1]["env"]["HOME"]) for call in calls]
+        self.assertNotEqual(homes[0], homes[1])
+        for home in homes:
+            installed = home / ".duckdb" / "extensions" / "v1.5.5" / "windows_amd64"
+            self.assertEqual(
+                (installed / "mssql.duckdb_extension").read_bytes(), b"community-extension"
+            )
+            self.assertEqual(
+                (installed / "mssql.duckdb_extension.info").read_bytes(),
+                (fixture.parent / "mssql.duckdb_extension.info").read_bytes(),
+            )
+
+    def test_community_fixture_requires_install_origin_info(self) -> None:
+        (self.platform_dir / "mssql.duckdb_extension.info").unlink()
+        with self.assertRaisesRegex(self.runner.RunnerError, "origin info is missing"):
+            self.stage_community_fixture()
 
     def test_community_load_policy_rejects_unexpected_success(self) -> None:
-        fixture = self.root / "mssql.duckdb_extension"
-        fixture.write_bytes(b"community-extension")
+        fixture = self.stage_community_fixture()
         with mock.patch.object(self.runner, "run_logged", return_value=0):
+            with self.assertRaisesRegex(self.runner.RunnerError, "unexpectedly loaded"):
+                self.runner.validate_community_load_policy(
+                    self.root / "duckdb.exe", fixture, self.runtime, self.root, self.logger
+                )
+
+    def test_community_load_policy_rejects_unrelated_errors(self) -> None:
+        fixture = self.stage_community_fixture()
+
+        def simulate_cli(command, **kwargs):
+            if kwargs["log_file"].name == "community-load-denied.log":
+                kwargs["log_file"].write_text(
+                    "community_extensions_allowed\nfalse\n"
+                    'IO Error: Extension "mssql" not found.\n',
+                    encoding="utf-8",
+                )
+                return 1
+            return 0
+
+        with mock.patch.object(self.runner, "run_logged", side_effect=simulate_cli):
             with self.assertRaisesRegex(
-                self.runner.RunnerError, "unexpectedly loaded"
+                self.runner.RunnerError, "reason other than its signature"
             ):
                 self.runner.validate_community_load_policy(
                     self.root / "duckdb.exe", fixture, self.runtime, self.root, self.logger

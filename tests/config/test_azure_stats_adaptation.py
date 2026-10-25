@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PREPARER = ROOT / "scripts" / "prepare-azure-tests.py"
 PRIVATE_LINE = (
     "analyzed_plan\t<REGEX>:" r".*HTTP Stats.*in\: \d[.]\d MiB.*"
-    r"\#HEAD\: 3.*GET\: 0.*PUT\: 0.*\#POST\: 0.*"
+    r"\#HEAD\: 4.*GET\: 0.*PUT\: 0.*\#POST\: 0.*"
 )
 PUBLIC_LINE = (
     "analyzed_plan\t<REGEX>:" r".*HTTP Stats.*in\: \d[.]\d MiB.*"
@@ -48,7 +48,7 @@ class AzureStatisticsAdaptationTests(unittest.TestCase):
             result = self.run_preparer(root)
             self.assertEqual(result.returncode, 0, result.stderr)
             updated = path.read_text(encoding="utf-8")
-            self.assertEqual(updated.count(r"\#HEAD\: 3.*GET\: [01]"), 2)
+            self.assertEqual(updated.count(r"\#HEAD\: 4.*GET\: [01]"), 2)
             self.assertNotIn(PRIVATE_LINE, updated)
             self.assertIn(PUBLIC_LINE, updated)
             self.assertEqual(self.run_preparer(root).returncode, 0)

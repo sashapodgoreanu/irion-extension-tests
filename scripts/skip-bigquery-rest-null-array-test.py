@@ -26,6 +26,16 @@ def disable_case(upstream_root: Path) -> bool:
         return True
     if found == 0 and original.count(SKIP_COMMENT) == 1:
         return False
+    # BigQuery v0.13.0 fixes the earlier error expectation upstream.
+    # Keep its valid ARRAY-of-STRUCTs assertions and error sentinel.
+    if (
+        found == 0
+        and "# Wrap nullable values in non-NULL STRUCT elements" in original
+        and "SELECT [STRUCT(1 AS id), STRUCT(CAST(NULL AS INT64) AS id), STRUCT(3 AS id)] AS arr" in original
+        and "REST query failure sentinel" in original
+        and "SELECT [1, NULL, 3] AS arr" not in original
+    ):
+        return False
     raise ValueError(
         f"BigQuery REST NULL-array expectation has changed: found {found} "
         f"matching cases in {path}; expected 1"

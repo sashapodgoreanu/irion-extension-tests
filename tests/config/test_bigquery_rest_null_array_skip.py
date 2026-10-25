@@ -54,6 +54,30 @@ class TestBigQueryNullArrayCase(unittest.TestCase):
             self.assertIn("expected 1", result.stderr)
             self.assertEqual(original, path.read_text(encoding="utf-8"))
 
+
+    def test_current_upstream_array_coverage_is_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root, path = self.checkout(Path(tmp))
+            original = path.read_text(encoding="utf-8")
+            current = (
+                "# Type coverage: ARRAY with NULL elements\n"
+                "# BigQuery rejects query results that contain ARRAY values with NULL elements.\n"
+                "# Wrap nullable values in non-NULL STRUCT elements for a valid ARRAY result.\n"
+                "# The optional-job REST path preserves NULL elements in successful responses.\n"
+                "query I\n"
+                "SELECT * FROM bigquery_query('{BQ_TEST_PROJECT}', '\n"
+                "    SELECT [STRUCT(1 AS id), STRUCT(CAST(NULL AS INT64) AS id), STRUCT(3 AS id)] AS arr\n"
+                "', use_rest_api=true);\n----\n"
+                "[{'id': 1}, {'id': NULL}, {'id': 3}]\n"
+                "# Other server errors must also remain errors.\n"
+                "REST query failure sentinel\n"
+            )
+            rewritten = original.replace(CASE, current)
+            path.write_text(rewritten, encoding="utf-8")
+            result = self.run_tool(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(path.read_text(encoding="utf-8"), rewritten)
+
     def test_linux_and_windows_runners_call_local_skip(self) -> None:
         shell = (ROOT / "scripts/run-test-battery.sh").read_text(encoding="utf-8")
         native = (ROOT / "scripts/run-standard-tests.py").read_text(encoding="utf-8")

@@ -23,8 +23,8 @@ services:
 They are started before the selected runner and stopped in reverse order even when
 setup or test execution fails.
 
-Azure uses the upstream-supported local Azurite environment instead of silently
-skipping all tests when a real Azure account is absent:
+The Azure battery uses the upstream-supported local Azurite environment for its
+local profiles. Its separate cloud profile uses the configured Azure test account:
 
 ```yaml
 services:
@@ -79,6 +79,14 @@ from battery names.
 - `azurite`
 - `postgres`
 - `sqlserver`
+
+The `httpfs-minio` name is a legacy service contract kept for compatibility with
+the battery configuration. At the current HTTPFS pin, its S3-compatible server is
+SeaweedFS (`chrislusf/seaweedfs:4.47`); the fixture uses the Bitnami legacy `mc`
+image only as a generic S3 client. It does not use the removed MinIO server image.
+The service manager consumes the pinned upstream `seaweedfs_s3.yml`, generates
+presigned URL fixtures through the DuckDB CLI, and runs the upstream cleanup
+script after collecting service logs.
 
 The service manager owns health checks, environment variables, log collection and
 cleanup. Existing HTTPFS, Azure, PostgreSQL and SQL Server behavior remains pinned to

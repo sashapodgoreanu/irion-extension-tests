@@ -175,7 +175,12 @@
       "required": ["kind", "path"],
       "properties": {
         "kind": {"const": "upstream"},
-        "path": {"type": "string", "minLength": 1}
+        "path": {"type": "string", "minLength": 1},
+        "excludedExtensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/extensionName"}
+        }
       }
     },
     "profile": {
@@ -214,7 +219,7 @@
       "required": ["isEnabled", "runner", "source", "services", "prerequisites", "profiles"],
       "properties": {
         "isEnabled": {"type": "boolean"},
-        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release"]},
+        "runner": {"enum": ["standard", "postgres-scanner", "mssql-release", "unity-catalog-pytest"]},
         "source": {"enum": ["remote", "self"]},
         "repository": {"type": "string", "pattern": "^[^/\\s]+/[^/\\s]+$"},
         "pin": {"type": "string", "minLength": 1},

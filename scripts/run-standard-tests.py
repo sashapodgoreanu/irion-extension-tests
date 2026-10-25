@@ -171,12 +171,32 @@ def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
     if require_count == 0:
         raise RunnerError("No BigQuery SQLLogicTest requirement guards were found")
 
-    replacements = (
+    public_dataset = test_root / "storage" / "attach_public_dataset.test"
+    text = public_dataset.read_text(encoding="utf-8")
+    billing_project_replacements = (
         (
-            test_root / "storage" / "attach_public_dataset.test",
             "billing_project=${BQ_TEST_BILLING_PROJECT}",
             "billing_project='${BQ_TEST_BILLING_PROJECT}'",
         ),
+        (
+            "billing_project={BQ_TEST_BILLING_PROJECT}",
+            "billing_project='{BQ_TEST_BILLING_PROJECT}'",
+        ),
+    )
+    adapted = False
+    for old, new in billing_project_replacements:
+        if old in text:
+            text = text.replace(old, new, 1)
+            adapted = True
+        elif new in text:
+            adapted = True
+    if not adapted:
+        raise RunnerError(
+            f"BigQuery billing project expression was not found: {public_dataset}"
+        )
+    public_dataset.write_text(text, encoding="utf-8")
+
+    replacements = (
         (
             test_root / "functions" / "function_bigquery_jobs.test",
             "<REGEX>:[a-zA-Z0-9]+",
@@ -189,7 +209,6 @@ def adapt_bigquery_tests(upstream_root: Path, logger: Logger) -> None:
             path.write_text(text.replace(old, new, 1), encoding="utf-8")
         elif new not in text:
             raise RunnerError(f"BigQuery adaptation anchor was not found: {path}: {old}")
-        # Newer upstream test files already contain the adapted form.
     logger.info(
         f"BigQuery source adapted require_directives={require_count} normalized_locations={location_count}"
     )
@@ -308,11 +327,21 @@ def copy_extension_fixture(
             f"installed {extension_name} extension binary is missing: {binary}"
         )
 
-    fixture_dir = runtime_root / "extension-fixtures"
+    # DuckDB 2.0 derives signature trust from the installation origin in the
+    # .info sidecar. Copying only the binary makes a community-signed extension
+    # look core-signed and causes its positive LOAD control to fail.
+    info = source_dir / f"{extension_name}.duckdb_extension.info"
+    if not info.is_file():
+        raise RunnerError(f"installed {extension_name} extension origin info is missing: {info}")
+
+    fixture_dir = (
+        runtime_root / "extension-fixtures" / source_dir.parent.name / source_dir.name
+    )
     fixture_dir.mkdir(parents=True, exist_ok=True)
     destination = fixture_dir / binary.name
     shutil.copy2(binary, destination)
-    logger.info(f"extension fixture copied source={binary} target={destination}")
+    shutil.copy2(info, fixture_dir / info.name)
+    logger.info(f"signed extension fixture copied with origin metadata source={binary} target={destination}")
     return destination
 
 
@@ -356,35 +385,56 @@ def validate_community_load_policy(
     log_dir: Path,
     logger: Logger,
 ) -> None:
-    """Test community signature enforcement in two fresh DuckDB processes.
+    """Validate community signatures with and without the restrictive policy.
 
-    SQLLogicTest's extension autoloading can make a repeated LOAD succeed
-    without rechecking the signature. Both probes load the same verified
-    binary with an otherwise identical configuration.
+    DuckDB 2.0 verifies a direct LOAD '/path/file.duckdb_extension' against
+    *core* keys, since direct-path loads have no recorded install origin.
+    Keep the signed binary AND its .info sidecar in two separate HOME folders
+    and use LOAD by extension name to check the actual community trust policy.
+    Neither process is started with -unsigned.
     """
-    extension_literal = community_fixture.as_posix().replace("'", "''")
+    info = community_fixture.with_name(community_fixture.name + ".info")
+    if not community_fixture.is_file() or not info.is_file():
+        raise RunnerError(
+            f"community signature probe requires a binary and origin info: {community_fixture}"
+        )
+    version = community_fixture.parent.parent.name
+    platform = community_fixture.parent.name
+
+    def probe_environment(home_name: str) -> dict[str, str]:
+        env = child_environment(runtime_root / home_name)
+        installed_dir = (
+            Path(env["HOME"]) / ".duckdb" / "extensions" / version / platform
+        )
+        installed_dir.mkdir(parents=True, exist_ok=True)
+        for source in (community_fixture, info):
+            shutil.copy2(source, installed_dir / source.name)
+        return env
+
     allowed_log = log_dir / "community-load-allowed.log"
     denied_log = log_dir / "community-load-denied.log"
+    allowed_env = probe_environment("community-allowed-probe-home")
+    denied_env = probe_environment("community-denied-probe-home")
 
     run_logged(
-        [str(duckdb), "-csv", "-header", "-c", f"LOAD '{extension_literal}';"],
+        [str(duckdb), "-csv", "-header", "-c", "LOAD mssql;"],
         logger=logger,
         log_file=allowed_log,
-        env=child_environment(runtime_root / "community-allowed-probe-home"),
+        env=allowed_env,
     )
-    logger.info("community extension positive LOAD control passed")
+    logger.info("community-signed extension positive LOAD control passed")
 
     denied_sql = (
         "SET allow_community_extensions = false; "
         "SELECT current_setting('allow_community_extensions')::VARCHAR "
         "AS community_extensions_allowed; "
-        f"LOAD '{extension_literal}';"
+        "LOAD mssql;"
     )
     denied_exit = run_logged(
         [str(duckdb), "-csv", "-header", "-c", denied_sql],
         logger=logger,
         log_file=denied_log,
-        env=child_environment(runtime_root / "community-denied-probe-home"),
+        env=denied_env,
         check=False,
     )
     if denied_exit == 0:
@@ -393,14 +443,20 @@ def validate_community_load_policy(
             "allow_community_extensions=false; inspect " + str(denied_log)
         )
     denied_output = denied_log.read_text(encoding="utf-8", errors="replace")
-    # The only policy difference from the successful control is the SET above.
-    # Also verify it executed successfully, rather than accepting a SET error.
     if not re.search(r"(?m)^false\s*$", denied_output):
         raise RunnerError(
             "community LOAD rejection did not confirm that the restrictive "
             f"setting was applied; inspect {denied_log}"
         )
-    logger.info("community-signed extension LOAD rejected in a fresh process")
+    # A failure caused by a missing file or incompatible extension must never
+    # count as a successful signature-enforcement check.
+    error_details = denied_output[denied_output.find("Error:"):] if "Error:" in denied_output else ""
+    if not re.search(r"(?i)signatur(e|ed)|community extension", error_details):
+        raise RunnerError(
+            "community LOAD failed for a reason other than its signature "
+            f"policy; inspect {denied_log}"
+        )
+    logger.info("community-signed extension LOAD rejected by signature policy")
 
 
 def validate_probe(
@@ -540,6 +596,7 @@ def run_ducklake_postgres_isolated(
         run_logged(
             [
                 str(unittest),
+                "--keep-home",
                 "--test-config",
                 str(config),
                 "--test-dir",
@@ -578,6 +635,7 @@ def run_profile(
         run_logged(
             [
                 str(unittest),
+                "--keep-home",
                 "--test-config",
                 str(config),
                 "--test-dir",
