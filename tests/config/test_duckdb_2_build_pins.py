@@ -14,6 +14,11 @@ class DuckDBTwoBuildPinTests(unittest.TestCase):
     def test_build_sources_use_existing_pinned_gitlinks_without_refetch(self) -> None:
         shell = (ROOT / "scripts/build.sh").read_text(encoding="utf-8")
         windows = (ROOT / "scripts/build-windows.ps1").read_text(encoding="utf-8")
+        windows_workflow = (ROOT / ".github/workflows/qa-windows.yml").read_text(
+            encoding="utf-8"
+        )
+        windows_patch = "patches/duckdb-v2.0.0/union-by-name-windows-sdk.patch"
+        patch_contents = (ROOT / windows_patch).read_text(encoding="utf-8")
         self.assertNotIn("checkout_ref", shell)
         self.assertNotIn("Checkout-Ref", windows)
         self.assertNotIn("fetch --depth", shell)
@@ -22,6 +27,10 @@ class DuckDBTwoBuildPinTests(unittest.TestCase):
         self.assertIn('refs/tags/$DuckDBVersion^{commit}', windows)
         self.assertIn("CI_TOOLS_COMMIT", shell)
         self.assertIn("$CiToolsHead", windows)
+        self.assertIn(windows_patch, windows)
+        self.assertIn("'cache-schema=v2'", windows_workflow)
+        self.assertIn(windows_patch, windows_workflow)
+        self.assertIn('"duckdb/common/windows_undefs.hpp"', patch_contents)
 
     def test_duckdb_uses_a_release_and_ci_tools_uses_a_real_sha(self) -> None:
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
