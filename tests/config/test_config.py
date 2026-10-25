@@ -133,7 +133,13 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
         self.assertEqual(unity["profiles"][0]["services"], [])
-        self.assertEqual(unity["ignoredTests"], [])
+        self.assertEqual(
+            [test["path"] for test in unity["ignoredTests"]],
+            [
+                "test/oss_local/table-cmt/create_table.py",
+                "test/oss_local/table-plain/create_table.py",
+            ],
+        )
 
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
         self.assertEqual(bigquery["services"], [])
