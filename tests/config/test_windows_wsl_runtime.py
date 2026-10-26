@@ -13,6 +13,54 @@ WINDOWS_WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
 
 class WindowsWslRuntimeTestCase(unittest.TestCase):
     @unittest.skipUnless(shutil.which("bash"), "bash is required")
+    def test_native_temp_uses_shared_path_without_forwarding_wsl_tmpdir(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = dict(os.environ)
+            env.update(
+                {
+                    "HOME": str(root / "home"),
+                    "TMPDIR": "/tmp/linux-only",
+                    "QA_WINDOWS_TEMP_DIR": "/mnt/d/shared/.qa-unity",
+                    "QA_WSL_RUNTIME_PY": str(root / "unused.py"),
+                    "WSLENV": "KEEP:TMPDIR/p:KEEP_PATH/p",
+                }
+            )
+            script = f'''source "{WINDOWS_WSL_RUNTIME}"
+qa_prepare_windows_environment
+printf '%s\\n' "$TEMP" "$TMP" "$WSLENV"
+'''
+
+            result = subprocess.run(
+                ["bash", "-c", script],
+                cwd=REPOSITORY_ROOT,
+                env=env,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines()[:2], ["/mnt/d/shared/.qa-unity"] * 2)
+            wslenv = result.stdout.splitlines()[2].split(":")
+            self.assertIn("KEEP", wslenv)
+            self.assertIn("KEEP_PATH/p", wslenv)
+            self.assertIn("TEMP/p", wslenv)
+            self.assertIn("TMP/p", wslenv)
+            self.assertFalse(any(entry.startswith("TMPDIR") for entry in wslenv))
+
+    def test_linux_null_device_is_translated_for_native_windows_tools(self) -> None:
+        helper = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
+        result = subprocess.run(
+            ["python3", str(helper), "translate-text", ".output /dev/null"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, ".output NUL")
+
+    @unittest.skipUnless(shutil.which("bash"), "bash is required")
     @unittest.skipUnless(shutil.which("rsync"), "rsync is required")
     def test_authenticated_azure_cli_profile_is_mirrored_to_isolated_userprofile(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

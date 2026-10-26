@@ -198,6 +198,51 @@ $packageList = ($packages | Sort-Object) -join ' '
 Invoke-WslBash "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-get install -y -qq $packageList"
 Invoke-WslBash "git config --global --add safe.directory '*'"
 
+if ($BatteryName -eq 'unity_catalog') {
+    # A few native Windows mock tests use WSL /tmp fixtures. The live OSS server uses an NTFS
+    # mirror because Windows resolves a mapped WSL drive to a UNC URI inside Delta Kernel.
+    $wslShares = @(
+        ('\\wsl.localhost\' + $distro),
+        ('\\wsl$\' + $distro)
+    )
+    $mappedWslShare = $false
+    foreach ($wslShare in $wslShares) {
+        if (-not (Test-Path -LiteralPath $wslShare -PathType Container)) {
+            continue
+        }
+        & net.exe use W: $wslShare /persistent:no | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            $mappedWslShare = $true
+            break
+        }
+    }
+    if (-not $mappedWslShare) {
+        throw "Unable to map W: to the WSL filesystem share for $distro"
+    }
+
+    $wslProbe = ".qa-wsl-drive-probe-$([guid]::NewGuid().ToString('N'))"
+    wsl -d $distro -u root -- bash -lc "umask 077; mkdir /tmp/$wslProbe; printf wsl >/tmp/$wslProbe/from-wsl"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Unable to create a WSL filesystem bridge probe'
+    }
+    try {
+        $probeDirectory = Join-Path 'W:\tmp' $wslProbe
+        $wslProbeFile = Join-Path $probeDirectory 'from-wsl'
+        if (-not (Test-Path -LiteralPath $wslProbeFile -PathType Leaf)) {
+            throw 'The mapped W: drive cannot read files from the WSL filesystem'
+        }
+        [System.IO.File]::WriteAllText((Join-Path $probeDirectory 'from-windows'), 'windows')
+        wsl -d $distro -u root -- test -f "/tmp/$wslProbe/from-windows"
+        if ($LASTEXITCODE -ne 0) {
+            throw 'The WSL filesystem cannot read files created through the mapped W: drive'
+        }
+    }
+    finally {
+        wsl -d $distro -u root -- rm -rf "/tmp/$wslProbe"
+    }
+    Write-Host "Mapped W: to $distro for native Windows Unity Catalog file access"
+}
+
 if ($BatteryName -eq 'delta') {
     # Ubuntu 24.04 ships Cargo 1.75, while the pinned delta-kernel workspace uses
     # resolver = '3'. Install the current stable toolchain instead of relying on
@@ -207,6 +252,10 @@ if ($BatteryName -eq 'delta') {
 
 if ($needsDocker) {
     Invoke-WslBash "systemctl enable --now docker; docker info --format 'OSType={{.OSType}} Architecture={{.Architecture}}'; docker compose version"
+}
+
+if ($BatteryName -eq 'unity_catalog') {
+    Invoke-WslBash 'if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh; fi; uv --version'
 }
 
 if ($capabilities -contains 'azurite') {

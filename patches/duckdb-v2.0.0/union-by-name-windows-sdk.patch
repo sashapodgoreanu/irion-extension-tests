@@ -1,0 +1,10 @@
+diff --git a/src/include/duckdb/common/multi_file/union_by_name.hpp b/src/include/duckdb/common/multi_file/union_by_name.hpp
+--- a/src/include/duckdb/common/multi_file/union_by_name.hpp
++++ b/src/include/duckdb/common/multi_file/union_by_name.hpp
+@@ -14,5 +14,6 @@
+ #include "duckdb/common/helper.hpp"
+ #include "duckdb/common/multi_file/base_file_reader.hpp"
+ #include "duckdb/common/multi_file/multi_file_options.hpp"
++#include "duckdb/common/windows_undefs.hpp"
+ 
+ namespace duckdb {

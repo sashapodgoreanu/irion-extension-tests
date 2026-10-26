@@ -176,6 +176,8 @@ function Invoke-NativeStandardBattery {
     $previousRunnerTemp = $env:RUNNER_TEMP
     $previousVersion = $env:DUCKDB_VERSION
     $serviceHost = $null
+    $shortSourceAlias = $null
+    $runnerSourceRoot = $SourceRoot
     try {
         $env:ARTIFACT_DIR = $artifactDir
         $env:BATTERY_RUNTIME_CONFIG_DIR = $runtimeConfig
@@ -183,13 +185,31 @@ function Invoke-NativeStandardBattery {
         $env:DUCKDB_VERSION = $DuckDBVersion
         $env:RESULT_STARTED_AT_MS = $StartedAtMs
 
+        # DuckLake's SQLite metadata filenames can exceed MAX_PATH under the
+        # nested GitHub workspace, even though the files are otherwise local.
+        # Keep the drive-root junction short enough for the longest test names.
+        if ($BatteryName -eq 'ducklake') {
+            $sourceDriveRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($SourceRoot))
+            $shortSourceAlias = Join-Path $sourceDriveRoot 'qa'
+            if (Test-Path -LiteralPath $shortSourceAlias) {
+                $existingAlias = Get-Item -LiteralPath $shortSourceAlias -Force
+                if (($existingAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    throw "Refusing to replace non-junction DuckLake short path: $shortSourceAlias"
+                }
+                Remove-Item -LiteralPath $shortSourceAlias -Force
+            }
+            New-Item -ItemType Junction -Path $shortSourceAlias -Target ([System.IO.Path]::GetFullPath($SourceRoot)) | Out-Null
+            $runnerSourceRoot = $shortSourceAlias
+            Write-QaLog INFO "DuckLake short source alias windows=$shortSourceAlias target=$SourceRoot"
+        }
+
         if ($BatteryName -eq 'ducklake') {
             $serviceHost = Start-WslProfileServiceHost -ProfileName 'postgres'
         }
 
         $duckdb = Join-Path $artifactDir 'bin\duckdb.exe'
         $unittest = Join-Path $artifactDir 'bin\unittest.exe'
-        Write-QaLog INFO "native execution duckdb=$duckdb unittest=$unittest source=$SourceRoot"
+        Write-QaLog INFO "native execution duckdb=$duckdb unittest=$unittest source=$runnerSourceRoot"
         if (-not (Test-Path -LiteralPath $duckdb -PathType Leaf)) {
             throw "Native DuckDB executable is missing: $duckdb"
         }
@@ -200,7 +220,7 @@ function Invoke-NativeStandardBattery {
             throw "WSL infrastructure host exited before native test execution with code $($serviceHost.Process.ExitCode)"
         }
 
-        & python $runner $BatteryName $SourceRoot
+        & python $runner $BatteryName $runnerSourceRoot
         $exitCode = $LASTEXITCODE
         Write-QaLog INFO "native standard runner exit_code=$exitCode"
         if ($exitCode -ne 0) {
@@ -210,6 +230,16 @@ function Invoke-NativeStandardBattery {
     finally {
         if ($null -ne $serviceHost) {
             Stop-WslProfileServiceHost -HostState $serviceHost
+        }
+        if ($null -ne $shortSourceAlias -and (Test-Path -LiteralPath $shortSourceAlias)) {
+            $aliasItem = Get-Item -LiteralPath $shortSourceAlias -Force
+            if (($aliasItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                Remove-Item -LiteralPath $shortSourceAlias -Force
+                Write-QaLog INFO "removed DuckLake short source alias $shortSourceAlias"
+            }
+            else {
+                Write-QaLog ERROR "DuckLake short source path is no longer a junction; leaving it untouched: $shortSourceAlias"
+            }
         }
         $env:ARTIFACT_DIR = $previousArtifact
         $env:BATTERY_RUNTIME_CONFIG_DIR = $previousRuntimeConfig
@@ -245,7 +275,6 @@ $proxyArtifactLinux = "$workspaceLinux/build/windows/wsl-artifact"
 $runtimeLinux = "$workspaceLinux/build/windows/runtime/$BatteryName"
 $duckdbExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/duckdb.exe')
 $unittestExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/unittest.exe')
-
 # Fixture generators such as Iceberg persist absolute /mnt/<drive>/... paths in
 # metadata. Native Windows interprets a leading slash as the root of the current
 # drive, so mirror the WSL mount namespace with a junction on that drive.
@@ -262,6 +291,15 @@ foreach ($aliasRoot in $aliasRoots) {
     }
 }
 Write-QaLog INFO "WSL path alias /mnt/$workspaceDrive -> $workspaceRoot"
+if ($BatteryName -eq 'unity_catalog') {
+    $workspacePathRelative = $env:GITHUB_WORKSPACE.Substring($workspaceRoot.Length).TrimStart([char]'\')
+    $unityMountRoot = Join-Path $workspaceRoot "mnt\$workspaceDrive"
+    $unityFixtureAlias = Join-Path $unityMountRoot (Join-Path $workspacePathRelative 'upstream/unity_catalog/data/nested_struct_pairs/_delta_log/00000000000000000000.json')
+    if (-not (Test-Path -LiteralPath $unityFixtureAlias -PathType Leaf)) {
+        throw "Unity Catalog WSL mount alias cannot reach its fixture: $unityFixtureAlias"
+    }
+    Write-QaLog INFO "Unity Catalog WSL fixture alias resolves $unityFixtureAlias"
+}
 
 $normalizeCommand = @"
 find '$sourceLinux' -type f \( -name '*.sh' -o -name '*.bash' -o -name 'env_*' \) -print0 | xargs -0 -r sed -i 's/\r$//'

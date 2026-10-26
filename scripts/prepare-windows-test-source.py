@@ -178,6 +178,28 @@ def patch_delta_copy_dir_tests(upstream_root: Path) -> tuple[int, int]:
 
 def patch_httpfs(upstream_root: Path) -> None:
     test = upstream_root / "test/sql/copy/s3/glob_s3_paging.test_slow"
+    contents = test.read_text(encoding="utf-8")
+    request_count_query = "query IIIII\nFROM (FROM duckdb_logs_parsed('HTTP')"
+    query_start = contents.find(request_count_query)
+    if query_start < 0:
+        raise PatchError(f"{test}: HTTP request-count query anchor was not found")
+
+    modes = list(
+        re.finditer(r"(?m)^[ \t]*mode[ \t]+(\S+)[ \t]*$", contents[:query_start])
+    )
+    if modes and modes[-1].group(1).lower() == "skip":
+        # The pinned upstream test already skips this diagnostic assertion on
+        # every platform. Its expected request rows have since changed, so no
+        # Windows-specific rewrite is needed.
+        return
+
+    windows_expectation = (
+        "11\t0\t11\t0\t0\n11\t0\t11\t0\t0\n"
+        "11\t0\t11\t0\t0\n11\t0\t11\t0\t0"
+    )
+    if windows_expectation in contents:
+        return
+
     # WinHTTP/curl scheduling issues the same eleven GETs for each paging
     # context. The functional paging result is unchanged; only the diagnostic
     # HTTP request-count expectation differs from Linux.
@@ -190,6 +212,24 @@ def patch_httpfs(upstream_root: Path) -> None:
 
 def patch_ducklake(upstream_root: Path) -> None:
     test = upstream_root / "test/sql/remove_orphans/metadata_in_data_path.test"
+    contents = test.read_text(encoding="utf-8")
+    current_metadata_glob = "SELECT count(*) FROM GLOB('{DATA_PATH}/metadata_in_data_path_*.db')"
+    current_connection = (
+        "test-env DUCKLAKE_CONNECTION "
+        "{TEST_DIR}/metadata_in_data_path_{UUID}.db"
+    )
+    if current_connection in contents and contents.count(current_metadata_glob) == 2:
+        # This pin already checks only the metadata database created by this
+        # test, so the Windows-wide *.db count workaround is obsolete.
+        return
+
+    adapted_metadata_glob = (
+        "SELECT count(*) FROM GLOB(regexp_replace("
+        "'${DUCKLAKE_CONNECTION}', '^sqlite:', ''))"
+    )
+    if contents.count(adapted_metadata_glob) == 2:
+        return
+
     # Windows SQLLogicTest can retain unrelated database files in the shared
     # temp directory. The test's contract is that *its* metadata DB survives,
     # so probe that exact path rather than counting every .db in the directory.
@@ -200,6 +240,175 @@ def patch_ducklake(upstream_root: Path) -> None:
         "SELECT count(*) FROM GLOB('${DATA_PATH}/*.db')",
         "SELECT count(*) FROM GLOB(regexp_replace('${DUCKLAKE_CONNECTION}', '^sqlite:', ''))",
         expected=2,
+    )
+
+
+def patch_unity_catalog(upstream_root: Path) -> None:
+    mock = upstream_root / "test/py/uc/mock.py"
+    replace_exact(
+        mock,
+        "import http.server\nimport json\nimport re\n",
+        "import http.server\nimport json\nimport os\nimport re\n",
+    )
+    helper_source = "\n".join(
+        [
+            'CATALOG = "duck"',
+            "",
+            "",
+            "def _qa_translate_file_uris(value, *, windows, absolute_unix_paths=False):",
+            '    """Translate mock file URIs to paths usable from the pinned checkout."""',
+            "    if isinstance(value, str):",
+            "        if windows:",
+            "            if absolute_unix_paths:",
+            "                value = re.sub(",
+            "                    r'(?i)file:///tmp/',",
+            "                    'file:///W:/tmp/',",
+            "                    value,",
+            "                )",
+            "                return re.sub(",
+            "                    r'(?i)file:///mnt/([a-z])/',",
+            "                    lambda match: 'file:/' + match.group(1).upper() + ':/',",
+            "                    value,",
+            "                )",
+            "            return re.sub(",
+            "                r'(?i)file:///mnt/([a-z])/',",
+            "                lambda match: 'file:///' + match.group(1).upper() + ':/',",
+            "                value,",
+            "            )",
+            "        value = re.sub(",
+            "            r'(?i)file:/+W:/tmp/',",
+            "            'file:///tmp/',",
+            "            value,",
+            "        )",
+            "        value = re.sub(",
+            "            r'(?i)file:/([a-z]):/',",
+            "            lambda match: 'file:///mnt/' + match.group(1).lower() + '/',",
+            "            value,",
+            "        )",
+            "        return re.sub(",
+            "            r'(?i)file:///([a-z]):/',",
+            "            lambda match: 'file:///mnt/' + match.group(1).lower() + '/',",
+            "            value,",
+            "        )",
+            "    if isinstance(value, list):",
+            "        return [",
+            "            _qa_translate_file_uris(item, windows=windows, absolute_unix_paths=absolute_unix_paths)",
+            "            for item in value",
+            "        ]",
+            "    if isinstance(value, dict):",
+            "        return {",
+            "            key: _qa_translate_file_uris(item, windows=windows, absolute_unix_paths=absolute_unix_paths)",
+            "            for key, item in value.items()",
+            "        }",
+            "    return value",
+            "",
+            "",
+            "_REPO = Path(__file__).resolve().parents[3]",
+        ]
+    )
+    replace_exact(
+        mock,
+        'CATALOG = "duck"\n\n_REPO = Path(__file__).resolve().parents[3]',
+        helper_source,
+    )
+    request_hook = "\n".join(
+        [
+            '                if os.environ.get("QA_NATIVE_WINDOWS") == "1" and body:',
+            "                    try:",
+            "                        body = json.dumps(",
+            "                            _qa_translate_file_uris(json.loads(body), windows=False)",
+            "                        ).encode()",
+            "                    except (json.JSONDecodeError, UnicodeDecodeError):",
+            "                        pass",
+            "                answer = respond(method, self.path, body)",
+            "",
+        ]
+    )
+    replace_exact(mock, "                answer = respond(method, self.path, body)\n", request_hook)
+    credential_hook = "\n".join(
+        [
+            '                if os.environ.get("QA_NATIVE_WINDOWS") == "1" and "/temporary-table-credentials" in self.path:',
+            "                    self._reply(",
+            '                        {"aws_temp_credentials": {"access_key_id": "qa", "secret_access_key": "qa", "session_token": "qa"}}',
+            "                    )",
+            "                    return",
+            "                if plan is None:",
+            "",
+        ]
+    )
+    replace_exact(mock, "                if plan is None:\n", credential_hook)
+    response_hook = "\n".join(
+        [
+            "            def _reply(self, body, status=200):",
+            '                windows_native = os.environ.get("QA_NATIVE_WINDOWS") == "1"',
+            '                windows_staging = windows_native and self.command == "POST" and "/staging-tables" in self.path',
+            "                if windows_native:",
+            "                    body = _qa_translate_file_uris(",
+            "                        body,",
+            "                        windows=True,",
+            "                        absolute_unix_paths=not windows_staging,",
+            "                    )",
+            "                payload = json.dumps(body).encode()",
+            "",
+        ]
+    )
+    replace_exact(
+        mock,
+        '            def _reply(self, body, status=200):\n                payload = json.dumps(body).encode()\n',
+        response_hook,
+    )
+    oss = upstream_root / "test/py/uc/oss.py"
+    replace_exact(
+        oss,
+        "            table = canonicalize(duckdb_bin, definition)\n",
+        "            table = canonicalize(\n"
+        "                duckdb_bin,\n"
+        "                definition,\n"
+        '                workdir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
+        "            )\n",
+    )
+    server = upstream_root / "test/py/uc/server.py"
+    replace_exact(
+        server,
+        'PORT = int(os.environ.get("DUCKTEST_UC_PORT", "8080"))\n',
+        'PORT = int(os.environ.get("DUCKTEST_UC_PROXY_PORT", os.environ.get("DUCKTEST_UC_PORT", "8080")))\n'
+        'SERVER_PORT = int(os.environ.get("DUCKTEST_UC_SERVER_PORT", str(PORT)))\n',
+    )
+    replace_exact(
+        server,
+        '        "DUCKTEST_UC_PORT": str(PORT),\n',
+        '        "DUCKTEST_UC_PORT": str(SERVER_PORT),\n',
+    )
+    patch_irc_scan_plan_mock(upstream_root)
+
+
+def patch_irc_scan_plan_mock(upstream_root: Path) -> None:
+    """Give the separate IRC mock a Windows drive URI for its real Delta fixture."""
+    mock = upstream_root / "test/irc/test_irc_scan_plan_mock.py"
+    replace_exact(
+        mock,
+        "import http.server\nimport json\nimport subprocess\n",
+        "import http.server\nimport json\nimport os\nimport re\nimport subprocess\n",
+    )
+    replace_exact(
+        mock,
+        "        else:\n            # IRC scan-plan routes -- delegated to the per-test script.\n",
+        "        elif os.environ.get(\"QA_NATIVE_WINDOWS\") == \"1\" and \"/temporary-table-credentials\" in path:\n"
+        '            payload = {\"aws_temp_credentials\": {\"access_key_id\": \"qa\", \"secret_access_key\": \"qa\", \"session_token\": \"qa\"}}\n'
+        "        else:\n"
+        "            # IRC scan-plan routes -- delegated to the per-test script.\n",
+    )
+    replace_exact(
+        mock,
+        '        self._httpd.table_info["storage_location"] = f"file://{location}"\n',
+        "        storage_location = f\"file://{location}\"\n"
+        '        if os.environ.get("QA_NATIVE_WINDOWS") == "1":\n'
+        '            storage_location = re.sub(\n'
+        '                r"(?i)^file:///mnt/([a-z])/",\n'
+        '                lambda match: "file:/" + match.group(1).upper() + ":/",\n'
+        "                storage_location,\n"
+        "            )\n"
+        '        self._httpd.table_info["storage_location"] = storage_location\n',
     )
 
 
@@ -231,30 +440,47 @@ def patch_postgres_scanner(upstream_root: Path) -> None:
     replace_exact(
         fixture,
         """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
-psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
+sed -E "s/,\\s*allow_quoted_nulls\\s+[^,)]+//g" ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql > ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
+psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql""",
         """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
+sed -E "s/,\\s*allow_quoted_nulls\\s+[^,)]+//g" ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql > ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
 # The native Windows DuckDB proxy translates EXPORT DATABASE to a drive path.
 # PostgreSQL runs in WSL/Docker and must receive the mounted WSL path instead.
 WINDOWS_ABS_DIR_PREFIX="$(wslpath -m "${ABS_DIR_PREFIX}")"
-sed -i "s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g" "${ABS_DIR_PREFIX}/postgresscannertmp/load.sql"
-psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
+sed -i "s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g" "${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql"
+psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql""",
+    )
+
+    timeout_test = upstream_root / "test/sql/storage/attach_timeout_error.test"
+    # libpq reports connection loss differently on Windows. Preserve the
+    # failure contract while matching the stable part of both platform errors.
+    replace_exact(
+        timeout_test,
+        "----\nserver closed the connection unexpectedly",
+        "----\nconnection",
+    )
+    rollback_test = upstream_root / "test/sql/storage/attach_rollback_throws.test"
+    replace_exact(
+        rollback_test,
+        "----\nclosed",
+        "----\nconnection",
     )
 
     # The test writes pg_binary.bin with native Windows unittest, so
-    # __TEST_DIR__ contains Windows separators. PostgreSQL itself runs in the
+    # {TEST_DIR} contains Windows separators. PostgreSQL itself runs in the
     # WSL/Docker service host and reads the file server-side. Embed the actual
     # mounted WSL checkout root and normalize the expanded test directory before
     # handing the path to postgres_execute. Linux never invokes this adapter and
-    # therefore keeps the upstream __WORKING_DIRECTORY__/__TEST_DIR__ behavior.
+    # therefore keeps the upstream {WORKING_DIRECTORY}/{TEST_DIR} behavior.
     binary_test = upstream_root / "test/sql/misc/postgres_binary.test"
     server_root = upstream_root.as_posix().rstrip("/").replace("'", "''")
     old = (
         "'COPY binary_copy_test FROM "
-        "''__WORKING_DIRECTORY__/__TEST_DIR__/pg_binary.bin'' (FORMAT binary)'"
+        "''{WORKING_DIRECTORY}/{TEST_DIR}/pg_binary.bin'' (FORMAT binary)'"
     )
     new = (
         "'COPY binary_copy_test FROM ''' || "
-        f"replace('{server_root}/__TEST_DIR__/pg_binary.bin', chr(92), '/') || "
+        f"replace('{server_root}/{{TEST_DIR}}/pg_binary.bin', chr(92), '/') || "
         "''' (FORMAT binary)'"
     )
     count = replace_all_required(binary_test, old, new)
@@ -265,23 +491,32 @@ psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
 
 def patch_delta(upstream_root: Path) -> None:
     makefile = upstream_root / "Makefile"
-    replace_exact(
-        makefile,
-        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
+    makefile_contents = makefile.read_text(encoding="utf-8")
+    readonly_data_generator = """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
 \t# avoid footguns -- make outputs read only
-\tfind data/generated -mindepth 1 -print0 | xargs -0 -n 1000 chmod a-w""",
-        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
+\tfind data/generated -mindepth 1 -print0 | xargs -0 -n 1000 chmod a-w"""
+    if readonly_data_generator in makefile_contents:
+        replace_exact(
+            makefile,
+            readonly_data_generator,
+            """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
 \t# Native Windows copy_dir must be able to populate copied fixture directories.
 \tfind data/generated -mindepth 1 -print0 | xargs -0 -r -n 1000 chmod u+w
-\t# WSL can create Linux symlinks on DrvFS that native Windows cannot follow.
-\tfind build/release/rust/src/delta_kernel/acceptance/tests/dat -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
-    )
+\t# WSL can create Linux symlinks on DrvFS that native Windows cannot follow.""",
+        )
+    elif (
+        "\tpython3 scripts/data_generator/generate_test_data.py" not in makefile_contents
+        or "chmod a-w" in makefile_contents
+    ):
+        raise PatchError(f"{makefile}: generate-data recipe contract was not found")
+
     replace_exact(
         makefile,
         """unpack-golden-tables-release:
 \t./scripts/unwrap_golden_tables.sh""",
         """unpack-golden-tables-release:
 \t./scripts/unwrap_golden_tables.sh
+\tfind build/release/rust/src/delta_kernel/acceptance/tests/dat -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +
 \tfind data/unpacked_golden_tables -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
     )
     changed_files, covered_files = patch_delta_copy_dir_tests(upstream_root)
@@ -291,47 +526,54 @@ def patch_delta(upstream_root: Path) -> None:
     )
 
 
-def patch_mssql_upstream(upstream_root: Path) -> None:
-    # DuckDB's generic unittest binary cannot satisfy `require mssql` for this
-    # out-of-tree extension on Windows even after the exact signed binary is
-    # installed and loaded. Remove that guard from every SQLLogicTest currently
-    # present; newly added tests are picked up automatically as the suite grows.
-    test_root = upstream_root / "test/sql"
-    changed_files, removed_directives = remove_test_directive(test_root, "require mssql")
-    if removed_directives == 0:
-        raise PatchError("MSSQL source contains no 'require mssql' directives to adapt")
-    print(
-        f"MSSQL Windows adapter removed {removed_directives} require directive(s) "
-        f"from {changed_files} SQLLogicTest file(s)"
-    )
-
-
 def patch_mssql_runner() -> None:
     runner = REPOSITORY_ROOT / "scripts/run-mssql-tests-base.sh"
     start_marker = "# Prepare a SQLLogicTest init profile that loads every compatibility extension"
     end_marker = 'MSSQL_TEST_CONNECTION_SQL="$(sed \'/^[[:space:]]*--/d\' "${MSSQL_TEST_INIT_SCRIPT}" | tr \'\\n\' \' \')"'
     replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree
 # module. The exact signed repository binary was verified above; preload it on
-# init and on every connection, while the Windows source adapter removes only
-# the redundant require directive from all current/future upstream test files.
+# init and on every connection. The runner's signed-extension gate rewrites the
+# upstream require directive only after its positive community-binary probe.
 cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"
 cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"
 MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')""" + '"'
-    replace_region(runner, start_marker, end_marker, replacement)
-    replace_exact(
-        runner,
-        '    # MSSQL is intentionally absent because it is not compiled into unittest.\n    "statically_loaded_extensions": ["core_functions", "parquet"],',
-        '    # Native Windows preloads the exact dynamically installed binary.\n    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],',
+    runner_text = runner.read_text(encoding="utf-8")
+    if start_marker in runner_text:
+        replace_region(runner, start_marker, end_marker, replacement)
+    else:
+        # The Linux runner already keeps the signed community binary loaded from
+        # INIT_SCRIPT. Accept that current contract instead of requiring the
+        # older init-profile block that this Windows-only adapter replaced.
+        current_contract = (
+            'cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"',
+            'cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"',
+            end_marker,
+        )
+        if not all(anchor in runner_text for anchor in current_contract):
+            raise PatchError("MSSQL runner init contract was not found")
+
+    runner_text = runner.read_text(encoding="utf-8")
+    linux_config = (
+        '    # MSSQL is intentionally absent because it is not compiled into unittest.\n'
+        '    "statically_loaded_extensions": ["core_functions", "parquet"],'
     )
+    windows_config = (
+        '    # Native Windows preloads the exact dynamically installed binary.\n'
+        '    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],'
+    )
+    if linux_config in runner_text:
+        replace_exact(runner, linux_config, windows_config)
+    elif windows_config not in runner_text:
+        raise PatchError("MSSQL unittest extension preload contract was not found")
 
 
 PATCHERS = {
     "httpfs": patch_httpfs,
     "ducklake": patch_ducklake,
+    "unity_catalog": patch_unity_catalog,
     "azure": patch_azure,
     "postgres_scanner": patch_postgres_scanner,
     "delta": patch_delta,
-    "mssql": patch_mssql_upstream,
 }
 
 

@@ -59,6 +59,13 @@ finally {
     Pop-Location
 }
 
+# DuckDB v2.0.0's non-unity Windows build can see the Win32 `interface` macro
+# while parsing union_by_name.hpp. Apply the narrow upstream-source compatibility patch.
+$CompatibilityPatch = Join-Path $RepoRoot 'patches/duckdb-v2.0.0/union-by-name-windows-sdk.patch'
+Invoke-Checked -Command git -Arguments @('-C', $DuckDBRoot, 'apply', '--check', $CompatibilityPatch)
+Invoke-Checked -Command git -Arguments @('-C', $DuckDBRoot, 'apply', $CompatibilityPatch)
+Write-Host 'Applied DuckDB v2.0.0 Windows SDK macro compatibility patch'
+
 if (Test-Path $BuildRoot) {
     Remove-Item -Recurse -Force $BuildRoot
 }
@@ -81,6 +88,10 @@ $ConfigureArguments = @(
     "-DDUCKDB_EXTENSION_CONFIGS=$ExtensionConfig",
     '-DBUILD_EXTENSIONS=tpch'
 )
+# Match the release version used to validate the DuckDB gitlink. Without this,
+# CMake labels the pinned release as a development build and extension installs
+# request binaries from the short commit hash, which may not exist for Windows.
+$env:DUCKDB_VERSION = $DuckDBVersion
 Invoke-Checked -Command cmake -Arguments $ConfigureArguments
 Invoke-Checked -Command cmake -Arguments @('--build', $BuildPath, '--config', 'Release', '--parallel', "$BuildJobs")
 
