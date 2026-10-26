@@ -9,15 +9,21 @@ import sys
 from urllib.parse import quote
 
 
-def current_drive_rooted_file_uri(windows_path: str) -> str:
-    """Return a root-relative URI so Windows does not interpret ``D:`` twice."""
+def windows_file_uri(windows_path: str) -> str:
+    """Return a local-host URI so Windows keeps the drive as an absolute root."""
     drive, tail = ntpath.splitdrive(windows_path)
     if not drive or not tail.startswith(("\\", "/")):
         raise ValueError(f"expected an absolute drive path, got: {windows_path!r}")
     path_from_drive_root = tail.lstrip("\\/").replace("\\", "/")
     if not path_from_drive_root:
         raise ValueError(f"expected a path below the drive root, got: {windows_path!r}")
-    return "file:///" + quote(path_from_drive_root, safe="/")
+    drive_letter = drive.replace("\\", "")
+    return (
+        "file://localhost/"
+        + drive_letter
+        + "/"
+        + quote(path_from_drive_root, safe="/")
+    )
 
 
 def main() -> None:
