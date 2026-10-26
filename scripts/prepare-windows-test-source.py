@@ -212,6 +212,24 @@ def patch_httpfs(upstream_root: Path) -> None:
 
 def patch_ducklake(upstream_root: Path) -> None:
     test = upstream_root / "test/sql/remove_orphans/metadata_in_data_path.test"
+    contents = test.read_text(encoding="utf-8")
+    current_metadata_glob = "SELECT count(*) FROM GLOB('{DATA_PATH}/metadata_in_data_path_*.db')"
+    current_connection = (
+        "test-env DUCKLAKE_CONNECTION "
+        "{TEST_DIR}/metadata_in_data_path_{UUID}.db"
+    )
+    if current_connection in contents and contents.count(current_metadata_glob) == 2:
+        # This pin already checks only the metadata database created by this
+        # test, so the Windows-wide *.db count workaround is obsolete.
+        return
+
+    adapted_metadata_glob = (
+        "SELECT count(*) FROM GLOB(regexp_replace("
+        "'${DUCKLAKE_CONNECTION}', '^sqlite:', ''))"
+    )
+    if contents.count(adapted_metadata_glob) == 2:
+        return
+
     # Windows SQLLogicTest can retain unrelated database files in the shared
     # temp directory. The test's contract is that *its* metadata DB survives,
     # so probe that exact path rather than counting every .db in the directory.
@@ -458,23 +476,32 @@ psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
 
 def patch_delta(upstream_root: Path) -> None:
     makefile = upstream_root / "Makefile"
-    replace_exact(
-        makefile,
-        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
+    makefile_contents = makefile.read_text(encoding="utf-8")
+    readonly_data_generator = """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
 \t# avoid footguns -- make outputs read only
-\tfind data/generated -mindepth 1 -print0 | xargs -0 -n 1000 chmod a-w""",
-        """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
+\tfind data/generated -mindepth 1 -print0 | xargs -0 -n 1000 chmod a-w"""
+    if readonly_data_generator in makefile_contents:
+        replace_exact(
+            makefile,
+            readonly_data_generator,
+            """\t${PYTHON_BIN} scripts/data_generator/generate_test_data.py
 \t# Native Windows copy_dir must be able to populate copied fixture directories.
 \tfind data/generated -mindepth 1 -print0 | xargs -0 -r -n 1000 chmod u+w
-\t# WSL can create Linux symlinks on DrvFS that native Windows cannot follow.
-\tfind build/release/rust/src/delta_kernel/acceptance/tests/dat -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
-    )
+\t# WSL can create Linux symlinks on DrvFS that native Windows cannot follow.""",
+        )
+    elif (
+        "\tpython3 scripts/data_generator/generate_test_data.py" not in makefile_contents
+        or "chmod a-w" in makefile_contents
+    ):
+        raise PatchError(f"{makefile}: generate-data recipe contract was not found")
+
     replace_exact(
         makefile,
         """unpack-golden-tables-release:
 \t./scripts/unwrap_golden_tables.sh""",
         """unpack-golden-tables-release:
 \t./scripts/unwrap_golden_tables.sh
+\tfind build/release/rust/src/delta_kernel/acceptance/tests/dat -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +
 \tfind data/unpacked_golden_tables -type l -exec sh -c 'for link; do target="$$(readlink -f "$$link")"; rm "$$link"; cp -aL "$$target" "$$link"; done' sh {} +""",
     )
     changed_files, covered_files = patch_delta_copy_dir_tests(upstream_root)
