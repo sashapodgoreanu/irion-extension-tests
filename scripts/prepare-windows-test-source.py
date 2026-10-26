@@ -310,6 +310,37 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         '            def _reply(self, body, status=200):\n                payload = json.dumps(body).encode()\n',
         response_hook,
     )
+    patch_irc_scan_plan_mock(upstream_root)
+
+
+def patch_irc_scan_plan_mock(upstream_root: Path) -> None:
+    """Give the separate IRC mock a Windows drive URI for its real Delta fixture."""
+    mock = upstream_root / "test/irc/test_irc_scan_plan_mock.py"
+    replace_exact(
+        mock,
+        "import http.server\nimport json\nimport subprocess\n",
+        "import http.server\nimport json\nimport os\nimport re\nimport subprocess\n",
+    )
+    replace_exact(
+        mock,
+        "        else:\n            # IRC scan-plan routes -- delegated to the per-test script.\n",
+        "        elif os.environ.get(\"QA_NATIVE_WINDOWS\") == \"1\" and \"/temporary-table-credentials\" in path:\n"
+        '            payload = {\"aws_temp_credentials\": {\"access_key_id\": \"qa\", \"secret_access_key\": \"qa\", \"session_token\": \"qa\"}}\n'
+        "        else:\n"
+        "            # IRC scan-plan routes -- delegated to the per-test script.\n",
+    )
+    replace_exact(
+        mock,
+        '        self._httpd.table_info["storage_location"] = f"file://{location}"\n',
+        "        storage_location = f\"file://{location}\"\n"
+        '        if os.environ.get("QA_NATIVE_WINDOWS") == "1":\n'
+        '            storage_location = re.sub(\n'
+        '                r"(?i)^file:///mnt/([a-z])/",\n'
+        '                lambda match: "file:/" + match.group(1).upper() + ":/",\n'
+        "                storage_location,\n"
+        "            )\n"
+        '        self._httpd.table_info["storage_location"] = storage_location\n',
+    )
 
 
 def patch_azure(upstream_root: Path) -> None:

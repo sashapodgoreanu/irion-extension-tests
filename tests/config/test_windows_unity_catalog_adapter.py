@@ -48,16 +48,44 @@ class MockUnityCatalog:
 """,
                 encoding="utf-8",
             )
+            irc_mock = Path(directory) / "test" / "irc" / "test_irc_scan_plan_mock.py"
+            irc_mock.parent.mkdir(parents=True)
+            irc_mock.write_text(
+                """import http.server
+import json
+import subprocess
+
+class Handler:
+    def _dispatch(self, method):
+        path = self.path
+        if "/api/2.1/unity-catalog/tables" in path:
+            payload = {"tables": []}
+        else:
+            # IRC scan-plan routes -- delegated to the per-test script.
+            payload = self.server.plan_script(method, path, self.server.requests)
+
+class MockUC:
+    def serve_delta_table(self, location, columns):
+        self._httpd.table_info["storage_location"] = f"file://{location}"
+        self._httpd.table_info["columns"] = columns
+""",
+                encoding="utf-8",
+            )
 
             adapter["patch_unity_catalog"](Path(directory))
 
             source = mock.read_text(encoding="utf-8")
+            irc_source = irc_mock.read_text(encoding="utf-8")
             self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1" and body', source)
             self.assertIn("_qa_translate_file_uris(json.loads(body), windows=False)", source)
             self.assertIn('self.command == "POST"', source)
             self.assertIn('and "/staging-tables" in self.path', source)
             self.assertIn("absolute_unix_paths=not windows_staging", source)
             self.assertIn("/temporary-table-credentials", source)
+            self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1"', irc_source)
+            self.assertIn('r"(?i)^file:///mnt/([a-z])/"', irc_source)
+            self.assertIn('"file:/" + match.group(1).upper() + ":/"', irc_source)
+            self.assertIn("/temporary-table-credentials", irc_source)
             module = ast.parse(source)
             helper = next(
                 node
