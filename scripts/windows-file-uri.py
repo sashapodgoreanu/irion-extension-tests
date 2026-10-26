@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 
 def windows_file_uri(windows_path: str) -> str:
-    """Return a local-host URI so Windows keeps the drive as an absolute root."""
+    """Return DuckDB's Windows file URI form with a single drive-qualified path."""
     drive, tail = ntpath.splitdrive(windows_path)
     if not drive or not tail.startswith(("\\", "/")):
         raise ValueError(f"expected an absolute drive path, got: {windows_path!r}")
@@ -18,12 +18,7 @@ def windows_file_uri(windows_path: str) -> str:
     if not path_from_drive_root:
         raise ValueError(f"expected a path below the drive root, got: {windows_path!r}")
     drive_letter = drive.replace("\\", "")
-    return (
-        "file://localhost/"
-        + drive_letter
-        + "/"
-        + quote(path_from_drive_root, safe="/")
-    )
+    return "file:/" + drive_letter + "/" + quote(path_from_drive_root, safe="/")
 
 
 def main() -> None:

@@ -20,7 +20,7 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         proxy = runpy.run_path(str(ROOT / "scripts" / "unity-catalog-windows-proxy.py"))
         server_tmp_dir = "/tmp/qa-unity.abc"
         mirror_dir = "/mnt/d/a/qa/.qa-unity.abc/unity-catalog-server-data"
-        mirror_uri = "file://localhost/D:/a/qa/.qa-unity.abc/unity-catalog-server-data"
+        mirror_uri = "file:/D:/a/qa/.qa-unity.abc/unity-catalog-server-data"
         payload = (
             b'{"storage_location":"file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/a",'
             b'"nested":[{"uri":"file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/b"}]}'
@@ -35,8 +35,8 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         self.assertEqual(
             json.loads(windows),
             {
-                "storage_location": "file://localhost/D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/a",
-                "nested": [{"uri": "file://localhost/D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/b"}],
+                "storage_location": "file:/D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/a",
+                "nested": [{"uri": "file:/D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/b"}],
             },
         )
         wsl = proxy["rewrite_json_payload"](
@@ -93,14 +93,14 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         self.assertIn('--mirror-dir "${QA_WINDOWS_UC_SERVER_MIRROR_DIR}"', runner)
         self.assertIn('--mirror-uri "${QA_WINDOWS_UC_SERVER_MIRROR_URI}"', runner)
 
-    def test_mirror_uri_uses_localhost_authority_and_one_windows_drive(self) -> None:
+    def test_mirror_uri_uses_duckdb_single_slash_drive_form(self) -> None:
         helper = runpy.run_path(str(ROOT / "scripts" / "windows-file-uri.py"))
         uri = helper["windows_file_uri"](
             r"D:\a\qa\.qa-unity.abc\unity-catalog-server-data"
         )
         self.assertEqual(
             uri,
-            "file://localhost/D:/a/qa/.qa-unity.abc/unity-catalog-server-data",
+            "file:/D:/a/qa/.qa-unity.abc/unity-catalog-server-data",
         )
         self.assertEqual(uri.count("D:"), 1)
 
@@ -111,7 +111,7 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
             redirect_stdout(output),
         ):
             helper["main"]()
-        self.assertEqual(output.getvalue().strip(), "file://localhost/D:/a/qa/mirror")
+        self.assertEqual(output.getvalue().strip(), "file:/D:/a/qa/mirror")
 
     def test_mock_catalog_translates_file_uris_both_directions(self) -> None:
         adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))
