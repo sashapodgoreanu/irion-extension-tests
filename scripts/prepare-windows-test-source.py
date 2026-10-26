@@ -203,6 +203,77 @@ def patch_ducklake(upstream_root: Path) -> None:
     )
 
 
+def patch_unity_catalog(upstream_root: Path) -> None:
+    mock = upstream_root / "test/py/uc/mock.py"
+    replace_exact(
+        mock,
+        "import http.server\nimport json\nimport re\n",
+        "import http.server\nimport json\nimport os\nimport re\n",
+    )
+    helper_source = "\n".join(
+        [
+            'CATALOG = "duck"',
+            "",
+            "",
+            "def _qa_translate_file_uris(value, *, windows):",
+            '    """Translate file:// paths between the WSL server and native Windows DuckDB."""',
+            "    if isinstance(value, str):",
+            "        if windows:",
+            "            return re.sub(",
+            "                r'(?i)file:///mnt/([a-z])/',",
+            "                lambda match: 'file:///' + match.group(1).upper() + ':/',",
+            "                value,",
+            "            )",
+            "        return re.sub(",
+            "            r'(?i)file:///([a-z]):/',",
+            "            lambda match: 'file:///mnt/' + match.group(1).lower() + '/',",
+            "            value,",
+            "        )",
+            "    if isinstance(value, list):",
+            "        return [_qa_translate_file_uris(item, windows=windows) for item in value]",
+            "    if isinstance(value, dict):",
+            "        return {key: _qa_translate_file_uris(item, windows=windows) for key, item in value.items()}",
+            "    return value",
+            "",
+            "",
+            "_REPO = Path(__file__).resolve().parents[3]",
+        ]
+    )
+    replace_exact(
+        mock,
+        'CATALOG = "duck"\n\n_REPO = Path(__file__).resolve().parents[3]',
+        helper_source,
+    )
+    request_hook = "\n".join(
+        [
+            '                if os.environ.get("QA_NATIVE_WINDOWS") == "1" and body:',
+            "                    try:",
+            "                        body = json.dumps(",
+            "                            _qa_translate_file_uris(json.loads(body), windows=False)",
+            "                        ).encode()",
+            "                    except (json.JSONDecodeError, UnicodeDecodeError):",
+            "                        pass",
+            "                answer = respond(method, self.path, body)",
+            "",
+        ]
+    )
+    replace_exact(mock, "                answer = respond(method, self.path, body)\n", request_hook)
+    response_hook = "\n".join(
+        [
+            "            def _reply(self, body, status=200):",
+            '                if os.environ.get("QA_NATIVE_WINDOWS") == "1":',
+            "                    body = _qa_translate_file_uris(body, windows=True)",
+            "                payload = json.dumps(body).encode()",
+            "",
+        ]
+    )
+    replace_exact(
+        mock,
+        '            def _reply(self, body, status=200):\n                payload = json.dumps(body).encode()\n',
+        response_hook,
+    )
+
+
 def patch_azure(upstream_root: Path) -> None:
     script = upstream_root / "scripts/upload_test_files_to_azurite.sh"
     # Azure CLI may consume stdin. The upstream while-read loop shares stdin
@@ -337,6 +408,7 @@ MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}
 PATCHERS = {
     "httpfs": patch_httpfs,
     "ducklake": patch_ducklake,
+    "unity_catalog": patch_unity_catalog,
     "azure": patch_azure,
     "postgres_scanner": patch_postgres_scanner,
     "delta": patch_delta,
