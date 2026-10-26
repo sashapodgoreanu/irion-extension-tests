@@ -11,9 +11,13 @@ from pathlib import Path
 from typing import Any
 
 WSL_PATH = re.compile(r"/mnt/([A-Za-z])((?:/[^\s'\";,)]*)?)")
+WSL_NULL_DEVICE = re.compile(r"(?<![\w.])/dev/null(?![\w.])")
 
 
 def translate_text(value: str) -> str:
+    # Native Windows tools use the NUL device where Linux test commands use /dev/null.
+    value = WSL_NULL_DEVICE.sub("NUL", value)
+
     def replace(match: re.Match[str]) -> str:
         drive = match.group(1).upper()
         tail = match.group(2) or ""

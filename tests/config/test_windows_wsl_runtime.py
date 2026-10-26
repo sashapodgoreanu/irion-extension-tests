@@ -12,6 +12,18 @@ WINDOWS_WSL_RUNTIME = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.sh"
 
 
 class WindowsWslRuntimeTestCase(unittest.TestCase):
+    def test_linux_null_device_is_translated_for_native_windows_tools(self) -> None:
+        helper = REPOSITORY_ROOT / "scripts" / "windows-wsl-runtime.py"
+        result = subprocess.run(
+            ["python3", str(helper), "translate-text", ".output /dev/null"],
+            cwd=REPOSITORY_ROOT,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, ".output NUL")
+
     @unittest.skipUnless(shutil.which("bash"), "bash is required")
     @unittest.skipUnless(shutil.which("rsync"), "rsync is required")
     def test_authenticated_azure_cli_profile_is_mirrored_to_isolated_userprofile(self) -> None:

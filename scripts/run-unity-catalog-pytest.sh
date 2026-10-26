@@ -16,17 +16,19 @@ LOG_DIR="${REPOSITORY_ROOT}/build/logs/unity_catalog"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 
 WINDOWS_TMP_DIR=""
+WINDOWS_UV_CACHE_DIR=""
 if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
-  # The Windows checkout lives under a long /mnt/<drive>/... path. Python's
-  # multiprocessing store uses an AF_UNIX socket beneath TMPDIR, whose path
-  # limit is much shorter than the checkout path.
-  WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
+  # DuckDB runs as a native Windows process and must be able to open pytest's
+  # temporary files. Keep TMPDIR short for Python's AF_UNIX multiprocessing
+  # socket, and on the mounted checkout drive so both WSL and Windows can see it.
+  WINDOWS_TMP_DIR="$(mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX")"
   export TMPDIR="${WINDOWS_TMP_DIR}"
-  # uv's cache also needs atomic renames that DrvFS cannot reliably provide.
-  export UV_CACHE_DIR="${WINDOWS_TMP_DIR}/uv-cache"
-  mkdir -p "${UV_CACHE_DIR}"
+  # uv's cache needs atomic renames that DrvFS cannot reliably provide.
+  WINDOWS_UV_CACHE_DIR="$(mktemp -d /tmp/qa-unity-uv.XXXXXXXX)"
+  export UV_CACHE_DIR="${WINDOWS_UV_CACHE_DIR}"
   cleanup_windows_tmp() {
     rm -rf -- "${WINDOWS_TMP_DIR}"
+    rm -rf -- "${WINDOWS_UV_CACHE_DIR}"
   }
   trap cleanup_windows_tmp EXIT
 fi
