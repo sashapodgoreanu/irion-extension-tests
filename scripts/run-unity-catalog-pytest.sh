@@ -15,6 +15,19 @@ BUILD_DIR="${UPSTREAM_ROOT}/build/release"
 LOG_DIR="${REPOSITORY_ROOT}/build/logs/unity_catalog"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 
+WINDOWS_TMP_DIR=""
+if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+  # The Windows checkout lives under a long /mnt/<drive>/... path. Python's
+  # multiprocessing store uses an AF_UNIX socket beneath TMPDIR, whose path
+  # limit is much shorter than the checkout path.
+  WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
+  export TMPDIR="${WINDOWS_TMP_DIR}"
+  cleanup_windows_tmp() {
+    rm -rf -- "${WINDOWS_TMP_DIR}"
+  }
+  trap cleanup_windows_tmp EXIT
+fi
+
 required=(
   "${UPSTREAM_ROOT}/pyproject.toml" \
   "${UPSTREAM_ROOT}/pytest.ini" \

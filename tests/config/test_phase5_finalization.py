@@ -46,6 +46,8 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertIn('if [[ "${QA_NATIVE_WINDOWS:-0}" != "1" ]]; then', runner)
         self.assertIn('required+=("${ARTIFACT_DIR}/lib/libduckdb.so")', runner)
         self.assertIn('if [[ -f "${ARTIFACT_DIR}/lib/libduckdb.so" ]]; then', runner)
+        self.assertIn('mktemp -d /tmp/qa-unity.XXXXXXXX', runner)
+        self.assertIn('export TMPDIR="${WINDOWS_TMP_DIR}"', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
 
