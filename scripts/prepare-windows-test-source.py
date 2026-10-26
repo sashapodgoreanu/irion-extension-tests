@@ -286,6 +286,9 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "                        windows=True,",
             "                        absolute_unix_paths=not windows_staging,",
             "                    )",
+            '                    if isinstance(body, dict) and "tables" in body:',
+            '                        locations = [table.get("storage_location") for table in body["tables"]]',
+            '                        print("QA Windows Unity /tables response URIs: " + repr(locations), flush=True)',
             "                payload = json.dumps(body).encode()",
             "",
         ]
