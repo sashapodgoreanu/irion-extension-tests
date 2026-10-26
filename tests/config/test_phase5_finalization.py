@@ -49,6 +49,11 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
 
+        windows_setup = (ROOT / "scripts/setup-windows-wsl-runtime.ps1").read_text(encoding="utf-8")
+        self.assertIn("if ($BatteryName -eq 'unity_catalog')", windows_setup)
+        self.assertIn("UV_INSTALL_DIR=/usr/local/bin", windows_setup)
+        self.assertIn("uv --version", windows_setup)
+
         workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
         self.assertIn("uv pip install --python .venv/bin/python -r requirements/qa.txt", workflow)
 

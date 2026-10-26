@@ -209,6 +209,10 @@ if ($needsDocker) {
     Invoke-WslBash "systemctl enable --now docker; docker info --format 'OSType={{.OSType}} Architecture={{.Architecture}}'; docker compose version"
 }
 
+if ($BatteryName -eq 'unity_catalog') {
+    Invoke-WslBash 'if ! command -v uv >/dev/null 2>&1; then curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh; fi; uv --version'
+}
+
 if ($capabilities -contains 'azurite') {
     Invoke-WslBash "curl -fsSL https://deb.nodesource.com/setup_22.x | bash -; apt-get install -y -qq nodejs; npm install --global azurite; node --version; azurite --version"
     Invoke-WslBash "if ! command -v az >/dev/null 2>&1; then curl -sL https://aka.ms/InstallAzureCLIDeb | bash; fi; az --version >/dev/null"
