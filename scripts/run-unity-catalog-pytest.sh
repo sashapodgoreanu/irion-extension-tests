@@ -22,12 +22,19 @@ WINDOWS_UC_PROXY_PID=""
 if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   # Python's multiprocessing store needs an AF_UNIX socket, which DrvFS does
   # not support. Keep TMPDIR and uv's cache in WSL; pytest temp files and the
-  # OSS provisioner's fixture databases go on the mount. The OSS server keeps
-  # writable data on WSL's native filesystem, exposed to DuckDB through W:.
+  # OSS provisioner's fixture databases and a mirror of its server data go on
+  # the Windows drive. The Java server keeps its writable data on WSL ext4;
+  # native DuckDB uses the NTFS mirror to avoid UNC file URLs.
   WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
   export TMPDIR="${WINDOWS_TMP_DIR}"
   WINDOWS_SHARED_TEST_TMP_DIR="$(mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX")"
   export QA_WINDOWS_TEMP_DIR="${WINDOWS_SHARED_TEST_TMP_DIR}"
+  WINDOWS_UC_SERVER_MIRROR_DIR="${WINDOWS_SHARED_TEST_TMP_DIR}/unity-catalog-server-data"
+  mkdir -p "${WINDOWS_UC_SERVER_MIRROR_DIR}"
+  export QA_WINDOWS_UC_SERVER_TMP_DIR="${WINDOWS_TMP_DIR}"
+  export QA_WINDOWS_UC_SERVER_MIRROR_DIR="${WINDOWS_UC_SERVER_MIRROR_DIR}"
+  WINDOWS_UC_SERVER_MIRROR_URI="$(python3 -c 'import subprocess, sys; path = subprocess.check_output(["wslpath", "-w", sys.argv[1]], text=True).strip(); print("file:///" + path.replace("\\", "/"))' "${WINDOWS_UC_SERVER_MIRROR_DIR}")"
+  export QA_WINDOWS_UC_SERVER_MIRROR_URI="${WINDOWS_UC_SERVER_MIRROR_URI}"
   # uv's cache needs atomic renames that DrvFS cannot reliably provide.
   WINDOWS_UV_CACHE_DIR="$(mktemp -d /tmp/qa-unity-uv.XXXXXXXX)"
   export UV_CACHE_DIR="${WINDOWS_UV_CACHE_DIR}"
@@ -140,6 +147,9 @@ if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   python3 "${SCRIPT_DIR}/unity-catalog-windows-proxy.py" \
     --listen-host 0.0.0.0 --listen-port "${DUCKTEST_UC_PROXY_PORT}" \
     --target-host 127.0.0.1 --target-port "${DUCKTEST_UC_SERVER_PORT}" \
+    --server-tmp-dir "${QA_WINDOWS_UC_SERVER_TMP_DIR}" \
+    --mirror-dir "${QA_WINDOWS_UC_SERVER_MIRROR_DIR}" \
+    --mirror-uri "${QA_WINDOWS_UC_SERVER_MIRROR_URI}" \
     >"${WINDOWS_UC_PROXY_LOG}" 2>&1 &
   WINDOWS_UC_PROXY_PID=$!
   proxy_ready=0
@@ -168,7 +178,7 @@ fi
   if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
     # Windows DuckDB needs pytest's generated fixtures on the mounted drive;
     # the source adapter uses QA_WINDOWS_TEMP_DIR. TMPDIR remains on WSL for
-    # AF_UNIX sockets and the OSS server data exposed through the W: bridge.
+    # AF_UNIX sockets; the OSS server data is mirrored onto the Windows drive.
     # Stop this platform's pipeline at the first failing test.
     pytest_args+=(--basetemp "${WINDOWS_SHARED_TEST_TMP_DIR}" --maxfail=1)
   fi

@@ -14,26 +14,65 @@ ROOT = Path(__file__).resolve().parents[2]
 class WindowsUnityCatalogAdapterTest(unittest.TestCase):
     def test_live_server_proxy_rewrites_wsl_file_uris_both_directions(self) -> None:
         proxy = runpy.run_path(str(ROOT / "scripts" / "unity-catalog-windows-proxy.py"))
+        server_tmp_dir = "/tmp/qa-unity.abc"
+        mirror_dir = "/mnt/d/a/qa/.qa-unity.abc/unity-catalog-server-data"
+        mirror_uri = "file:///D:/a/qa/.qa-unity.abc/unity-catalog-server-data"
         payload = (
-            b'{"storage_location":"file:///tmp/qa-unity.abc/ducktest-uc-data/tables/a",'
-            b'"nested":[{"uri":"file:///W:/tmp/qa-unity.abc/ducktest-uc-data/tables/b"}]}'
+            b'{"storage_location":"file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/a",'
+            b'"nested":[{"uri":"file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/b"}]}'
         )
-        windows = proxy["rewrite_json_payload"](payload, to_windows=True)
+        windows = proxy["rewrite_json_payload"](
+            payload,
+            to_windows=True,
+            server_tmp_dir=server_tmp_dir,
+            mirror_dir=mirror_dir,
+            mirror_uri=mirror_uri,
+        )
         self.assertEqual(
             json.loads(windows),
             {
-                "storage_location": "file:///W:/tmp/qa-unity.abc/ducktest-uc-data/tables/a",
-                "nested": [{"uri": "file:///W:/tmp/qa-unity.abc/ducktest-uc-data/tables/b"}],
+                "storage_location": "file:///D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/a",
+                "nested": [{"uri": "file:///D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/b"}],
             },
         )
-        wsl = proxy["rewrite_json_payload"](windows, to_windows=False)
+        wsl = proxy["rewrite_json_payload"](
+            windows,
+            to_windows=False,
+            server_tmp_dir=server_tmp_dir,
+            mirror_dir=mirror_dir,
+            mirror_uri=mirror_uri,
+        )
         self.assertEqual(
             json.loads(wsl),
             {
-                "storage_location": "file:///tmp/qa-unity.abc/ducktest-uc-data/tables/a",
-                "nested": [{"uri": "file:///tmp/qa-unity.abc/ducktest-uc-data/tables/b"}],
+                "storage_location": "file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/a",
+                "nested": [{"uri": "file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/b"}],
             },
         )
+
+    def test_proxy_mirror_copies_new_server_files_without_overwriting_windows_files(self) -> None:
+        proxy = runpy.run_path(str(ROOT / "scripts" / "unity-catalog-windows-proxy.py"))
+        handler = proxy["UnityCatalogProxy"]
+        with tempfile.TemporaryDirectory() as directory:
+            server_tmp_dir = Path(directory) / "server-tmp"
+            mirror_dir = Path(directory) / "windows-mirror"
+            server_table = server_tmp_dir / "ducktest-uc-data-one" / "duck" / "cmt" / "_delta_log"
+            server_table.mkdir(parents=True)
+            source_file = server_table / "00000000000000000000.json"
+            source_file.write_text("server-created", encoding="utf-8")
+
+            handler.server_tmp_dir = str(server_tmp_dir)
+            handler.mirror_dir = str(mirror_dir)
+            handler._copy_missing_server_files()
+            mirror_file = mirror_dir / "ducktest-uc-data-one" / "duck" / "cmt" / "_delta_log" / source_file.name
+            self.assertEqual(mirror_file.read_text(encoding="utf-8"), "server-created")
+
+            mirror_file.write_text("windows-updated", encoding="utf-8")
+            source_file.write_text("new-server-version", encoding="utf-8")
+            handler._copy_missing_server_files()
+            self.assertEqual(mirror_file.read_text(encoding="utf-8"), "windows-updated")
+            handler.server_tmp_dir = ""
+            handler.mirror_dir = ""
 
     def test_wsl_data_drive_is_mapped_and_checked_bidirectionally(self) -> None:
         setup = (ROOT / "scripts" / "setup-windows-wsl-runtime.ps1").read_text(encoding="utf-8")
@@ -41,6 +80,14 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         self.assertIn("Test-Path -LiteralPath $wslProbeFile", setup)
         self.assertIn("[System.IO.File]::WriteAllText", setup)
         self.assertIn('test -f "/tmp/$wslProbe/from-windows"', setup)
+
+    def test_live_server_data_uses_a_local_ntfs_mirror(self) -> None:
+        runner = (ROOT / "scripts" / "run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
+        self.assertIn('QA_WINDOWS_UC_SERVER_TMP_DIR="${WINDOWS_TMP_DIR}"', runner)
+        self.assertIn('QA_WINDOWS_UC_SERVER_MIRROR_DIR="${WINDOWS_UC_SERVER_MIRROR_DIR}"', runner)
+        self.assertIn('--server-tmp-dir "${QA_WINDOWS_UC_SERVER_TMP_DIR}"', runner)
+        self.assertIn('--mirror-dir "${QA_WINDOWS_UC_SERVER_MIRROR_DIR}"', runner)
+        self.assertIn('--mirror-uri "${QA_WINDOWS_UC_SERVER_MIRROR_URI}"', runner)
 
     def test_mock_catalog_translates_file_uris_both_directions(self) -> None:
         adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))

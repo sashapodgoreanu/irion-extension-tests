@@ -6,41 +6,132 @@ from __future__ import annotations
 import argparse
 import http.client
 import json
-import re
+import os
+import shutil
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 
-WSL_TMP_URI = re.compile(r"(?i)file:///tmp/")
-WINDOWS_TMP_URI = re.compile(r"(?i)file:///W:/tmp/")
+FILE_URI = "file:///"
 
 
-def translate_value(value: Any, *, to_windows: bool) -> Any:
+def translate_value(
+    value: Any,
+    *,
+    to_windows: bool,
+    server_tmp_dir: str = "",
+    mirror_dir: str = "",
+    mirror_uri: str = "",
+) -> Any:
     if isinstance(value, str):
-        if to_windows:
-            return WSL_TMP_URI.sub("file:///W:/tmp/", value)
-        return WINDOWS_TMP_URI.sub("file:///tmp/", value)
+        if to_windows and server_tmp_dir and mirror_uri and value.lower().startswith(FILE_URI):
+            uri_path = unquote(urlsplit(value).path)
+            try:
+                relative = Path(uri_path).relative_to(Path(server_tmp_dir))
+            except ValueError:
+                relative = None
+            if relative and relative.parts and relative.parts[0].startswith("ducktest-uc-data-"):
+                return mirror_uri.rstrip("/") + "/" + quote(relative.as_posix(), safe="/")
+        elif not to_windows and mirror_dir and mirror_uri and value.lower().startswith(
+            mirror_uri.rstrip("/").lower() + "/"
+        ):
+            prefix = mirror_uri.rstrip("/") + "/"
+            relative = unquote(value[len(prefix) :])
+            if relative.split("/", 1)[0].startswith("ducktest-uc-data-"):
+                return "file://" + server_tmp_dir.rstrip("/") + "/" + quote(relative, safe="/")
+        return value
     if isinstance(value, list):
-        return [translate_value(item, to_windows=to_windows) for item in value]
+        return [
+            translate_value(
+                item,
+                to_windows=to_windows,
+                server_tmp_dir=server_tmp_dir,
+                mirror_dir=mirror_dir,
+                mirror_uri=mirror_uri,
+            )
+            for item in value
+        ]
     if isinstance(value, dict):
-        return {key: translate_value(item, to_windows=to_windows) for key, item in value.items()}
+        return {
+            key: translate_value(
+                item,
+                to_windows=to_windows,
+                server_tmp_dir=server_tmp_dir,
+                mirror_dir=mirror_dir,
+                mirror_uri=mirror_uri,
+            )
+            for key, item in value.items()
+        }
     return value
 
 
-def rewrite_json_payload(payload: bytes, *, to_windows: bool) -> bytes:
+def rewrite_json_payload(
+    payload: bytes,
+    *,
+    to_windows: bool,
+    server_tmp_dir: str = "",
+    mirror_dir: str = "",
+    mirror_uri: str = "",
+) -> bytes:
     """Translate file URIs recursively in a JSON request or response body."""
     try:
         value = json.loads(payload)
     except (json.JSONDecodeError, UnicodeDecodeError):
         return payload
-    return json.dumps(translate_value(value, to_windows=to_windows), separators=(",", ":")).encode()
+    return json.dumps(
+        translate_value(
+            value,
+            to_windows=to_windows,
+            server_tmp_dir=server_tmp_dir,
+            mirror_dir=mirror_dir,
+            mirror_uri=mirror_uri,
+        ),
+        separators=(",", ":"),
+    ).encode()
 
 
 class UnityCatalogProxy(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     target_host = "127.0.0.1"
     target_port = 8081
+    server_tmp_dir = ""
+    mirror_dir = ""
+    mirror_uri = ""
+    mirror_lock = threading.Lock()
+
+    @classmethod
+    def _copy_missing_server_files(cls) -> None:
+        """Copy newly provisioned UC data to NTFS for native Windows DuckDB."""
+        if not cls.server_tmp_dir or not cls.mirror_dir:
+            return
+        server_tmp = Path(cls.server_tmp_dir)
+        mirror_root = Path(cls.mirror_dir)
+        if not server_tmp.is_dir():
+            return
+
+        copied_files = 0
+        with cls.mirror_lock:
+            for source_root in server_tmp.glob("ducktest-uc-data-*"):
+                if not source_root.is_dir():
+                    continue
+                destination_root = mirror_root / source_root.name
+                for current, directories, files in os.walk(source_root):
+                    relative = Path(current).relative_to(source_root)
+                    destination = destination_root / relative
+                    destination.mkdir(parents=True, exist_ok=True)
+                    for directory in directories:
+                        (destination / directory).mkdir(exist_ok=True)
+                    for filename in files:
+                        source_file = Path(current) / filename
+                        destination_file = destination / filename
+                        if not destination_file.exists():
+                            shutil.copy2(source_file, destination_file)
+                            copied_files += 1
+        if copied_files:
+            print(f"Mirrored {copied_files} new Unity Catalog server file(s) onto NTFS", flush=True)
 
     def _forward(self) -> None:
         if self.path == "/__qa_proxy_health__":
@@ -62,7 +153,13 @@ class UnityCatalogProxy(BaseHTTPRequestHandler):
         # Avoid compressed payloads so URI translation can remain content-aware.
         headers["Accept-Encoding"] = "identity"
         if body and "json" in self.headers.get("Content-Type", "").lower():
-            body = rewrite_json_payload(body, to_windows=False)
+            body = rewrite_json_payload(
+                body,
+                to_windows=False,
+                server_tmp_dir=self.server_tmp_dir,
+                mirror_dir=self.mirror_dir,
+                mirror_uri=self.mirror_uri,
+            )
 
         connection = http.client.HTTPConnection(self.target_host, self.target_port, timeout=60)
         try:
@@ -75,7 +172,19 @@ class UnityCatalogProxy(BaseHTTPRequestHandler):
                 "",
             )
             if response_body and "json" in content_type.lower():
-                response_body = rewrite_json_payload(response_body, to_windows=True)
+                storage_uri_marker = (
+                    "file://" + self.server_tmp_dir.rstrip("/") + "/ducktest-uc-data-"
+                ).lower().encode()
+                has_server_storage_uri = storage_uri_marker in response_body.lower()
+                response_body = rewrite_json_payload(
+                    response_body,
+                    to_windows=True,
+                    server_tmp_dir=self.server_tmp_dir,
+                    mirror_dir=self.mirror_dir,
+                    mirror_uri=self.mirror_uri,
+                )
+                if has_server_storage_uri:
+                    self._copy_missing_server_files()
 
             self.send_response(response.status, response.reason)
             connection_header = next(
@@ -123,12 +232,18 @@ def main() -> None:
     parser.add_argument("--listen-port", type=int, default=8080)
     parser.add_argument("--target-host", default="127.0.0.1")
     parser.add_argument("--target-port", type=int, default=8081)
+    parser.add_argument("--server-tmp-dir", default=os.environ.get("QA_WINDOWS_UC_SERVER_TMP_DIR", ""))
+    parser.add_argument("--mirror-dir", default=os.environ.get("QA_WINDOWS_UC_SERVER_MIRROR_DIR", ""))
+    parser.add_argument("--mirror-uri", default=os.environ.get("QA_WINDOWS_UC_SERVER_MIRROR_URI", ""))
     args = parser.parse_args()
     # Validate host syntax early and avoid accepting accidental URL paths.
     if urlsplit(f"//{args.target_host}").path:
         parser.error("--target-host must be a host name or IP address")
     UnityCatalogProxy.target_host = args.target_host
     UnityCatalogProxy.target_port = args.target_port
+    UnityCatalogProxy.server_tmp_dir = args.server_tmp_dir
+    UnityCatalogProxy.mirror_dir = args.mirror_dir
+    UnityCatalogProxy.mirror_uri = args.mirror_uri
     server = ThreadingHTTPServer((args.listen_host, args.listen_port), UnityCatalogProxy)
     print(
         f"Unity Catalog Windows URI proxy listening on {args.listen_host}:{args.listen_port}; "

@@ -199,9 +199,8 @@ Invoke-WslBash "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq; apt-g
 Invoke-WslBash "git config --global --add safe.directory '*'"
 
 if ($BatteryName -eq 'unity_catalog') {
-    # The UC Java service must write Delta data on WSL's native filesystem. Expose that same
-    # filesystem to native Windows DuckDB through a drive letter so file:/W:/tmp/... remains a
-    # local file URI to DuckDB (file:// remote hosts are not supported by its path parser).
+    # A few native Windows mock tests use WSL /tmp fixtures. The live OSS server uses an NTFS
+    # mirror because Windows resolves a mapped WSL drive to a UNC URI inside Delta Kernel.
     $wslShares = @(
         ('\\wsl.localhost\' + $distro),
         ('\\wsl$\' + $distro)
