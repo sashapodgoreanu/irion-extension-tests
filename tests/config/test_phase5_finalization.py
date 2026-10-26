@@ -39,15 +39,22 @@ class Phase5FinalizationTest(unittest.TestCase):
         )
 
         runner = (ROOT / "scripts/run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
-        self.assertIn('uv run pytest -p unity_catalog_http_error_plugin -n0 -s', runner)
+        self.assertIn('pytest_args=(-p unity_catalog_http_error_plugin -n0 -s)', runner)
+        self.assertIn('uv run pytest "${pytest_args[@]}"', runner)
         self.assertIn('BUILD_DIR="${UPSTREAM_ROOT}/build/release"', runner)
         self.assertIn('LD_LIBRARY_PATH="${PWD}/build/release/src"', runner)
         self.assertIn('BUILD_DIR=build/release', runner)
         self.assertIn('if [[ "${QA_NATIVE_WINDOWS:-0}" != "1" ]]; then', runner)
         self.assertIn('required+=("${ARTIFACT_DIR}/lib/libduckdb.so")', runner)
         self.assertIn('if [[ -f "${ARTIFACT_DIR}/lib/libduckdb.so" ]]; then', runner)
-        self.assertIn('mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX"', runner)
+        self.assertIn('mktemp -d /tmp/qa-unity.XXXXXXXX', runner)
         self.assertIn('export TMPDIR="${WINDOWS_TMP_DIR}"', runner)
+        self.assertIn('mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX"', runner)
+        self.assertIn('export QA_WINDOWS_TEMP_DIR="${WINDOWS_SHARED_TEST_TMP_DIR}"', runner)
+        self.assertIn(
+            'pytest_args+=(--basetemp "${WINDOWS_SHARED_TEST_TMP_DIR}" --maxfail=1)',
+            runner,
+        )
         self.assertIn('WINDOWS_UV_CACHE_DIR="$(mktemp -d /tmp/qa-unity-uv.XXXXXXXX)"', runner)
         self.assertIn('export UV_CACHE_DIR="${WINDOWS_UV_CACHE_DIR}"', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)

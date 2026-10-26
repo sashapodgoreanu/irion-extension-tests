@@ -16,18 +16,22 @@ LOG_DIR="${REPOSITORY_ROOT}/build/logs/unity_catalog"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 
 WINDOWS_TMP_DIR=""
+WINDOWS_SHARED_TEST_TMP_DIR=""
 WINDOWS_UV_CACHE_DIR=""
 if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
-  # DuckDB runs as a native Windows process and must be able to open pytest's
-  # temporary files. Keep TMPDIR short for Python's AF_UNIX multiprocessing
-  # socket, and on the mounted checkout drive so both WSL and Windows can see it.
-  WINDOWS_TMP_DIR="$(mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX")"
+  # Python's multiprocessing store needs an AF_UNIX socket, which DrvFS does
+  # not support. Keep TMPDIR and uv's cache in WSL; pytest's own temp files go
+  # on the mounted checkout drive so native Windows DuckDB can open them.
+  WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
   export TMPDIR="${WINDOWS_TMP_DIR}"
+  WINDOWS_SHARED_TEST_TMP_DIR="$(mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX")"
+  export QA_WINDOWS_TEMP_DIR="${WINDOWS_SHARED_TEST_TMP_DIR}"
   # uv's cache needs atomic renames that DrvFS cannot reliably provide.
   WINDOWS_UV_CACHE_DIR="$(mktemp -d /tmp/qa-unity-uv.XXXXXXXX)"
   export UV_CACHE_DIR="${WINDOWS_UV_CACHE_DIR}"
   cleanup_windows_tmp() {
     rm -rf -- "${WINDOWS_TMP_DIR}"
+    rm -rf -- "${WINDOWS_SHARED_TEST_TMP_DIR}"
     rm -rf -- "${WINDOWS_UV_CACHE_DIR}"
   }
   trap cleanup_windows_tmp EXIT
@@ -127,8 +131,15 @@ docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
   cd "${UPSTREAM_ROOT}"
   # Match the pinned upstream Integration Tests workflow. Its pytest driver
   # selects all default local suites and deselects Databricks unless requested.
+  pytest_args=(-p unity_catalog_http_error_plugin -n0 -s)
+  if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+    # Windows DuckDB needs to see pytest's generated fixture files on the same
+    # mounted drive; TMPDIR remains on WSL's filesystem for AF_UNIX sockets.
+    # Stop this platform's pipeline at the first failing test.
+    pytest_args+=(--basetemp "${WINDOWS_SHARED_TEST_TMP_DIR}" --maxfail=1)
+  fi
   PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
     BUILD_DIR=build/release \
     LD_LIBRARY_PATH="${PWD}/build/release/src" \
-    uv run pytest -p unity_catalog_http_error_plugin -n0 -s
+    uv run pytest "${pytest_args[@]}"
 ) 2>&1 | tee -a "${LOG_DIR}/pytest.log"

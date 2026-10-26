@@ -15,6 +15,19 @@ qa_wslenv_add() {
   esac
 }
 
+qa_wslenv_remove() {
+  local name=$1
+  local entry
+  local -a entries=() kept=()
+  IFS=':' read -r -a entries <<<"${WSLENV:-}"
+  for entry in "${entries[@]}"; do
+    [[ "${entry%%/*}" == "${name}" ]] && continue
+    [[ -n "${entry}" ]] && kept+=("${entry}")
+  done
+  WSLENV="$(IFS=:; printf '%s' "${kept[*]}")"
+  export WSLENV
+}
+
 qa_is_path_variable() {
   case "$1" in
     HOME|USERPROFILE|TEMP|TMP|TMPDIR|LOCAL_EXTENSION_REPO|GOOGLE_APPLICATION_CREDENTIALS|BQ_TEST_SA_KEY_PATH|PYTHON_HTTP_SERVER_DIR|GOLDEN_TABLES_PATH|DELTA_KERNEL_TESTS_PATH|DAT_PATH)
@@ -41,12 +54,22 @@ qa_should_forward_variable() {
 }
 
 qa_prepare_windows_environment() {
+  local windows_temp_dir="${QA_WINDOWS_TEMP_DIR:-${TMPDIR:-${TEMP:-${HOME}/tmp}}}"
   export USERPROFILE="${HOME}"
-  export TEMP="${TMPDIR:-${TEMP:-${HOME}/tmp}}"
-  export TMP="${TMPDIR:-${TMP:-${TEMP}}}"
+  export TEMP="${windows_temp_dir}"
+  export TMP="${windows_temp_dir}"
+
+  # Unity Catalog keeps TMPDIR on WSL's filesystem for its AF_UNIX socket, while
+  # Windows TEMP/TMP point at a shared mounted-directory for native DuckDB.
+  if [[ -n "${QA_WINDOWS_TEMP_DIR:-}" ]]; then
+    qa_wslenv_remove TMPDIR
+  fi
 
   local name
   while IFS= read -r name; do
+    if [[ "${name}" == "TMPDIR" && -n "${QA_WINDOWS_TEMP_DIR:-}" ]]; then
+      continue
+    fi
     qa_should_forward_variable "${name}" || continue
     if qa_is_path_variable "${name}"; then
       qa_wslenv_add "${name}" "/p"
