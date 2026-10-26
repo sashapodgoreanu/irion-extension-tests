@@ -67,6 +67,13 @@ def platform_binary(artifact_dir: Path, name: str) -> Path:
     return artifact_dir / "bin" / f"{name}{suffix}"
 
 
+def unittest_temp_dir_args(test_name: str) -> list[str]:
+    if os.name == "nt" and test_name == "ducklake":
+        # Keep SQLite metadata DBs and their journal files below Windows MAX_PATH.
+        return ["--temp-dir-root", "q"]
+    return []
+
+
 def child_environment(runtime_home: Path) -> dict[str, str]:
     env = dict(os.environ)
     runtime_home.mkdir(parents=True, exist_ok=True)
@@ -599,6 +606,7 @@ def run_ducklake_postgres_isolated(
                 "--keep-home",
                 "--test-config",
                 str(config),
+                *unittest_temp_dir_args("ducklake"),
                 "--test-dir",
                 str(upstream_root),
                 relative,
@@ -632,16 +640,18 @@ def run_profile(
         )
     else:
         unittest_log = log_dir / f"unittest-{profile_name}.log"
+        command = [
+            str(unittest),
+            "--keep-home",
+            "--test-config",
+            str(config),
+            *unittest_temp_dir_args(test_name),
+            "--test-dir",
+            str(upstream_root),
+            test_filter,
+        ]
         run_logged(
-            [
-                str(unittest),
-                "--keep-home",
-                "--test-config",
-                str(config),
-                "--test-dir",
-                str(upstream_root),
-                test_filter,
-            ],
+            command,
             logger=logger,
             log_file=unittest_log,
             env=env,

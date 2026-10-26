@@ -19,9 +19,9 @@ class WindowsDuckLakeRuntimeTest(unittest.TestCase):
 
     def test_ducklake_long_sqlite_metadata_path_stays_under_windows_max_path(self) -> None:
         sqlite_path = (
-            r"D:\qa\duckdb_unittest_tempdir\2026-10-26T09-20-40Z--coral-rhombus-42"
+            r"D:\qa\q\2026-10-26T09-47-00Z--russet-node-94"
             r"\test_sql_deletion_inlining_test_deletion_from_file_and_inserted_inlining_non_sequential_test"
-            r"\test_sql_deletion_inlining_test_deletion_from_file_and_inserted_inlining_non_sequential.test.db"
+            r"\test_sql_deletion_inlining_test_deletion_from_file_and_inserted_inlining_non_sequential.test.db-journal"
         )
         self.assertLessEqual(len(sqlite_path) + 1, 260)
 
@@ -32,6 +32,8 @@ class WindowsDuckLakeRuntimeTest(unittest.TestCase):
         self.assertIn('if os.name == "nt":', runner)
         self.assertIn("upstream_root = upstream_root_arg.absolute()", runner)
         self.assertIn("upstream_root = upstream_root_arg.resolve()", runner)
+        self.assertIn('"--temp-dir-root", "q"', runner)
+        self.assertIn("*unittest_temp_dir_args(test_name)", runner)
 
 
 if __name__ == "__main__":
