@@ -9,6 +9,18 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class TestWindowsMssqlSourceAdapter(unittest.TestCase):
+    def test_signed_runner_owns_mssql_requirement_adaptation(self) -> None:
+        adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))
+        runner = (ROOT / "scripts" / "run-mssql-tests-base.sh").read_text(encoding="utf-8")
+
+        self.assertNotIn("mssql", adapter["PATCHERS"])
+        self.assertIn('gate.subn(', runner)
+        self.assertIn('require-env MSSQL_QA_SIGNED_EXTENSION_AVAILABLE 1', runner)
+        self.assertLess(
+            runner.index("Dynamic MSSQL community-signed LOAD probe passed"),
+            runner.index('gate.subn('),
+        )
+
     def test_current_linux_runner_contract_is_accepted_and_windows_preload_is_applied(self) -> None:
         adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))
         with tempfile.TemporaryDirectory() as directory:

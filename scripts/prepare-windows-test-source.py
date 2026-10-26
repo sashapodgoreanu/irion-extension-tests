@@ -293,29 +293,14 @@ def patch_delta(upstream_root: Path) -> None:
     )
 
 
-def patch_mssql_upstream(upstream_root: Path) -> None:
-    # DuckDB's generic unittest binary cannot satisfy `require mssql` for this
-    # out-of-tree extension on Windows even after the exact signed binary is
-    # installed and loaded. Remove that guard from every SQLLogicTest currently
-    # present; newly added tests are picked up automatically as the suite grows.
-    test_root = upstream_root / "test/sql"
-    changed_files, removed_directives = remove_test_directive(test_root, "require mssql")
-    if removed_directives == 0:
-        raise PatchError("MSSQL source contains no 'require mssql' directives to adapt")
-    print(
-        f"MSSQL Windows adapter removed {removed_directives} require directive(s) "
-        f"from {changed_files} SQLLogicTest file(s)"
-    )
-
-
 def patch_mssql_runner() -> None:
     runner = REPOSITORY_ROOT / "scripts/run-mssql-tests-base.sh"
     start_marker = "# Prepare a SQLLogicTest init profile that loads every compatibility extension"
     end_marker = 'MSSQL_TEST_CONNECTION_SQL="$(sed \'/^[[:space:]]*--/d\' "${MSSQL_TEST_INIT_SCRIPT}" | tr \'\\n\' \' \')"'
     replacement = """# Native Windows SQLLogicTest cannot satisfy `require mssql` for this out-of-tree
 # module. The exact signed repository binary was verified above; preload it on
-# init and on every connection, while the Windows source adapter removes only
-# the redundant require directive from all current/future upstream test files.
+# init and on every connection. The runner's signed-extension gate rewrites the
+# upstream require directive only after its positive community-binary probe.
 cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"
 cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"
 MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')""" + '"'
@@ -355,7 +340,6 @@ PATCHERS = {
     "azure": patch_azure,
     "postgres_scanner": patch_postgres_scanner,
     "delta": patch_delta,
-    "mssql": patch_mssql_upstream,
 }
 
 
