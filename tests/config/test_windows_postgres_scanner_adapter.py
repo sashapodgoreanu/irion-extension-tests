@@ -36,6 +36,11 @@ CALL postgres_execute('s', 'COPY binary_copy_test FROM ''{WORKING_DIRECTORY}/{TE
                 "server closed the connection unexpectedly\n",
                 encoding="utf-8",
             )
+            rollback_test = upstream / "test" / "sql" / "storage" / "attach_rollback_throws.test"
+            rollback_test.write_text(
+                "statement error\nCOMMIT\n----\nclosed\n",
+                encoding="utf-8",
+            )
 
             adapter["patch_postgres_scanner"](upstream)
 
@@ -50,6 +55,8 @@ CALL postgres_execute('s', 'COPY binary_copy_test FROM ''{WORKING_DIRECTORY}/{TE
             adapted_timeout_test = timeout_test.read_text(encoding="utf-8")
             self.assertIn("----\nconnection\n", adapted_timeout_test)
             self.assertNotIn("server closed the connection unexpectedly", adapted_timeout_test)
+            adapted_rollback_test = rollback_test.read_text(encoding="utf-8")
+            self.assertIn("----\nconnection\n", adapted_rollback_test)
 
 
 if __name__ == "__main__":

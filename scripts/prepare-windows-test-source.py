@@ -459,6 +459,12 @@ psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
         "----\nserver closed the connection unexpectedly",
         "----\nconnection",
     )
+    rollback_test = upstream_root / "test/sql/storage/attach_rollback_throws.test"
+    replace_exact(
+        rollback_test,
+        "----\nclosed",
+        "----\nconnection",
+    )
 
     # The test writes pg_binary.bin with native Windows unittest, so
     # {TEST_DIR} contains Windows separators. PostgreSQL itself runs in the
