@@ -231,30 +231,32 @@ def patch_postgres_scanner(upstream_root: Path) -> None:
     replace_exact(
         fixture,
         """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
-psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
+sed -E "s/,\\s*allow_quoted_nulls\\s+[^,)]+//g" ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql > ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
+psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql""",
         """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
+sed -E "s/,\\s*allow_quoted_nulls\\s+[^,)]+//g" ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql > ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql
 # The native Windows DuckDB proxy translates EXPORT DATABASE to a drive path.
 # PostgreSQL runs in WSL/Docker and must receive the mounted WSL path instead.
 WINDOWS_ABS_DIR_PREFIX="$(wslpath -m "${ABS_DIR_PREFIX}")"
-sed -i "s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g" "${ABS_DIR_PREFIX}/postgresscannertmp/load.sql"
-psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load.sql""",
+sed -i "s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g" "${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql"
+psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql""",
     )
 
     # The test writes pg_binary.bin with native Windows unittest, so
-    # __TEST_DIR__ contains Windows separators. PostgreSQL itself runs in the
+    # {TEST_DIR} contains Windows separators. PostgreSQL itself runs in the
     # WSL/Docker service host and reads the file server-side. Embed the actual
     # mounted WSL checkout root and normalize the expanded test directory before
     # handing the path to postgres_execute. Linux never invokes this adapter and
-    # therefore keeps the upstream __WORKING_DIRECTORY__/__TEST_DIR__ behavior.
+    # therefore keeps the upstream {WORKING_DIRECTORY}/{TEST_DIR} behavior.
     binary_test = upstream_root / "test/sql/misc/postgres_binary.test"
     server_root = upstream_root.as_posix().rstrip("/").replace("'", "''")
     old = (
         "'COPY binary_copy_test FROM "
-        "''__WORKING_DIRECTORY__/__TEST_DIR__/pg_binary.bin'' (FORMAT binary)'"
+        "''{WORKING_DIRECTORY}/{TEST_DIR}/pg_binary.bin'' (FORMAT binary)'"
     )
     new = (
         "'COPY binary_copy_test FROM ''' || "
-        f"replace('{server_root}/__TEST_DIR__/pg_binary.bin', chr(92), '/') || "
+        f"replace('{server_root}/{{TEST_DIR}}/pg_binary.bin', chr(92), '/') || "
         "''' (FORMAT binary)'"
     )
     count = replace_all_required(binary_test, old, new)
