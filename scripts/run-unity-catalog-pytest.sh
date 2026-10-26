@@ -20,8 +20,8 @@ WINDOWS_SHARED_TEST_TMP_DIR=""
 WINDOWS_UV_CACHE_DIR=""
 if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   # Python's multiprocessing store needs an AF_UNIX socket, which DrvFS does
-  # not support. Keep TMPDIR and uv's cache in WSL; pytest's own temp files go
-  # on the mounted checkout drive so native Windows DuckDB can open them.
+  # not support. Keep TMPDIR and uv's cache in WSL; pytest temp files and the
+  # OSS provisioner's canonicalized fixture databases go on the mounted drive.
   WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
   export TMPDIR="${WINDOWS_TMP_DIR}"
   WINDOWS_SHARED_TEST_TMP_DIR="$(mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX")"
@@ -133,8 +133,9 @@ docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
   # selects all default local suites and deselects Databricks unless requested.
   pytest_args=(-p unity_catalog_http_error_plugin -n0 -s)
   if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
-    # Windows DuckDB needs to see pytest's generated fixture files on the same
-    # mounted drive; TMPDIR remains on WSL's filesystem for AF_UNIX sockets.
+    # Windows DuckDB needs pytest's generated fixtures on the mounted drive;
+    # the OSS adapter uses QA_WINDOWS_TEMP_DIR for fixture DBs, while TMPDIR
+    # remains on WSL's filesystem for AF_UNIX sockets.
     # Stop this platform's pipeline at the first failing test.
     pytest_args+=(--basetemp "${WINDOWS_SHARED_TEST_TMP_DIR}" --maxfail=1)
   fi

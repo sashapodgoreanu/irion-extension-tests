@@ -71,11 +71,22 @@ class MockUC:
 """,
                 encoding="utf-8",
             )
+            oss = Path(directory) / "test" / "py" / "uc" / "oss.py"
+            oss.write_text(
+                "def inspect_fixture():\n"
+                "    def instantiate():\n"
+                "        try:\n"
+                "            table = canonicalize(duckdb_bin, definition)\n"
+                "        except Exception:\n"
+                "            pass\n",
+                encoding="utf-8",
+            )
 
             adapter["patch_unity_catalog"](Path(directory))
 
             source = mock.read_text(encoding="utf-8")
             irc_source = irc_mock.read_text(encoding="utf-8")
+            oss_source = oss.read_text(encoding="utf-8")
             self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1" and body', source)
             self.assertIn("_qa_translate_file_uris(json.loads(body), windows=False)", source)
             self.assertIn('self.command == "POST"', source)
@@ -86,6 +97,8 @@ class MockUC:
             self.assertIn('r"(?i)^file:///mnt/([a-z])/"', irc_source)
             self.assertIn('"file:/" + match.group(1).upper() + ":/"', irc_source)
             self.assertIn("/temporary-table-credentials", irc_source)
+            self.assertIn('workdir=os.environ.get("QA_WINDOWS_TEMP_DIR")', oss_source)
+            ast.parse(oss_source)
             module = ast.parse(source)
             helper = next(
                 node

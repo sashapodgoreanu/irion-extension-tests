@@ -298,9 +298,6 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "                        windows=True,",
             "                        absolute_unix_paths=not windows_staging,",
             "                    )",
-            '                    if isinstance(body, dict) and "tables" in body:',
-            '                        locations = [table.get("storage_location") for table in body["tables"]]',
-            '                        print("QA Windows Unity /tables response URIs: " + repr(locations), flush=True)',
             "                payload = json.dumps(body).encode()",
             "",
         ]
@@ -309,6 +306,16 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         mock,
         '            def _reply(self, body, status=200):\n                payload = json.dumps(body).encode()\n',
         response_hook,
+    )
+    oss = upstream_root / "test/py/uc/oss.py"
+    replace_exact(
+        oss,
+        "            table = canonicalize(duckdb_bin, definition)\n",
+        "            table = canonicalize(\n"
+        "                duckdb_bin,\n"
+        "                definition,\n"
+        '                workdir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
+        "            )\n",
     )
     patch_irc_scan_plan_mock(upstream_root)
 
