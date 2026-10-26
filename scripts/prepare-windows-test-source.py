@@ -222,7 +222,7 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "            if absolute_unix_paths:",
             "                value = re.sub(",
             "                    r'(?i)file:///tmp/',",
-            "                    'file:/W:/tmp/',",
+            "                    'file:///W:/tmp/',",
             "                    value,",
             "                )",
             "                return re.sub(",
@@ -326,6 +326,18 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         "                definition,\n"
         '                workdir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
         "            )\n",
+    )
+    server = upstream_root / "test/py/uc/server.py"
+    replace_exact(
+        server,
+        'PORT = int(os.environ.get("DUCKTEST_UC_PORT", "8080"))\n',
+        'PORT = int(os.environ.get("DUCKTEST_UC_PROXY_PORT", os.environ.get("DUCKTEST_UC_PORT", "8080")))\n'
+        'SERVER_PORT = int(os.environ.get("DUCKTEST_UC_SERVER_PORT", str(PORT)))\n',
+    )
+    replace_exact(
+        server,
+        '        "DUCKTEST_UC_PORT": str(PORT),\n',
+        '        "DUCKTEST_UC_PORT": str(SERVER_PORT),\n',
     )
     patch_irc_scan_plan_mock(upstream_root)
 

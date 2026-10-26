@@ -18,6 +18,7 @@ DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 WINDOWS_TMP_DIR=""
 WINDOWS_SHARED_TEST_TMP_DIR=""
 WINDOWS_UV_CACHE_DIR=""
+WINDOWS_UC_PROXY_PID=""
 if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   # Python's multiprocessing store needs an AF_UNIX socket, which DrvFS does
   # not support. Keep TMPDIR and uv's cache in WSL; pytest temp files and the
@@ -31,6 +32,10 @@ if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   WINDOWS_UV_CACHE_DIR="$(mktemp -d /tmp/qa-unity-uv.XXXXXXXX)"
   export UV_CACHE_DIR="${WINDOWS_UV_CACHE_DIR}"
   cleanup_windows_tmp() {
+    if [[ -n "${WINDOWS_UC_PROXY_PID}" ]]; then
+      kill "${WINDOWS_UC_PROXY_PID}" 2>/dev/null || true
+      wait "${WINDOWS_UC_PROXY_PID}" 2>/dev/null || true
+    fi
     rm -rf -- "${WINDOWS_TMP_DIR}"
     rm -rf -- "${WINDOWS_SHARED_TEST_TMP_DIR}"
     rm -rf -- "${WINDOWS_UV_CACHE_DIR}"
@@ -128,6 +133,33 @@ export LOCAL_EXTENSION_REPO="${BUILD_DIR}/repository"
 
 echo "Unity Catalog suite image: ${DUCKTEST_UC_IMAGE}" | tee "${LOG_DIR}/pytest.log"
 docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
+if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
+  export DUCKTEST_UC_PROXY_PORT=8080
+  export DUCKTEST_UC_SERVER_PORT=8081
+  WINDOWS_UC_PROXY_LOG="${LOG_DIR}/windows-uri-proxy.log"
+  python3 "${SCRIPT_DIR}/unity-catalog-windows-proxy.py" \
+    --listen-host 0.0.0.0 --listen-port "${DUCKTEST_UC_PROXY_PORT}" \
+    --target-host 127.0.0.1 --target-port "${DUCKTEST_UC_SERVER_PORT}" \
+    >"${WINDOWS_UC_PROXY_LOG}" 2>&1 &
+  WINDOWS_UC_PROXY_PID=$!
+  proxy_ready=0
+  for _ in $(seq 1 50); do
+    if ! kill -0 "${WINDOWS_UC_PROXY_PID}" 2>/dev/null; then
+      break
+    fi
+    if python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8080/__qa_proxy_health__", timeout=1).read()' >/dev/null 2>&1; then
+      proxy_ready=1
+      break
+    fi
+    sleep 0.2
+  done
+  if [[ "${proxy_ready}" != "1" ]]; then
+    cat "${WINDOWS_UC_PROXY_LOG}" >&2
+    echo "Windows Unity Catalog URI proxy failed to start" >&2
+    exit 1
+  fi
+  cat "${WINDOWS_UC_PROXY_LOG}" | tee -a "${LOG_DIR}/pytest.log"
+fi
 (
   cd "${UPSTREAM_ROOT}"
   # Match the pinned upstream Integration Tests workflow. Its pytest driver

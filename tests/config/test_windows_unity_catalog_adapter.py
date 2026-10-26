@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import re
 import runpy
 import tempfile
@@ -11,6 +12,29 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class WindowsUnityCatalogAdapterTest(unittest.TestCase):
+    def test_live_server_proxy_rewrites_wsl_file_uris_both_directions(self) -> None:
+        proxy = runpy.run_path(str(ROOT / "scripts" / "unity-catalog-windows-proxy.py"))
+        payload = (
+            b'{"storage_location":"file:///tmp/qa-unity.abc/ducktest-uc-data/tables/a",'
+            b'"nested":[{"uri":"file:///W:/tmp/qa-unity.abc/ducktest-uc-data/tables/b"}]}'
+        )
+        windows = proxy["rewrite_json_payload"](payload, to_windows=True)
+        self.assertEqual(
+            json.loads(windows),
+            {
+                "storage_location": "file:///W:/tmp/qa-unity.abc/ducktest-uc-data/tables/a",
+                "nested": [{"uri": "file:///W:/tmp/qa-unity.abc/ducktest-uc-data/tables/b"}],
+            },
+        )
+        wsl = proxy["rewrite_json_payload"](windows, to_windows=False)
+        self.assertEqual(
+            json.loads(wsl),
+            {
+                "storage_location": "file:///tmp/qa-unity.abc/ducktest-uc-data/tables/a",
+                "nested": [{"uri": "file:///tmp/qa-unity.abc/ducktest-uc-data/tables/b"}],
+            },
+        )
+
     def test_wsl_data_drive_is_mapped_and_checked_bidirectionally(self) -> None:
         setup = (ROOT / "scripts" / "setup-windows-wsl-runtime.ps1").read_text(encoding="utf-8")
         self.assertIn("net.exe use W: $wslShare /persistent:no", setup)
@@ -88,12 +112,19 @@ class MockUC:
                 "            pass\n",
                 encoding="utf-8",
             )
+            server = Path(directory) / "test" / "py" / "uc" / "server.py"
+            server.write_text(
+                'PORT = int(os.environ.get("DUCKTEST_UC_PORT", "8080"))\n'
+                'env = {\n        "DUCKTEST_UC_PORT": str(PORT),\n    }\n',
+                encoding="utf-8",
+            )
 
             adapter["patch_unity_catalog"](Path(directory))
 
             source = mock.read_text(encoding="utf-8")
             irc_source = irc_mock.read_text(encoding="utf-8")
             oss_source = oss.read_text(encoding="utf-8")
+            server_source = server.read_text(encoding="utf-8")
             self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1" and body', source)
             self.assertIn("_qa_translate_file_uris(json.loads(body), windows=False)", source)
             self.assertIn('self.command == "POST"', source)
@@ -105,6 +136,10 @@ class MockUC:
             self.assertIn('"file:/" + match.group(1).upper() + ":/"', irc_source)
             self.assertIn("/temporary-table-credentials", irc_source)
             self.assertIn('workdir=os.environ.get("QA_WINDOWS_TEMP_DIR")', oss_source)
+            self.assertIn('DUCKTEST_UC_PROXY_PORT', server_source)
+            self.assertIn('DUCKTEST_UC_SERVER_PORT', server_source)
+            self.assertIn('"DUCKTEST_UC_PORT": str(SERVER_PORT)', server_source)
+            ast.parse(server_source)
             ast.parse(oss_source)
             module = ast.parse(source)
             helper = next(
@@ -148,7 +183,7 @@ class MockUC:
                     "storage_location": "file:/D:/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
                     "nested": [
                         "file:/D:/a/qa/upstream/unity_catalog/data/timestamps",
-                        "file:/W:/tmp/qa-unity.abc12345/ducktest-uc-data/tables/abc",
+                        "file:///W:/tmp/qa-unity.abc12345/ducktest-uc-data/tables/abc",
                     ],
                 },
             )
