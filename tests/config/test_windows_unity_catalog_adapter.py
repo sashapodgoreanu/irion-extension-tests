@@ -37,6 +37,12 @@ class MockUnityCatalog:
                 self._reply(payload, status)
                 return answer
 
+            def do_POST(self):
+                if plan is None:
+                    self.send_error(404)
+                    return
+                self._reply(plan(self.path))
+
             def _reply(self, body, status=200):
                 payload = json.dumps(body).encode()
 """,
@@ -51,6 +57,7 @@ class MockUnityCatalog:
             self.assertIn('self.command == "POST"', source)
             self.assertIn('and "/staging-tables" in self.path', source)
             self.assertIn("absolute_unix_paths=not windows_staging", source)
+            self.assertIn("/temporary-table-credentials", source)
             module = ast.parse(source)
             helper = next(
                 node
@@ -87,10 +94,11 @@ class MockUnityCatalog:
             self.assertEqual(
                 windows_external_payload,
                 {
-                    "storage_location": "file:///data/nested_struct_pairs",
-                    "nested": ["file:///data/timestamps"],
+                    "storage_location": "file:/D:/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
+                    "nested": ["file:/D:/a/qa/upstream/unity_catalog/data/timestamps"],
                 },
             )
+            self.assertEqual(translate(windows_external_payload, windows=False), wsl_external_payload)
             self.assertEqual(adapter["PATCHERS"]["unity_catalog"], adapter["patch_unity_catalog"])
 
     def test_upstream_mock_drift_fails_closed(self) -> None:

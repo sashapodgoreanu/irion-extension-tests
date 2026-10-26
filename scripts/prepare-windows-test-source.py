@@ -221,8 +221,8 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "        if windows:",
             "            if absolute_unix_paths:",
             "                return re.sub(",
-            "                    r'(?i)file:///mnt/[a-z]/.*?/upstream/unity_catalog/',",
-            "                    'file:///',",
+            "                    r'(?i)file:///mnt/([a-z])/',",
+            "                    lambda match: 'file:/' + match.group(1).upper() + ':/',",
             "                    value,",
             "                )",
             "            return re.sub(",
@@ -231,7 +231,7 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "                value,",
             "            )",
             "        value = re.sub(",
-            "            r'(?i)file:////mnt/([a-z])/',",
+            "            r'(?i)file:/([a-z]):/',",
             "            lambda match: 'file:///mnt/' + match.group(1).lower() + '/',",
             "            value,",
             "        )",
@@ -275,6 +275,18 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         ]
     )
     replace_exact(mock, "                answer = respond(method, self.path, body)\n", request_hook)
+    credential_hook = "\n".join(
+        [
+            '                if os.environ.get("QA_NATIVE_WINDOWS") == "1" and "/temporary-table-credentials" in self.path:',
+            "                    self._reply(",
+            '                        {"aws_temp_credentials": {"access_key_id": "qa", "secret_access_key": "qa", "session_token": "qa"}}',
+            "                    )",
+            "                    return",
+            "                if plan is None:",
+            "",
+        ]
+    )
+    replace_exact(mock, "                if plan is None:\n", credential_hook)
     response_hook = "\n".join(
         [
             "            def _reply(self, body, status=200):",
