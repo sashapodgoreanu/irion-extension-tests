@@ -15,18 +15,26 @@ BUILD_DIR="${UPSTREAM_ROOT}/build/release"
 LOG_DIR="${REPOSITORY_ROOT}/build/logs/unity_catalog"
 DUCKDB_BIN="${ARTIFACT_DIR}/bin/duckdb"
 
-for required in \
+required=(
   "${UPSTREAM_ROOT}/pyproject.toml" \
   "${UPSTREAM_ROOT}/pytest.ini" \
   "${UPSTREAM_ROOT}/test/conftest.py" \
   "${ARTIFACT_DIR}/bin/duckdb" \
   "${ARTIFACT_DIR}/bin/unittest" \
-  "${ARTIFACT_DIR}/lib/libduckdb.so" \
   "${RUNTIME_CONFIG_DIR}/install-extensions.sql" \
   "${RUNTIME_CONFIG_DIR}/init-extensions.sql" \
-  "${RUNTIME_CONFIG_DIR}/extensions.json"; do
-  if [[ ! -e "${required}" ]]; then
-    echo "Unity Catalog pytest prerequisite is missing: ${required}" >&2
+  "${RUNTIME_CONFIG_DIR}/extensions.json"
+)
+# The Windows WSL bridge supplies proxies to native duckdb.exe/unittest.exe.
+# It does not have a Linux shared library, and those native binaries do not use
+# libduckdb.so. Linux runs use the built shared library for Python/C++ tests.
+if [[ "${QA_NATIVE_WINDOWS:-0}" != "1" ]]; then
+  required+=("${ARTIFACT_DIR}/lib/libduckdb.so")
+fi
+
+for required_file in "${required[@]}"; do
+  if [[ ! -e "${required_file}" ]]; then
+    echo "Unity Catalog pytest prerequisite is missing: ${required_file}" >&2
     exit 1
   fi
 done
@@ -43,7 +51,9 @@ if [[ -x "${ARTIFACT_DIR}/bin/unittest_cpp" ]]; then
   ln -sfn "${ARTIFACT_DIR}/bin/unittest_cpp" "${BUILD_DIR}/test/unittest_cpp"
 fi
 ln -sfn "${ARTIFACT_DIR}/bin/duckdb" "${BUILD_DIR}/duckdb"
-ln -sfn "${ARTIFACT_DIR}/lib/libduckdb.so" "${BUILD_DIR}/src/libduckdb.so"
+if [[ -f "${ARTIFACT_DIR}/lib/libduckdb.so" ]]; then
+  ln -sfn "${ARTIFACT_DIR}/lib/libduckdb.so" "${BUILD_DIR}/src/libduckdb.so"
+fi
 
 export BUILD_DIR
 export DUCKTEST_UC_IMAGE="${DUCKTEST_UC_IMAGE:-ghcr.io/benfleis/ducktest-unitycatalog:ci}"

@@ -43,6 +43,9 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertIn('BUILD_DIR="${UPSTREAM_ROOT}/build/release"', runner)
         self.assertIn('LD_LIBRARY_PATH="${PWD}/build/release/src"', runner)
         self.assertIn('BUILD_DIR=build/release', runner)
+        self.assertIn('if [[ "${QA_NATIVE_WINDOWS:-0}" != "1" ]]; then', runner)
+        self.assertIn('required+=("${ARTIFACT_DIR}/lib/libduckdb.so")', runner)
+        self.assertIn('if [[ -f "${ARTIFACT_DIR}/lib/libduckdb.so" ]]; then', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
 
