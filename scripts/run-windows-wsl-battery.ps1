@@ -176,6 +176,8 @@ function Invoke-NativeStandardBattery {
     $previousRunnerTemp = $env:RUNNER_TEMP
     $previousVersion = $env:DUCKDB_VERSION
     $serviceHost = $null
+    $shortSourceAlias = $null
+    $runnerSourceRoot = $SourceRoot
     try {
         $env:ARTIFACT_DIR = $artifactDir
         $env:BATTERY_RUNTIME_CONFIG_DIR = $runtimeConfig
@@ -183,13 +185,31 @@ function Invoke-NativeStandardBattery {
         $env:DUCKDB_VERSION = $DuckDBVersion
         $env:RESULT_STARTED_AT_MS = $StartedAtMs
 
+        # DuckLake's SQLite metadata filenames can exceed MAX_PATH under the
+        # nested GitHub workspace, even though the files are otherwise local.
+        # Preserve a short drive-root junction through the native test runner.
+        if ($BatteryName -eq 'ducklake') {
+            $sourceDriveRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($SourceRoot))
+            $shortSourceAlias = Join-Path $sourceDriveRoot 'qa-ducklake-src'
+            if (Test-Path -LiteralPath $shortSourceAlias) {
+                $existingAlias = Get-Item -LiteralPath $shortSourceAlias -Force
+                if (($existingAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                    throw "Refusing to replace non-junction DuckLake short path: $shortSourceAlias"
+                }
+                Remove-Item -LiteralPath $shortSourceAlias -Force
+            }
+            New-Item -ItemType Junction -Path $shortSourceAlias -Target ([System.IO.Path]::GetFullPath($SourceRoot)) | Out-Null
+            $runnerSourceRoot = $shortSourceAlias
+            Write-QaLog INFO "DuckLake short source alias windows=$shortSourceAlias target=$SourceRoot"
+        }
+
         if ($BatteryName -eq 'ducklake') {
             $serviceHost = Start-WslProfileServiceHost -ProfileName 'postgres'
         }
 
         $duckdb = Join-Path $artifactDir 'bin\duckdb.exe'
         $unittest = Join-Path $artifactDir 'bin\unittest.exe'
-        Write-QaLog INFO "native execution duckdb=$duckdb unittest=$unittest source=$SourceRoot"
+        Write-QaLog INFO "native execution duckdb=$duckdb unittest=$unittest source=$runnerSourceRoot"
         if (-not (Test-Path -LiteralPath $duckdb -PathType Leaf)) {
             throw "Native DuckDB executable is missing: $duckdb"
         }
@@ -200,7 +220,7 @@ function Invoke-NativeStandardBattery {
             throw "WSL infrastructure host exited before native test execution with code $($serviceHost.Process.ExitCode)"
         }
 
-        & python $runner $BatteryName $SourceRoot
+        & python $runner $BatteryName $runnerSourceRoot
         $exitCode = $LASTEXITCODE
         Write-QaLog INFO "native standard runner exit_code=$exitCode"
         if ($exitCode -ne 0) {
@@ -210,6 +230,16 @@ function Invoke-NativeStandardBattery {
     finally {
         if ($null -ne $serviceHost) {
             Stop-WslProfileServiceHost -HostState $serviceHost
+        }
+        if ($null -ne $shortSourceAlias -and (Test-Path -LiteralPath $shortSourceAlias)) {
+            $aliasItem = Get-Item -LiteralPath $shortSourceAlias -Force
+            if (($aliasItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                Remove-Item -LiteralPath $shortSourceAlias -Force
+                Write-QaLog INFO "removed DuckLake short source alias $shortSourceAlias"
+            }
+            else {
+                Write-QaLog ERROR "DuckLake short source path is no longer a junction; leaving it untouched: $shortSourceAlias"
+            }
         }
         $env:ARTIFACT_DIR = $previousArtifact
         $env:BATTERY_RUNTIME_CONFIG_DIR = $previousRuntimeConfig

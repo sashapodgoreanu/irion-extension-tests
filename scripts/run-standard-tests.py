@@ -669,7 +669,13 @@ def main() -> int:
         return 2
 
     test_name = sys.argv[1]
-    upstream_root = Path(sys.argv[2]).resolve()
+    upstream_root_arg = Path(sys.argv[2])
+    if os.name == "nt":
+        # Keep drive-root junction aliases short; resolve() expands them back
+        # to the long GitHub workspace path and can exceed Windows MAX_PATH.
+        upstream_root = upstream_root_arg.absolute()
+    else:
+        upstream_root = upstream_root_arg.resolve()
     artifact_dir = Path(os.environ.get("ARTIFACT_DIR", "build/artifact")).resolve()
     runtime_config = Path(os.environ["BATTERY_RUNTIME_CONFIG_DIR"]).resolve()
     duckdb_version = os.environ["DUCKDB_VERSION"]
