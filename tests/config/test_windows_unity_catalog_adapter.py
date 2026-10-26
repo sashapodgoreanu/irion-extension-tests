@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import ast
+from contextlib import redirect_stdout
+from io import StringIO
 import json
 import re
 import runpy
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -90,14 +94,24 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         self.assertIn('--mirror-uri "${QA_WINDOWS_UC_SERVER_MIRROR_URI}"', runner)
 
     def test_mirror_uri_uses_localhost_authority_and_one_windows_drive(self) -> None:
-        uri = runpy.run_path(str(ROOT / "scripts" / "windows-file-uri.py"))[
-            "windows_file_uri"
-        ](r"D:\a\qa\.qa-unity.abc\unity-catalog-server-data")
+        helper = runpy.run_path(str(ROOT / "scripts" / "windows-file-uri.py"))
+        uri = helper["windows_file_uri"](
+            r"D:\a\qa\.qa-unity.abc\unity-catalog-server-data"
+        )
         self.assertEqual(
             uri,
             "file://localhost/D:/a/qa/.qa-unity.abc/unity-catalog-server-data",
         )
         self.assertEqual(uri.count("D:"), 1)
+
+        output = StringIO()
+        with (
+            patch.object(sys, "argv", ["windows-file-uri.py", "/mnt/d/a/qa/mirror"]),
+            patch.object(helper["subprocess"], "check_output", return_value=r"D:\a\qa\mirror"),
+            redirect_stdout(output),
+        ):
+            helper["main"]()
+        self.assertEqual(output.getvalue().strip(), "file://localhost/D:/a/qa/mirror")
 
     def test_mock_catalog_translates_file_uris_both_directions(self) -> None:
         adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))

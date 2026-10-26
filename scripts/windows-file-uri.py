@@ -32,7 +32,7 @@ def main() -> None:
     windows_path = subprocess.check_output(
         ["wslpath", "-w", sys.argv[1]], text=True
     ).strip()
-    print(current_drive_rooted_file_uri(windows_path))
+    print(windows_file_uri(windows_path))
 
 
 if __name__ == "__main__":
