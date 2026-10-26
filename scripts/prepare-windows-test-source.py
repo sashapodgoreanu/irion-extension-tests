@@ -275,34 +275,16 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         ]
     )
     replace_exact(mock, "                answer = respond(method, self.path, body)\n", request_hook)
-    response_dispatch_hook = "\n".join(
-        [
-            "                windows_staging = (",
-            '                    os.environ.get("QA_NATIVE_WINDOWS") == "1"',
-            '                    and method == "POST"',
-            '                    and "/staging-tables" in self.path',
-            "                )",
-            '                windows_native_paths = os.environ.get("QA_NATIVE_WINDOWS") == "1" and not windows_staging',
-            "                self._reply(",
-            "                    payload,",
-            "                    status,",
-            "                    windows_file_uris=windows_staging,",
-            "                    windows_absolute_file_uris=windows_native_paths,",
-            "                )",
-            "",
-        ]
-    )
-    replace_exact(mock, "                self._reply(payload, status)\n", response_dispatch_hook)
     response_hook = "\n".join(
         [
-            "            def _reply(",
-            "                self, body, status=200, *, windows_file_uris=False, windows_absolute_file_uris=False",
-            "            ):",
-            "                if windows_file_uris or windows_absolute_file_uris:",
+            "            def _reply(self, body, status=200):",
+            '                windows_native = os.environ.get("QA_NATIVE_WINDOWS") == "1"',
+            '                windows_staging = windows_native and self.command == "POST" and "/staging-tables" in self.path',
+            "                if windows_native:",
             "                    body = _qa_translate_file_uris(",
             "                        body,",
             "                        windows=True,",
-            "                        absolute_unix_paths=windows_absolute_file_uris,",
+            "                        absolute_unix_paths=not windows_staging,",
             "                    )",
             "                payload = json.dumps(body).encode()",
             "",
