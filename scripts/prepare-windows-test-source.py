@@ -317,6 +317,15 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         '                workdir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
         "            )\n",
     )
+    server = upstream_root / "test/py/uc/server.py"
+    replace_exact(
+        server,
+        '    data_dir = tempfile.mkdtemp(prefix="ducktest-uc-data-")\n',
+        "    data_dir = tempfile.mkdtemp(\n"
+        '        prefix="ducktest-uc-data-",\n'
+        '        dir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
+        "    )\n",
+    )
     patch_irc_scan_plan_mock(upstream_root)
 
 

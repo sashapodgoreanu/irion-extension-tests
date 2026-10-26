@@ -81,12 +81,19 @@ class MockUC:
                 "            pass\n",
                 encoding="utf-8",
             )
+            server = Path(directory) / "test" / "py" / "uc" / "server.py"
+            server.write_text(
+                "def start_container():\n"
+                '    data_dir = tempfile.mkdtemp(prefix="ducktest-uc-data-")\n',
+                encoding="utf-8",
+            )
 
             adapter["patch_unity_catalog"](Path(directory))
 
             source = mock.read_text(encoding="utf-8")
             irc_source = irc_mock.read_text(encoding="utf-8")
             oss_source = oss.read_text(encoding="utf-8")
+            server_source = server.read_text(encoding="utf-8")
             self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1" and body', source)
             self.assertIn("_qa_translate_file_uris(json.loads(body), windows=False)", source)
             self.assertIn('self.command == "POST"', source)
@@ -99,6 +106,8 @@ class MockUC:
             self.assertIn("/temporary-table-credentials", irc_source)
             self.assertIn('workdir=os.environ.get("QA_WINDOWS_TEMP_DIR")', oss_source)
             ast.parse(oss_source)
+            self.assertIn('dir=os.environ.get("QA_WINDOWS_TEMP_DIR")', server_source)
+            ast.parse(server_source)
             module = ast.parse(source)
             helper = next(
                 node
