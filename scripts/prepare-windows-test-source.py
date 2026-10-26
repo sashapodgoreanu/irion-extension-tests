@@ -178,6 +178,28 @@ def patch_delta_copy_dir_tests(upstream_root: Path) -> tuple[int, int]:
 
 def patch_httpfs(upstream_root: Path) -> None:
     test = upstream_root / "test/sql/copy/s3/glob_s3_paging.test_slow"
+    contents = test.read_text(encoding="utf-8")
+    request_count_query = "query IIIII\nFROM (FROM duckdb_logs_parsed('HTTP')"
+    query_start = contents.find(request_count_query)
+    if query_start < 0:
+        raise PatchError(f"{test}: HTTP request-count query anchor was not found")
+
+    modes = list(
+        re.finditer(r"(?m)^[ \t]*mode[ \t]+(\S+)[ \t]*$", contents[:query_start])
+    )
+    if modes and modes[-1].group(1).lower() == "skip":
+        # The pinned upstream test already skips this diagnostic assertion on
+        # every platform. Its expected request rows have since changed, so no
+        # Windows-specific rewrite is needed.
+        return
+
+    windows_expectation = (
+        "11\t0\t11\t0\t0\n11\t0\t11\t0\t0\n"
+        "11\t0\t11\t0\t0\n11\t0\t11\t0\t0"
+    )
+    if windows_expectation in contents:
+        return
+
     # WinHTTP/curl scheduling issues the same eleven GETs for each paging
     # context. The functional paging result is unchanged; only the diagnostic
     # HTTP request-count expectation differs from Linux.
