@@ -24,7 +24,8 @@ if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   # not support. Keep TMPDIR and uv's cache in WSL; pytest temp files and the
   # OSS provisioner's fixture databases and a mirror of its server data go on
   # the Windows drive. The Java server keeps its writable data on WSL ext4;
-  # native DuckDB uses the NTFS mirror to avoid UNC file URLs.
+  # native DuckDB uses a same-drive NTFS mirror and drive-root-relative file
+  # URIs to avoid UNC paths and a duplicated drive letter.
   WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
   export TMPDIR="${WINDOWS_TMP_DIR}"
   WINDOWS_SHARED_TEST_TMP_DIR="$(mktemp -d "${REPOSITORY_ROOT}/.qa-unity.XXXXXXXX")"
@@ -33,7 +34,7 @@ if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   mkdir -p "${WINDOWS_UC_SERVER_MIRROR_DIR}"
   export QA_WINDOWS_UC_SERVER_TMP_DIR="${WINDOWS_TMP_DIR}"
   export QA_WINDOWS_UC_SERVER_MIRROR_DIR="${WINDOWS_UC_SERVER_MIRROR_DIR}"
-  WINDOWS_UC_SERVER_MIRROR_URI="$(python3 -c 'import subprocess, sys; path = subprocess.check_output(["wslpath", "-w", sys.argv[1]], text=True).strip(); print("file:///" + path.replace("\\", "/"))' "${WINDOWS_UC_SERVER_MIRROR_DIR}")"
+  WINDOWS_UC_SERVER_MIRROR_URI="$(python3 "${SCRIPT_DIR}/windows-file-uri.py" "${WINDOWS_UC_SERVER_MIRROR_DIR}")"
   export QA_WINDOWS_UC_SERVER_MIRROR_URI="${WINDOWS_UC_SERVER_MIRROR_URI}"
   # uv's cache needs atomic renames that DrvFS cannot reliably provide.
   WINDOWS_UV_CACHE_DIR="$(mktemp -d /tmp/qa-unity-uv.XXXXXXXX)"

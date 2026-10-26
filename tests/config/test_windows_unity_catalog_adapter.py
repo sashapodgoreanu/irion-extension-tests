@@ -16,7 +16,7 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         proxy = runpy.run_path(str(ROOT / "scripts" / "unity-catalog-windows-proxy.py"))
         server_tmp_dir = "/tmp/qa-unity.abc"
         mirror_dir = "/mnt/d/a/qa/.qa-unity.abc/unity-catalog-server-data"
-        mirror_uri = "file:///D:/a/qa/.qa-unity.abc/unity-catalog-server-data"
+        mirror_uri = "file:///a/qa/.qa-unity.abc/unity-catalog-server-data"
         payload = (
             b'{"storage_location":"file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/a",'
             b'"nested":[{"uri":"file:///tmp/qa-unity.abc/ducktest-uc-data-one/tables/b"}]}'
@@ -31,8 +31,8 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         self.assertEqual(
             json.loads(windows),
             {
-                "storage_location": "file:///D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/a",
-                "nested": [{"uri": "file:///D:/a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/b"}],
+                "storage_location": "file:///a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/a",
+                "nested": [{"uri": "file:///a/qa/.qa-unity.abc/unity-catalog-server-data/ducktest-uc-data-one/tables/b"}],
             },
         )
         wsl = proxy["rewrite_json_payload"](
@@ -88,6 +88,13 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         self.assertIn('--server-tmp-dir "${QA_WINDOWS_UC_SERVER_TMP_DIR}"', runner)
         self.assertIn('--mirror-dir "${QA_WINDOWS_UC_SERVER_MIRROR_DIR}"', runner)
         self.assertIn('--mirror-uri "${QA_WINDOWS_UC_SERVER_MIRROR_URI}"', runner)
+
+    def test_mirror_uri_does_not_repeat_the_windows_drive(self) -> None:
+        uri = runpy.run_path(str(ROOT / "scripts" / "windows-file-uri.py"))[
+            "current_drive_rooted_file_uri"
+        ](r"D:\a\qa\.qa-unity.abc\unity-catalog-server-data")
+        self.assertEqual(uri, "file:///a/qa/.qa-unity.abc/unity-catalog-server-data")
+        self.assertNotRegex(uri, r"^file:///[A-Za-z]:/")
 
     def test_mock_catalog_translates_file_uris_both_directions(self) -> None:
         adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))
