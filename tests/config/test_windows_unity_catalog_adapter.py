@@ -60,20 +60,36 @@ class WindowsUnityCatalogAdapterTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             server_tmp_dir = Path(directory) / "server-tmp"
             mirror_dir = Path(directory) / "windows-mirror"
-            server_table = server_tmp_dir / "ducktest-uc-data-one" / "duck" / "cmt" / "_delta_log"
-            server_table.mkdir(parents=True)
-            source_file = server_table / "00000000000000000000.json"
+            table_root = server_tmp_dir / "ducktest-uc-data-one" / "duck" / "cmt" / "table"
+            server_log = table_root / "_delta_log"
+            server_log.mkdir(parents=True)
+            source_file = server_log / "00000000000000000000.json"
             source_file.write_text("server-created", encoding="utf-8")
+            unrelated_file = (
+                server_tmp_dir
+                / "ducktest-uc-data-one"
+                / "duck"
+                / "plain"
+                / "other-table"
+                / "_delta_log"
+                / "00000000000000000000.json"
+            )
+            unrelated_file.parent.mkdir(parents=True)
+            unrelated_file.write_text("not-referenced", encoding="utf-8")
 
             handler.server_tmp_dir = str(server_tmp_dir)
             handler.mirror_dir = str(mirror_dir)
-            handler._copy_missing_server_files()
-            mirror_file = mirror_dir / "ducktest-uc-data-one" / "duck" / "cmt" / "_delta_log" / source_file.name
+            source_paths = handler._server_storage_paths(
+                json.dumps({"storage_location": table_root.as_uri()}).encode()
+            )
+            handler._copy_missing_server_files(source_paths)
+            mirror_file = mirror_dir / source_file.relative_to(server_tmp_dir)
             self.assertEqual(mirror_file.read_text(encoding="utf-8"), "server-created")
+            self.assertFalse((mirror_dir / unrelated_file.relative_to(server_tmp_dir)).exists())
 
             mirror_file.write_text("windows-updated", encoding="utf-8")
             source_file.write_text("new-server-version", encoding="utf-8")
-            handler._copy_missing_server_files()
+            handler._copy_missing_server_files(source_paths)
             self.assertEqual(mirror_file.read_text(encoding="utf-8"), "windows-updated")
             handler.server_tmp_dir = ""
             handler.mirror_dir = ""

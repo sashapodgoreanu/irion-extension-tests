@@ -103,8 +103,41 @@ class UnityCatalogProxy(BaseHTTPRequestHandler):
     mirror_lock = threading.Lock()
 
     @classmethod
-    def _copy_missing_server_files(cls) -> None:
-        """Copy newly provisioned UC data to NTFS for native Windows DuckDB."""
+    def _server_storage_paths(cls, payload: bytes) -> set[Path]:
+        """Find server-owned storage paths in a UC JSON response."""
+        if not cls.server_tmp_dir:
+            return set()
+        try:
+            value = json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return set()
+
+        server_tmp = Path(cls.server_tmp_dir)
+        paths: set[Path] = set()
+
+        def visit(item: Any) -> None:
+            if isinstance(item, str) and item.lower().startswith("file://"):
+                uri_path = unquote(urlsplit(item).path)
+                source = Path(uri_path)
+                try:
+                    relative = source.relative_to(server_tmp)
+                except ValueError:
+                    return
+                if relative.parts and relative.parts[0].startswith("ducktest-uc-data-"):
+                    paths.add(source)
+            elif isinstance(item, list):
+                for child in item:
+                    visit(child)
+            elif isinstance(item, dict):
+                for child in item.values():
+                    visit(child)
+
+        visit(value)
+        return paths
+
+    @classmethod
+    def _copy_missing_server_files(cls, source_paths: set[Path]) -> None:
+        """Copy only referenced UC storage trees to NTFS for native Windows DuckDB."""
         if not cls.server_tmp_dir or not cls.mirror_dir:
             return
         server_tmp = Path(cls.server_tmp_dir)
@@ -114,22 +147,31 @@ class UnityCatalogProxy(BaseHTTPRequestHandler):
 
         copied_files = 0
         with cls.mirror_lock:
-            for source_root in server_tmp.glob("ducktest-uc-data-*"):
-                if not source_root.is_dir():
+            for source_path in source_paths:
+                try:
+                    relative_path = source_path.relative_to(server_tmp)
+                except ValueError:
                     continue
-                destination_root = mirror_root / source_root.name
-                for current, directories, files in os.walk(source_root):
-                    relative = Path(current).relative_to(source_root)
-                    destination = destination_root / relative
-                    destination.mkdir(parents=True, exist_ok=True)
-                    for directory in directories:
-                        (destination / directory).mkdir(exist_ok=True)
-                    for filename in files:
-                        source_file = Path(current) / filename
-                        destination_file = destination / filename
-                        if not destination_file.exists():
-                            shutil.copy2(source_file, destination_file)
-                            copied_files += 1
+                if not relative_path.parts or not relative_path.parts[0].startswith("ducktest-uc-data-"):
+                    continue
+                if source_path.is_file():
+                    source_files = [source_path]
+                    source_root = source_path.parent
+                elif source_path.is_dir():
+                    source_root = source_path
+                    source_files = []
+                    for current, _, files in os.walk(source_root):
+                        source_files.extend(Path(current) / filename for filename in files)
+                else:
+                    continue
+
+                destination_root = mirror_root / source_root.relative_to(server_tmp)
+                for source_file in source_files:
+                    destination_file = destination_root / source_file.relative_to(source_root)
+                    if not destination_file.exists():
+                        destination_file.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(source_file, destination_file)
+                        copied_files += 1
         if copied_files:
             print(f"Mirrored {copied_files} new Unity Catalog server file(s) onto NTFS", flush=True)
 
@@ -172,10 +214,7 @@ class UnityCatalogProxy(BaseHTTPRequestHandler):
                 "",
             )
             if response_body and "json" in content_type.lower():
-                storage_uri_marker = (
-                    "file://" + self.server_tmp_dir.rstrip("/") + "/ducktest-uc-data-"
-                ).lower().encode()
-                has_server_storage_uri = storage_uri_marker in response_body.lower()
+                source_paths = self._server_storage_paths(response_body)
                 response_body = rewrite_json_payload(
                     response_body,
                     to_windows=True,
@@ -183,8 +222,8 @@ class UnityCatalogProxy(BaseHTTPRequestHandler):
                     mirror_dir=self.mirror_dir,
                     mirror_uri=self.mirror_uri,
                 )
-                if has_server_storage_uri:
-                    self._copy_missing_server_files()
+                if source_paths:
+                    self._copy_missing_server_files(source_paths)
 
             self.send_response(response.status, response.reason)
             connection_header = next(
