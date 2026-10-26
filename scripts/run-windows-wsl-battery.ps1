@@ -187,10 +187,10 @@ function Invoke-NativeStandardBattery {
 
         # DuckLake's SQLite metadata filenames can exceed MAX_PATH under the
         # nested GitHub workspace, even though the files are otherwise local.
-        # Preserve a short drive-root junction through the native test runner.
+        # Keep the drive-root junction short enough for the longest test names.
         if ($BatteryName -eq 'ducklake') {
             $sourceDriveRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($SourceRoot))
-            $shortSourceAlias = Join-Path $sourceDriveRoot 'qa-ducklake-src'
+            $shortSourceAlias = Join-Path $sourceDriveRoot 'qa'
             if (Test-Path -LiteralPath $shortSourceAlias) {
                 $existingAlias = Get-Item -LiteralPath $shortSourceAlias -Force
                 if (($existingAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
