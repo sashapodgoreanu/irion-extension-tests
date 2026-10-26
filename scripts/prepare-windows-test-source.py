@@ -220,6 +220,11 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "    if isinstance(value, str):",
             "        if windows:",
             "            if absolute_unix_paths:",
+            "                value = re.sub(",
+            "                    r'(?i)file:///tmp/',",
+            "                    'file:/W:/tmp/',",
+            "                    value,",
+            "                )",
             "                return re.sub(",
             "                    r'(?i)file:///mnt/([a-z])/',",
             "                    lambda match: 'file:/' + match.group(1).upper() + ':/',",
@@ -230,6 +235,11 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             "                lambda match: 'file:///' + match.group(1).upper() + ':/',",
             "                value,",
             "            )",
+            "        value = re.sub(",
+            "            r'(?i)file:/+W:/tmp/',",
+            "            'file:///tmp/',",
+            "            value,",
+            "        )",
             "        value = re.sub(",
             "            r'(?i)file:/([a-z]):/',",
             "            lambda match: 'file:///mnt/' + match.group(1).lower() + '/',",
@@ -316,15 +326,6 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         "                definition,\n"
         '                workdir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
         "            )\n",
-    )
-    server = upstream_root / "test/py/uc/server.py"
-    replace_exact(
-        server,
-        '    data_dir = tempfile.mkdtemp(prefix="ducktest-uc-data-")\n',
-        "    data_dir = tempfile.mkdtemp(\n"
-        '        prefix="ducktest-uc-data-",\n'
-        '        dir=os.environ.get("QA_WINDOWS_TEMP_DIR"),\n'
-        "    )\n",
     )
     patch_irc_scan_plan_mock(upstream_root)
 

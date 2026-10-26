@@ -11,6 +11,13 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class WindowsUnityCatalogAdapterTest(unittest.TestCase):
+    def test_wsl_data_drive_is_mapped_and_checked_bidirectionally(self) -> None:
+        setup = (ROOT / "scripts" / "setup-windows-wsl-runtime.ps1").read_text(encoding="utf-8")
+        self.assertIn("net.exe use W: $wslShare /persistent:no", setup)
+        self.assertIn("Test-Path -LiteralPath $wslProbeFile", setup)
+        self.assertIn("[System.IO.File]::WriteAllText", setup)
+        self.assertIn('test -f "/tmp/$wslProbe/from-windows"', setup)
+
     def test_mock_catalog_translates_file_uris_both_directions(self) -> None:
         adapter = runpy.run_path(str(ROOT / "scripts" / "prepare-windows-test-source.py"))
         with tempfile.TemporaryDirectory() as directory:
@@ -81,19 +88,12 @@ class MockUC:
                 "            pass\n",
                 encoding="utf-8",
             )
-            server = Path(directory) / "test" / "py" / "uc" / "server.py"
-            server.write_text(
-                "def start_container():\n"
-                '    data_dir = tempfile.mkdtemp(prefix="ducktest-uc-data-")\n',
-                encoding="utf-8",
-            )
 
             adapter["patch_unity_catalog"](Path(directory))
 
             source = mock.read_text(encoding="utf-8")
             irc_source = irc_mock.read_text(encoding="utf-8")
             oss_source = oss.read_text(encoding="utf-8")
-            server_source = server.read_text(encoding="utf-8")
             self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1" and body', source)
             self.assertIn("_qa_translate_file_uris(json.loads(body), windows=False)", source)
             self.assertIn('self.command == "POST"', source)
@@ -106,8 +106,6 @@ class MockUC:
             self.assertIn("/temporary-table-credentials", irc_source)
             self.assertIn('workdir=os.environ.get("QA_WINDOWS_TEMP_DIR")', oss_source)
             ast.parse(oss_source)
-            self.assertIn('dir=os.environ.get("QA_WINDOWS_TEMP_DIR")', server_source)
-            ast.parse(server_source)
             module = ast.parse(source)
             helper = next(
                 node
@@ -134,7 +132,10 @@ class MockUC:
 
             wsl_external_payload = {
                 "storage_location": "file:///mnt/d/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
-                "nested": ["file:///mnt/d/a/qa/upstream/unity_catalog/data/timestamps"],
+                "nested": [
+                    "file:///mnt/d/a/qa/upstream/unity_catalog/data/timestamps",
+                    "file:///tmp/qa-unity.abc12345/ducktest-uc-data/tables/abc",
+                ],
             }
             windows_external_payload = translate(
                 wsl_external_payload,
@@ -145,7 +146,10 @@ class MockUC:
                 windows_external_payload,
                 {
                     "storage_location": "file:/D:/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
-                    "nested": ["file:/D:/a/qa/upstream/unity_catalog/data/timestamps"],
+                    "nested": [
+                        "file:/D:/a/qa/upstream/unity_catalog/data/timestamps",
+                        "file:/W:/tmp/qa-unity.abc12345/ducktest-uc-data/tables/abc",
+                    ],
                 },
             )
             self.assertEqual(translate(windows_external_payload, windows=False), wsl_external_payload)
