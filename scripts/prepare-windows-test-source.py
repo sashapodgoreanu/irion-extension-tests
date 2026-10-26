@@ -451,6 +451,15 @@ sed -i "s#${WINDOWS_ABS_DIR_PREFIX}#${ABS_DIR_PREFIX}#g" "${ABS_DIR_PREFIX}/post
 psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/load_filtered.sql""",
     )
 
+    timeout_test = upstream_root / "test/sql/storage/attach_timeout_error.test"
+    # libpq reports connection loss differently on Windows. Preserve the
+    # failure contract while matching the stable part of both platform errors.
+    replace_exact(
+        timeout_test,
+        "----\nserver closed the connection unexpectedly",
+        "----\nconnection",
+    )
+
     # The test writes pg_binary.bin with native Windows unittest, so
     # {TEST_DIR} contains Windows separators. PostgreSQL itself runs in the
     # WSL/Docker service host and reads the file server-side. Embed the actual

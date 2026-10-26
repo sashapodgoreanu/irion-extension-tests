@@ -14,6 +14,7 @@ class TestWindowsPostgresScannerAdapter(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             upstream = Path(directory)
             (upstream / "test" / "sql" / "misc").mkdir(parents=True)
+            (upstream / "test" / "sql" / "storage").mkdir(parents=True)
             fixture = upstream / "create-postgres-tables.sh"
             fixture.write_text(
                 """psql -d postgresscanner < ${ABS_DIR_PREFIX}/postgresscannertmp/schema.sql
@@ -29,6 +30,12 @@ CALL postgres_execute('s', 'COPY binary_copy_test FROM ''{WORKING_DIRECTORY}/{TE
 """,
                 encoding="utf-8",
             )
+            timeout_test = upstream / "test" / "sql" / "storage" / "attach_timeout_error.test"
+            timeout_test.write_text(
+                "statement error\nROLLBACK;\n----\n"
+                "server closed the connection unexpectedly\n",
+                encoding="utf-8",
+            )
 
             adapter["patch_postgres_scanner"](upstream)
 
@@ -40,6 +47,9 @@ CALL postgres_execute('s', 'COPY binary_copy_test FROM ''{WORKING_DIRECTORY}/{TE
             self.assertEqual(adapted_test.count("replace("), 2)
             self.assertIn(f"{upstream.as_posix()}/{{TEST_DIR}}/pg_binary.bin", adapted_test)
             self.assertNotIn("{WORKING_DIRECTORY}/{TEST_DIR}", adapted_test)
+            adapted_timeout_test = timeout_test.read_text(encoding="utf-8")
+            self.assertIn("----\nconnection\n", adapted_timeout_test)
+            self.assertNotIn("server closed the connection unexpectedly", adapted_timeout_test)
 
 
 if __name__ == "__main__":
