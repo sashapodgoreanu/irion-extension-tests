@@ -258,10 +258,22 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         ]
     )
     replace_exact(mock, "                answer = respond(method, self.path, body)\n", request_hook)
+    staging_response_hook = "\n".join(
+        [
+            "                windows_staging = (",
+            '                    os.environ.get("QA_NATIVE_WINDOWS") == "1"',
+            '                    and method == "POST"',
+            '                    and "/staging-tables" in self.path',
+            "                )",
+            "                self._reply(payload, status, windows_file_uris=windows_staging)",
+            "",
+        ]
+    )
+    replace_exact(mock, "                self._reply(payload, status)\n", staging_response_hook)
     response_hook = "\n".join(
         [
-            "            def _reply(self, body, status=200):",
-            '                if os.environ.get("QA_NATIVE_WINDOWS") == "1":',
+            "            def _reply(self, body, status=200, *, windows_file_uris=False):",
+            "                if windows_file_uris:",
             "                    body = _qa_translate_file_uris(body, windows=True)",
             "                payload = json.dumps(body).encode()",
             "",

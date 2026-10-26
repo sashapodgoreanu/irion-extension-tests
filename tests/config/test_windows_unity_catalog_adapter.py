@@ -33,6 +33,8 @@ class MockUnityCatalog:
         class Handler:
             def _respond(self, method, body):
                 answer = respond(method, self.path, body)
+                status, payload = answer
+                self._reply(payload, status)
                 return answer
 
             def _reply(self, body, status=200):
@@ -46,6 +48,9 @@ class MockUnityCatalog:
             source = mock.read_text(encoding="utf-8")
             self.assertIn('os.environ.get("QA_NATIVE_WINDOWS") == "1" and body', source)
             self.assertIn("_qa_translate_file_uris(json.loads(body), windows=False)", source)
+            self.assertIn('and method == "POST"', source)
+            self.assertIn('and "/staging-tables" in self.path', source)
+            self.assertIn("windows_file_uris=windows_staging", source)
             self.assertIn("_qa_translate_file_uris(body, windows=True)", source)
             module = ast.parse(source)
             helper = next(
