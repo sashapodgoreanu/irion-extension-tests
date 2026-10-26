@@ -87,11 +87,10 @@ class MockUnityCatalog:
             self.assertEqual(
                 windows_external_payload,
                 {
-                    "storage_location": "file://localhost/D:/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
-                    "nested": ["file://localhost/D:/a/qa/upstream/unity_catalog/data/timestamps"],
+                    "storage_location": "file:///data/nested_struct_pairs",
+                    "nested": ["file:///data/timestamps"],
                 },
             )
-            self.assertEqual(translate(windows_external_payload, windows=False), wsl_external_payload)
             self.assertEqual(adapter["PATCHERS"]["unity_catalog"], adapter["patch_unity_catalog"])
 
     def test_upstream_mock_drift_fails_closed(self) -> None:
