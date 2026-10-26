@@ -48,6 +48,7 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertIn('if [[ -f "${ARTIFACT_DIR}/lib/libduckdb.so" ]]; then', runner)
         self.assertIn('mktemp -d /tmp/qa-unity.XXXXXXXX', runner)
         self.assertIn('export TMPDIR="${WINDOWS_TMP_DIR}"', runner)
+        self.assertIn('export UV_CACHE_DIR="${WINDOWS_TMP_DIR}/uv-cache"', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
 

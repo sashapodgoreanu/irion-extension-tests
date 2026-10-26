@@ -22,6 +22,9 @@ if [[ "${QA_NATIVE_WINDOWS:-0}" == "1" ]]; then
   # limit is much shorter than the checkout path.
   WINDOWS_TMP_DIR="$(mktemp -d /tmp/qa-unity.XXXXXXXX)"
   export TMPDIR="${WINDOWS_TMP_DIR}"
+  # uv's cache also needs atomic renames that DrvFS cannot reliably provide.
+  export UV_CACHE_DIR="${WINDOWS_TMP_DIR}/uv-cache"
+  mkdir -p "${UV_CACHE_DIR}"
   cleanup_windows_tmp() {
     rm -rf -- "${WINDOWS_TMP_DIR}"
   }
