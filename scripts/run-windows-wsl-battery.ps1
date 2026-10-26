@@ -245,6 +245,24 @@ $proxyArtifactLinux = "$workspaceLinux/build/windows/wsl-artifact"
 $runtimeLinux = "$workspaceLinux/build/windows/runtime/$BatteryName"
 $duckdbExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/duckdb.exe')
 $unittestExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/unittest.exe')
+$unityWorkspaceAlias = $null
+if ($BatteryName -eq 'unity_catalog') {
+    $unityWorkspaceDriveRoot = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE))
+    $unityWorkspaceAlias = Join-Path $unityWorkspaceDriveRoot 'qa-unity-workspace'
+    if (Test-Path -LiteralPath $unityWorkspaceAlias) {
+        $existingAlias = Get-Item -LiteralPath $unityWorkspaceAlias -Force
+        if (($existingAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+            throw "Refusing to replace non-junction Unity Catalog path bridge: $unityWorkspaceAlias"
+        }
+        Remove-Item -LiteralPath $unityWorkspaceAlias -Force
+    }
+    New-Item -ItemType Junction -Path $unityWorkspaceAlias -Target ([System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)) | Out-Null
+    $unityFixtureAlias = Join-Path $unityWorkspaceAlias 'upstream/unity_catalog/data/nested_struct_pairs/_delta_log/00000000000000000000.json'
+    if (-not (Test-Path -LiteralPath $unityFixtureAlias -PathType Leaf)) {
+        throw "Unity Catalog workspace path bridge cannot reach its fixture: $unityFixtureAlias"
+    }
+    Write-QaLog INFO "Unity Catalog workspace path alias $unityWorkspaceAlias -> $env:GITHUB_WORKSPACE"
+}
 
 # Fixture generators such as Iceberg persist absolute /mnt/<drive>/... paths in
 # metadata. Native Windows interprets a leading slash as the root of the current
@@ -319,6 +337,9 @@ $environment.Add("RUNNER_TEMP=$runtimeLinux")
 $environment.Add("RESULT_STARTED_AT_MS=$StartedAtMs")
 $environment.Add("DUCKDB_VERSION=$DuckDBVersion")
 $environment.Add('QA_NATIVE_WINDOWS=1')
+if ($BatteryName -eq 'unity_catalog') {
+    $environment.Add("QA_WINDOWS_WORKSPACE_URI_ROOT=$workspaceLinux")
+}
 $environment.Add("QA_WSL_RUNTIME_HELPER=$workspaceLinux/scripts/windows-wsl-runtime.sh")
 $environment.Add("QA_WSL_RUNTIME_PY=$workspaceLinux/scripts/windows-wsl-runtime.py")
 $environment.Add("QA_WINDOWS_DUCKDB_EXE=$duckdbExeLinux")
@@ -356,6 +377,21 @@ try {
     $exitCode = $LASTEXITCODE
 }
 finally {
+    if ($null -ne $unityWorkspaceAlias -and (Test-Path -LiteralPath $unityWorkspaceAlias)) {
+        try {
+            $aliasItem = Get-Item -LiteralPath $unityWorkspaceAlias -Force
+            if (($aliasItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
+                Write-QaLog ERROR "Unity Catalog path bridge is no longer a junction; leaving it untouched: $unityWorkspaceAlias"
+            }
+            else {
+                Remove-Item -LiteralPath $unityWorkspaceAlias -Force
+                Write-QaLog INFO "removed Unity Catalog workspace path alias $unityWorkspaceAlias"
+            }
+        }
+        catch {
+            Write-QaLog ERROR "unable to remove Unity Catalog workspace path alias $unityWorkspaceAlias`: $($_.Exception.Message)"
+        }
+    }
     if ($null -ne $deltaSourceAlias -and (Test-Path -LiteralPath $deltaSourceAlias)) {
         try {
             $aliasItem = Get-Item -LiteralPath $deltaSourceAlias -Force

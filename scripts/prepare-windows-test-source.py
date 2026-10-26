@@ -219,9 +219,23 @@ def patch_unity_catalog(upstream_root: Path) -> None:
             '    """Translate file:// paths between the WSL server and native Windows DuckDB."""',
             "    if isinstance(value, str):",
             "        if windows:",
+            '            workspace_root = os.environ.get("QA_WINDOWS_WORKSPACE_URI_ROOT", "").rstrip("/")',
+            "            if workspace_root:",
+            "                value = re.sub(",
+            '                    r"(?i)file://" + re.escape(workspace_root) + r"(?=/|$)",',
+            '                    "file:///qa-unity-workspace",',
+            "                    value,",
+            "                )",
             "            return re.sub(",
             "                r'(?i)file:///mnt/([a-z])/',",
             "                lambda match: 'file:///' + match.group(1).upper() + ':/',",
+            "                value,",
+            "            )",
+            '        workspace_root = os.environ.get("QA_WINDOWS_WORKSPACE_URI_ROOT", "").rstrip("/")',
+            "        if workspace_root:",
+            "            value = re.sub(",
+            '                r"(?i)file:///qa-unity-workspace(?=/|$)",',
+            '                "file://" + workspace_root,',
             "                value,",
             "            )",
             "        return re.sub(",
@@ -258,18 +272,14 @@ def patch_unity_catalog(upstream_root: Path) -> None:
         ]
     )
     replace_exact(mock, "                answer = respond(method, self.path, body)\n", request_hook)
-    staging_response_hook = "\n".join(
+    response_dispatch_hook = "\n".join(
         [
-            "                windows_staging = (",
-            '                    os.environ.get("QA_NATIVE_WINDOWS") == "1"',
-            '                    and method == "POST"',
-            '                    and "/staging-tables" in self.path',
-            "                )",
-            "                self._reply(payload, status, windows_file_uris=windows_staging)",
+            '                windows_file_uris = os.environ.get("QA_NATIVE_WINDOWS") == "1"',
+            "                self._reply(payload, status, windows_file_uris=windows_file_uris)",
             "",
         ]
     )
-    replace_exact(mock, "                self._reply(payload, status)\n", staging_response_hook)
+    replace_exact(mock, "                self._reply(payload, status)\n", response_dispatch_hook)
     response_hook = "\n".join(
         [
             "            def _reply(self, body, status=200, *, windows_file_uris=False):",
