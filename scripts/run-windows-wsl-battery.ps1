@@ -245,8 +245,6 @@ $proxyArtifactLinux = "$workspaceLinux/build/windows/wsl-artifact"
 $runtimeLinux = "$workspaceLinux/build/windows/runtime/$BatteryName"
 $duckdbExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/duckdb.exe')
 $unittestExeLinux = Convert-ToWslPath (Join-Path $env:GITHUB_WORKSPACE 'build/artifact-windows/bin/unittest.exe')
-$unityMountAliases = [System.Collections.Generic.List[string]]::new()
-
 # Fixture generators such as Iceberg persist absolute /mnt/<drive>/... paths in
 # metadata. Native Windows interprets a leading slash as the root of the current
 # drive, so mirror the WSL mount namespace with a junction on that drive.
@@ -257,39 +255,21 @@ $aliasRoots = @($workspaceRoot, $systemRoot) | Select-Object -Unique
 foreach ($aliasRoot in $aliasRoots) {
     $wslAliasParent = Join-Path $aliasRoot 'mnt'
     $wslDriveAlias = Join-Path $wslAliasParent $workspaceDrive
-    if ($BatteryName -eq 'unity_catalog') {
-        if (Test-Path -LiteralPath $wslDriveAlias) {
-            $existingDriveAlias = Get-Item -LiteralPath $wslDriveAlias -Force
-            if (($existingDriveAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-                Remove-Item -LiteralPath $wslDriveAlias -Force
-            }
-        }
-        New-Item -ItemType Directory -Path $wslDriveAlias -Force | Out-Null
-        $workspacePathRelative = $env:GITHUB_WORKSPACE.Substring($workspaceRoot.Length).TrimStart([char]'\')
-        $unityMountAlias = Join-Path $wslDriveAlias $workspacePathRelative
-        if (Test-Path -LiteralPath $unityMountAlias) {
-            $existingWorkspaceAlias = Get-Item -LiteralPath $unityMountAlias -Force
-            if (($existingWorkspaceAlias.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
-                throw "Refusing to replace non-junction Unity Catalog workspace path: $unityMountAlias"
-            }
-            Remove-Item -LiteralPath $unityMountAlias -Force
-        }
-        $unityMountAliasParent = Split-Path -Parent $unityMountAlias
-        New-Item -ItemType Directory -Path $unityMountAliasParent -Force | Out-Null
-        New-Item -ItemType Junction -Path $unityMountAlias -Target ([System.IO.Path]::GetFullPath($env:GITHUB_WORKSPACE)) | Out-Null
-        $unityMountAliases.Add($unityMountAlias)
-        $unityFixtureAlias = Join-Path $unityMountAlias 'upstream/unity_catalog/data/nested_struct_pairs/_delta_log/00000000000000000000.json'
-        if (-not (Test-Path -LiteralPath $unityFixtureAlias -PathType Leaf)) {
-            throw "Unity Catalog WSL mount alias cannot reach its fixture: $unityFixtureAlias"
-        }
-        Write-QaLog INFO "Unity Catalog WSL mount alias $unityMountAlias -> $env:GITHUB_WORKSPACE"
-    }
-    elseif (-not (Test-Path -LiteralPath $wslDriveAlias)) {
+    if (-not (Test-Path -LiteralPath $wslDriveAlias)) {
         New-Item -ItemType Directory -Path $wslAliasParent -Force | Out-Null
         New-Item -ItemType Junction -Path $wslDriveAlias -Target $workspaceRoot | Out-Null
     }
 }
 Write-QaLog INFO "WSL path alias /mnt/$workspaceDrive -> $workspaceRoot"
+if ($BatteryName -eq 'unity_catalog') {
+    $workspacePathRelative = $env:GITHUB_WORKSPACE.Substring($workspaceRoot.Length).TrimStart([char]'\')
+    $unityMountRoot = Join-Path $workspaceRoot "mnt\$workspaceDrive"
+    $unityFixtureAlias = Join-Path $unityMountRoot (Join-Path $workspacePathRelative 'upstream/unity_catalog/data/nested_struct_pairs/_delta_log/00000000000000000000.json')
+    if (-not (Test-Path -LiteralPath $unityFixtureAlias -PathType Leaf)) {
+        throw "Unity Catalog WSL mount alias cannot reach its fixture: $unityFixtureAlias"
+    }
+    Write-QaLog INFO "Unity Catalog WSL fixture alias resolves $unityFixtureAlias"
+}
 
 $normalizeCommand = @"
 find '$sourceLinux' -type f \( -name '*.sh' -o -name '*.bash' -o -name 'env_*' \) -print0 | xargs -0 -r sed -i 's/\r$//'
@@ -384,24 +364,6 @@ try {
     $exitCode = $LASTEXITCODE
 }
 finally {
-    foreach ($unityMountAlias in $unityMountAliases) {
-        if (-not (Test-Path -LiteralPath $unityMountAlias)) {
-            continue
-        }
-        try {
-            $aliasItem = Get-Item -LiteralPath $unityMountAlias -Force
-            if (($aliasItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -eq 0) {
-                Write-QaLog ERROR "Unity Catalog path bridge is no longer a junction; leaving it untouched: $unityMountAlias"
-            }
-            else {
-                Remove-Item -LiteralPath $unityMountAlias -Force
-                Write-QaLog INFO "removed Unity Catalog WSL mount alias $unityMountAlias"
-            }
-        }
-        catch {
-            Write-QaLog ERROR "unable to remove Unity Catalog WSL mount alias $unityMountAlias`: $($_.Exception.Message)"
-        }
-    }
     if ($null -ne $deltaSourceAlias -and (Test-Path -LiteralPath $deltaSourceAlias)) {
         try {
             $aliasItem = Get-Item -LiteralPath $deltaSourceAlias -Force

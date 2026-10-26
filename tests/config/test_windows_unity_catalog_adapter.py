@@ -51,7 +51,8 @@ class MockUnityCatalog:
             self.assertIn('and method == "POST"', source)
             self.assertIn('and "/staging-tables" in self.path', source)
             self.assertIn("windows_file_uris=windows_staging", source)
-            self.assertIn("_qa_translate_file_uris(body, windows=True)", source)
+            self.assertIn("windows_absolute_file_uris=windows_native_paths", source)
+            self.assertIn("absolute_unix_paths=windows_absolute_file_uris", source)
             module = ast.parse(source)
             helper = next(
                 node
@@ -75,6 +76,24 @@ class MockUnityCatalog:
                 },
             )
             self.assertEqual(translate(windows_payload, windows=False), wsl_payload)
+
+            wsl_external_payload = {
+                "storage_location": "file:///mnt/d/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
+                "nested": ["file:///mnt/d/a/qa/upstream/unity_catalog/data/timestamps"],
+            }
+            windows_external_payload = translate(
+                wsl_external_payload,
+                windows=True,
+                absolute_unix_paths=True,
+            )
+            self.assertEqual(
+                windows_external_payload,
+                {
+                    "storage_location": "file:////mnt/d/a/qa/upstream/unity_catalog/data/nested_struct_pairs",
+                    "nested": ["file:////mnt/d/a/qa/upstream/unity_catalog/data/timestamps"],
+                },
+            )
+            self.assertEqual(translate(windows_external_payload, windows=False), wsl_external_payload)
             self.assertEqual(adapter["PATCHERS"]["unity_catalog"], adapter["patch_unity_catalog"])
 
     def test_upstream_mock_drift_fails_closed(self) -> None:
