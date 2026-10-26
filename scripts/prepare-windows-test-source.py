@@ -317,12 +317,34 @@ def patch_mssql_runner() -> None:
 cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"
 cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"
 MSSQL_TEST_CONNECTION_SQL="$(sed '/^[[:space:]]*--/d' "${MSSQL_TEST_INIT_SCRIPT}" | tr '\n' ' ')""" + '"'
-    replace_region(runner, start_marker, end_marker, replacement)
-    replace_exact(
-        runner,
-        '    # MSSQL is intentionally absent because it is not compiled into unittest.\n    "statically_loaded_extensions": ["core_functions", "parquet"],',
-        '    # Native Windows preloads the exact dynamically installed binary.\n    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],',
+    runner_text = runner.read_text(encoding="utf-8")
+    if start_marker in runner_text:
+        replace_region(runner, start_marker, end_marker, replacement)
+    else:
+        # The Linux runner already keeps the signed community binary loaded from
+        # INIT_SCRIPT. Accept that current contract instead of requiring the
+        # older init-profile block that this Windows-only adapter replaced.
+        current_contract = (
+            'cp "${INIT_SCRIPT}" "${MSSQL_TEST_INIT_SCRIPT}"',
+            'cp "${MSSQL_TEST_INIT_SCRIPT}" "${LOG_DIR}/init-extensions-with-mssql.sql"',
+            end_marker,
+        )
+        if not all(anchor in runner_text for anchor in current_contract):
+            raise PatchError("MSSQL runner init contract was not found")
+
+    runner_text = runner.read_text(encoding="utf-8")
+    linux_config = (
+        '    # MSSQL is intentionally absent because it is not compiled into unittest.\n'
+        '    "statically_loaded_extensions": ["core_functions", "parquet"],'
     )
+    windows_config = (
+        '    # Native Windows preloads the exact dynamically installed binary.\n'
+        '    "statically_loaded_extensions": ["core_functions", "parquet", "mssql"],'
+    )
+    if linux_config in runner_text:
+        replace_exact(runner, linux_config, windows_config)
+    elif windows_config not in runner_text:
+        raise PatchError("MSSQL unittest extension preload contract was not found")
 
 
 PATCHERS = {
