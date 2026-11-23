@@ -1,7 +1,7 @@
 # DuckDB extension compatibility tests
 
 This repository checks Irion's extensions and the DuckDB extensions they depend
-on. The migration branch targets DuckDB `v2.0.0`. Extension test sources are
+on. The current upgrade targets DuckDB `v2.0.1`. Extension test sources are
 checked out from their upstream repositories at the revisions in
 [`config/extensions.yml`](config/extensions.yml); upstream tests are not copied
 into this repository.
@@ -27,7 +27,7 @@ The pipeline works in this order:
 3. Check out each extension's upstream test repository at its configured pin.
 4. Install and load the shared and battery-specific extensions through the
    DuckDB CLI. The runner checks `duckdb_extensions()` for install/load state
-   and origin. The version lock ties upstream test pins to the DuckDB 2.0
+   and origin. The version lock ties upstream test pins to the DuckDB 2.0.1
    extension binaries; PostgreSQL Scanner and MSSQL also have runtime
    source-to-binary checks.
 5. Start the battery's local services, run its SQLLogicTest profiles, and
@@ -79,5 +79,5 @@ is disabled and has no battery-specific extension requirements.
   verdicts.
 - [`test/README.md`](test/README.md) covers repository-owned SQLLogicTests.
 
-All upstream pins and exclusions are reviewed in configuration and CI. A
-passing Linux GitHub Actions run is the compatibility result for this branch.
+All upstream pins and exclusions are reviewed in configuration and CI. Passing Linux and Windows GitHub Actions runs provide independent compatibility
+results for this branch.

@@ -57,14 +57,14 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(
             plan.runtime.payload(),
             {
-                "duckdbVersion": "v2.0.0",
+                "duckdbVersion": "v2.0.1",
                 "ciToolsVersion": "969bc76276acec1c0a3922ff500d2ec3a1a3b037",
                 "operatingSystem": "linux",
                 "architecture": "x86_64",
                 "githubRunner": "ubuntu-24.04",
             },
         )
-        self.assertTrue(all(item["duckdbVersion"] == "v2.0.0" for item in matrix))
+        self.assertTrue(all(item["duckdbVersion"] == "v2.0.1" for item in matrix))
         self.assertTrue(all(item["runtime"] == plan.runtime.payload() for item in matrix))
         self.assertTrue(all("setup" not in item for item in matrix))
 
@@ -127,7 +127,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
 
         unity = next(case for case in matrix if case["name"] == "unity_catalog")
-        self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
+        self.assertEqual(unity["pin"], "4cca9f7efd00930039134693e7cbd09fc4771acb")
         self.assertEqual(unity["services"], [])
         self.assertEqual(unity["capabilities"], ["docker"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])

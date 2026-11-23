@@ -20,7 +20,7 @@ class MSSQLGeneratedRunnerSyntaxTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "run-mssql-tests-base.sh"
             generated = subprocess.run(
-                [sys.executable, str(PATCHER), str(SOURCE), str(target), "v2.0.0"],
+                [sys.executable, str(PATCHER), str(SOURCE), str(target), "v2.0.1"],
                 cwd=ROOT,
                 capture_output=True,
                 text=True,
@@ -40,7 +40,7 @@ class MSSQLGeneratedRunnerSyntaxTests(unittest.TestCase):
             self.assertEqual(script.count("if ! grep -Eq '([1-9]"), 1)
             self.assertNotIn('"skip_tests": [', script)
             self.assertIn('--keep-home', script)
-            self.assertIn('DUCKDB_VERSION_DIRECTORY="${DUCKDB_VERSION:-v2.0.0}"', script)
+            self.assertIn('DUCKDB_VERSION_DIRECTORY="${DUCKDB_VERSION:-v2.0.1}"', script)
             self.assertIn("SQL Server service is not ready", script)
 
 

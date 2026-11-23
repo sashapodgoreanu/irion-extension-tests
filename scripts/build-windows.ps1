@@ -34,7 +34,7 @@ $ArtifactRoot = Join-Path $RepoRoot 'build/artifact-windows'
 $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 # Respect the exact commits checked out by actions/checkout (gitlinks).
-# CI tools are pinned by SHA because no v2.0.0 tag exists upstream.
+# CI tools are pinned by SHA because no v2.0.1 tag exists upstream.
 $DuckDBTagRef = "refs/tags/$DuckDBVersion^{commit}"
 $DuckDBTagCommit = (& git -C $DuckDBRoot rev-parse --verify $DuckDBTagRef).Trim()
 if ($LASTEXITCODE -ne 0) {

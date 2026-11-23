@@ -23,7 +23,7 @@ class Phase5FinalizationTest(unittest.TestCase):
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
         unity = config["testBatteries"]["unity_catalog"]
         self.assertEqual(unity["runner"], "unity-catalog-pytest")
-        self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
+        self.assertEqual(unity["pin"], "4cca9f7efd00930039134693e7cbd09fc4771acb")
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
         self.assertEqual(unity["services"], [])
         self.assertEqual(unity["profiles"][0]["services"], [])

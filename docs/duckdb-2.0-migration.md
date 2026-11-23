@@ -1,4 +1,44 @@
-# DuckDB 2.0.0 LTS migration
+# DuckDB 2.0 LTS migrations
+
+## DuckDB v2.0.1 patch upgrade (2026-11-23)
+
+Branch `upgrade/duckdb-v2.0.1` starts from `main`, which already contained
+v2.0.0. The DuckDB gitlink is updated to upstream release tag `v2.0.1`, commit
+`8d78114e90a53823803660bf821f6073ac87da8c`. The extension-ci-tools
+gitlink stays pinned to `969bc76276acec1c0a3922ff500d2ec3a1a3b037`:
+upstream provides neither a v2.0.1 tag nor a v2.0.1 branch.
+
+The following source SHAs come from the release-tagged DuckDB
+`.github/config/extensions/*.cmake` manifests. They are proposed expected
+binary revisions; **they are not yet observations from the built CI runtime**.
+Before validation, install the signed extensions with that runtime and compare
+`extension_version` and `installed_from` in `duckdb_extensions()`, then run
+both platform batteries.
+
+| Battery | Source revision in the DuckDB v2.0.1 release |
+| --- | --- |
+| `httpfs` | `f71cfdb4bff85b9e15b1f3b842d9aa395aff0167` |
+| `ducklake` | `08089b16dc8a18ce04abb6efd87e25cb4d64803a` |
+| `postgres_scanner` | `8b9d0bbe8de4c57fb90d9e2530f9ce39f8c4baf3` |
+| `delta` | `f41762b37b0e14f742a46f58ba59c2e656e08812` |
+| `azure` | `bf93a0af8f28fff67c0084c438d20124fd810948` |
+| `unity_catalog` | `4cca9f7efd00930039134693e7cbd09fc4771acb` |
+
+The community BigQuery binary is still expected at published tag `v0.13.0`
+(commit `5439a6a58439af4c05064f80a28b159c5a1424e7`) and MSSQL at published
+`v0.3.0` (commit `bfd347ffa89dc520eb0fb82c857b3c7af12673dc`), subject
+to confirmation against the v2.0.1 signed binaries. Iceberg is disabled and
+its source is intentionally unchanged.
+
+Review DuckDB 2.0.1's stricter `SECRET` scope matching and changed behavior of
+multi-match `UPDATE ... FROM` / `MERGE` as part of test validation.
+
+Release: https://github.com/duckdb/duckdb/releases/tag/v2.0.1
+
+---
+
+## Historical DuckDB v2.0.0 migration
+
 
 Target branch: `aggiornamento_duckdb_2_0` (created from `main`).
 Target DuckDB version: `v2.0.0`.
