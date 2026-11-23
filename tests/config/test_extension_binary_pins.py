@@ -60,6 +60,21 @@ class ExtensionBinaryPinsTest(unittest.TestCase):
         self.assertIn("matches_commit = (", mssql)
         self.assertIn("if not (matches_release or matches_commit):", mssql)
 
+    def test_bigquery_temporarily_disabled_globally_and_unlocked(self) -> None:
+        config = yaml.safe_load(
+            (ROOT / "config/extensions.yml").read_text(encoding="utf-8")
+        )
+        lock = yaml.safe_load(
+            (ROOT / "config/extension-binary-pins.yml").read_text(encoding="utf-8")
+        )
+        self.assertFalse(config["testBatteries"]["bigquery"]["isEnabled"])
+        self.assertFalse(next(
+            item["isUsed"] for item in config["defaultExtensions"]
+            if item["name"] == "bigquery"
+        ))
+        self.assertNotIn("bigquery", lock["batteries"])
+        self.assertTrue(config["testBatteries"]["mssql"]["isEnabled"])
+
     def test_iceberg_stays_disabled(self) -> None:
         config = yaml.safe_load(
             (ROOT / "config/extensions.yml").read_text(encoding="utf-8")

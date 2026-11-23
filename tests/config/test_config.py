@@ -48,7 +48,6 @@ class ConfigTestCase(unittest.TestCase):
                 "delta",
                 "azure",
                 "unity_catalog",
-                "bigquery",
                 "mssql",
                 "irion",
                 "irion_extension_security",
@@ -141,18 +140,15 @@ class ConfigTestCase(unittest.TestCase):
             ],
         )
 
-        bigquery = next(case for case in matrix if case["name"] == "bigquery")
-        self.assertEqual(bigquery["services"], [])
-        self.assertEqual(
-            bigquery["prerequisites"],
-            [
-                {"type": "google-bigquery"},
-                {"type": "external-cloud-account"},
-            ],
-        )
-        self.assertEqual(
-            bigquery["capabilities"], ["google-cloud-auth", "accepted-failure"]
-        )
+        # Preserve BigQuery's source metadata, but do not resolve or install it
+        # while the signed DuckDB v2.0.1 community binary is unavailable.
+        config = self.load_source()
+        self.assertFalse(config["testBatteries"]["bigquery"]["isEnabled"])
+        self.assertFalse(next(
+            ext["isUsed"] for ext in config["defaultExtensions"]
+            if ext["name"] == "bigquery"
+        ))
+        self.assertNotIn("bigquery", [case["name"] for case in matrix])
         self.assertNotIn("iceberg", [case["name"] for case in matrix])
         self.assertTrue(all(
             "iceberg" not in [ext["name"] for ext in case["extensions"]]
@@ -177,7 +173,7 @@ class ConfigTestCase(unittest.TestCase):
                 for case in matrix
                 if "accepted-failure" in case["capabilities"]
             ],
-            ["bigquery"],
+            [],
         )
 
         mssql = next(case for case in matrix if case["name"] == "mssql")
@@ -185,10 +181,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(mssql["capabilities"], ["docker-compose"])
 
         for case in matrix:
-            extension = next(
-                item for item in case["extensions"] if item["name"] == "bigquery"
-            )
-            self.assertEqual(extension["installFrom"], "community")
+            self.assertNotIn("bigquery", [item["name"] for item in case["extensions"]])
 
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
         matrix_hash = hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest()

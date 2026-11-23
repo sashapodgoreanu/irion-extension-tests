@@ -13,12 +13,11 @@ WHERE loaded
     'azure',
     'delta',
     'unity_catalog',
-    'bigquery',
     'json',
     'sqlite_scanner'
   )
 ----
-11
+10
 
 query I
 SELECT count(*)

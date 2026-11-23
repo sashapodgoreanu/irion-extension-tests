@@ -23,7 +23,7 @@ env:
 
 jobs:
   configure:
-    if: ${{ github.event_name != 'pull_request' || github.head_ref != 'aggiornamento_duckdb_2_0' }}
+    if: ${{ github.event_name != 'pull_request' || (github.head_ref != 'aggiornamento_duckdb_2_0' && github.head_ref != 'upgrade/duckdb-v2.0.1') }}
     name: Resolve Windows test matrix
     runs-on: ubuntu-24.04
     outputs:

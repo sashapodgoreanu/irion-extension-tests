@@ -35,8 +35,9 @@ The pipeline works in this order:
 
 `config/runners.yml` controls matrix fail-fast behavior per platform. Linux sets
 `failFast: true`, so a battery failure cancels the remaining Linux jobs. Windows
-keeps its configured fail-fast setting, and its jobs are skipped for pull requests from
-`aggiornamento_duckdb_2_0` so this migration PR verifies Linux only.
+keeps its configured fail-fast setting. For pull requests from
+`upgrade/duckdb-v2.0.1`, Windows jobs are skipped so this patch release
+migration validates Linux only (manual Windows dispatch remains available).
 
 DuckDB builds belong to GitHub Actions. Do not run `scripts/build.sh` locally
 for this test suite.
@@ -54,16 +55,14 @@ pins, profiles, extension requirements and service declarations.
 | `delta` | Delta SQL tests and local fixtures. Two upstream tests requiring MinIO are explicitly excluded. |
 | `azure` | Local Azurite and Squid profiles plus the upstream cloud profile against the configured Azure test account. |
 | `unity_catalog` | Pinned upstream local pytest suite (OSS, functions, and IRC; Databricks is deselected by default) using its managed OSS Unity Catalog container. |
-| `bigquery` | BigQuery v0.13.0 SQL tests against the configured GCP project and dataset. |
 | `mssql` | MSSQL v0.3.0 tests with the upstream Docker SQL Server fixture and explicit trust for its self-signed test certificate. |
 | `irion`, `irion_extension_security` | Repository-owned SQLLogicTests. |
 
-The BigQuery battery uses the GCP project, dataset and service-account credentials
-configured for GitHub Actions. Its extension also remains in `defaultExtensions`,
-so it stays in the shared extension set except where a profile explicitly excludes
-it. Its source/binary lock is retained in
-[`config/extension-binary-pins.yml`](config/extension-binary-pins.yml). Iceberg
-is disabled and has no battery-specific extension requirements.
+BigQuery is temporarily disabled as a battery and as a shared default extension:
+the DuckDB v2.0.1 Linux community artifact returned HTTP 404 on 2026-11-23.
+Its configuration and upstream test pin are preserved for reactivation, but it
+is omitted from the active source/binary lock. This is not a BigQuery compatibility
+pass. Iceberg also remains disabled.
 
 ## Configuration and documentation
 

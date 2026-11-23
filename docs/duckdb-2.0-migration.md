@@ -24,11 +24,20 @@ both platform batteries.
 | `azure` | `bf93a0af8f28fff67c0084c438d20124fd810948` |
 | `unity_catalog` | `4cca9f7efd00930039134693e7cbd09fc4771acb` |
 
-The community BigQuery binary is still expected at published tag `v0.13.0`
-(commit `5439a6a58439af4c05064f80a28b159c5a1424e7`) and MSSQL at published
-`v0.3.0` (commit `bfd347ffa89dc520eb0fb82c857b3c7af12673dc`), subject
-to confirmation against the v2.0.1 signed binaries. Iceberg is disabled and
-its source is intentionally unchanged.
+The community BigQuery binary at published tag `v0.13.0` (commit
+`5439a6a58439af4c05064f80a28b159c5a1424e7`) could not be installed
+in the v2.0.1 Linux CI runner: the signed binary returned HTTP 404 from
+`community-extensions.duckdb.org/v2.0.1/linux_amd64` (run 45177552119).
+BigQuery is therefore **temporarily disabled** both in defaultExtensions and as
+a test battery. Its source pin remains in the disabled battery configuration,
+while the active binary lock omits it; no BigQuery compatibility is claimed.
+Re-enable only when a signed v2.0.1 binary is published and version-verified.
+
+MSSQL remains at published `v0.3.0` (commit
+`bfd347ffa89dc520eb0fb82c857b3c7af12673dc`), subject to checking its
+v2.0.1 installed binary. Iceberg remains disabled. For this migration PR,
+only the Linux workflow runs; the Windows workflow's pull-request configure
+job is skipped.
 
 Review DuckDB 2.0.1's stricter `SECRET` scope matching and changed behavior of
 multi-match `UPDATE ... FROM` / `MERGE` as part of test validation.

@@ -8,6 +8,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import yaml
+
 from qa import load_config, resolve_config
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -92,23 +94,22 @@ class ServiceRuntimeTestCase(unittest.TestCase):
             install_sql = (runtime / "install-extensions.sql").read_text(encoding="utf-8")
             self.assertIn("INSTALL delta;", install_sql)
 
-    def test_bigquery_prerequisite_is_separate_from_services(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            runtime, _ = self.prepare_case("bigquery", Path(directory))
-            self.assertEqual(
-                json.loads((runtime / "services.json").read_text(encoding="utf-8")), []
-            )
-            self.assertEqual(
-                json.loads((runtime / "prerequisites.json").read_text(encoding="utf-8")),
-                [
-                    {"type": "google-bigquery"},
-                    {"type": "external-cloud-account"},
-                ],
-            )
-            self.assertEqual(
-                json.loads((runtime / "capabilities.json").read_text(encoding="utf-8")),
-                ["google-cloud-auth", "accepted-failure"],
-            )
+    def test_bigquery_prerequisites_retained_for_reenable_without_running_battery(self) -> None:
+        config = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+        bigquery = config["testBatteries"]["bigquery"]
+        self.assertFalse(bigquery["isEnabled"])
+        self.assertEqual(bigquery["services"], [])
+        self.assertEqual(
+            bigquery["prerequisites"],
+            [
+                {"type": "google-bigquery"},
+                {"type": "external-cloud-account"},
+            ],
+        )
+        self.assertNotIn(
+            "bigquery",
+            [case["name"] for case in resolve_config(load_config(CONFIG_PATH)).matrix()["include"]],
+        )
 
     def test_generated_profile_still_builds_sqllogictest_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -137,7 +138,7 @@ class ServiceRuntimeTestCase(unittest.TestCase):
                 config["statically_loaded_extensions"], ["core_functions", "parquet"]
             )
             self.assertIn("LOAD httpfs;", config["on_new_connection"])
-            self.assertIn("LOAD bigquery;", config["on_new_connection"])
+            self.assertNotIn("LOAD bigquery;", config["on_new_connection"])
 
     def test_standard_runner_uses_profile_service_manager(self) -> None:
         script = STANDARD_RUNNER.read_text(encoding="utf-8")

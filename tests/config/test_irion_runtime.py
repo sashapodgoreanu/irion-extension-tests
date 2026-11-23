@@ -58,7 +58,7 @@ class IrionRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(
             security["profiles"][0]["testConfig"]["excludedExtensions"],
-            ["mssql", "bigquery"],
+            ["mssql"],
         )
         self.assertEqual(irion["services"], [])
         self.assertEqual(irion["prerequisites"], [])
