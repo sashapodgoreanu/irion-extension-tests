@@ -50,6 +50,12 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertIn('prebuilt_repository_platform="${ARTIFACT_DIR}/repository/${DUCKDB_VERSION}/${platform}"', runner)
         self.assertIn('cp -a "${prebuilt_repository_platform}/." "${repository_platform}/"', runner)
         self.assertIn('parquet.duckdb_extension', runner)
+        # The signed release is dynamically loaded, not built into unittest:
+        # require unity_catalog alone does not register non-autoloaded helpers.
+        self.assertIn('prepare-unity-catalog-dv-test.py', runner)
+        self.assertIn("uc_read_deletion_vector", runner)
+        self.assertIn("LOAD unity_catalog;", runner)
+
 
         workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
         self.assertIn("uv pip install --python .venv/bin/python -r requirements/qa.txt", workflow)
