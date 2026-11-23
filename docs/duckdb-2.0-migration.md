@@ -42,6 +42,41 @@ job is skipped.
 Review DuckDB 2.0.1's stricter `SECRET` scope matching and changed behavior of
 multi-match `UPDATE ... FROM` / `MERGE` as part of test validation.
 
+### DuckLake nested-schema SQL regressions
+
+Linux run [#45207762712](https://github.com/sashapodgoreanu/irion-extension-tests/actions/runs/45207762712)
+compiled and installed DuckDB v2.0.1 successfully. DuckLake's pinned SQLite
+profile ran 1,024 test cases: **1,022 passed and 2 failed**. The isolated
+PostgreSQL catalog run reproduced the macro-resolution failure and stopped
+without weakening its fail-closed behavior.
+
+The DuckLake **binary and source pin remain**
+`08089b16dc8a18ce04abb6efd87e25cb4d64803a`, matching the DuckDB
+v2.0.1 release manifest. Both failures were subsequently corrected in the
+official DuckLake `v2.0-cyanoptera` branch on November 20, 2026:
+[upstream branch commit](https://github.com/duckdb/ducklake/commit/bc9e351d700844f643bbe4b233839f6e58518886).
+
+- `drop_macro_used_by_table.test`: `DEFAULT lake.k()` failed to resolve
+  the macro in `lake.b` from inside the nested `lake.a.b` schema. Upstream
+  correctly tests that this top-level schema macro **must not** be resolved
+  and that a macro in the complete `lake.a.b` schema **must** be resolved;
+  it also retains both dependent-`DROP MACRO` checks.
+- `nested_schema_version_gate.test`: DuckDB itself now rejects
+  `CREATE SCHEMA ducklake.s1.child` on DuckLake 1.0 with
+  `Catalog "ducklake" does not support nested schemas: s1.child`, instead
+  of the former DuckLake-specific wording. Upstream still asserts rejection
+  using the shared `does not support nested schemas` message.
+
+The QA runtime runs `scripts/sync-ducklake-v2-tests.py` before DuckLake
+tests, replacing **only those two original, pinned SQL test files** with
+the official upstream corrected versions. Both original and patched Git
+blob SHA-1s are checked; any unexpected source change is a hard failure.
+The extension binary, `config/extensions.yml` pin, remaining tests,
+profiles and security checks remain unchanged. Regression tests cover the
+exact file hashes and fail-closed behavior. This compatibility adaptation
+is specifically for DuckDB v2.0.1; another DuckDB runtime requires its own
+version-verified test suite.
+
 Release: https://github.com/duckdb/duckdb/releases/tag/v2.0.1
 
 ---
