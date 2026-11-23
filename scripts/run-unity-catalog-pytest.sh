@@ -78,8 +78,22 @@ if [[ -z "${extension_dir}" ]]; then
 fi
 platform="$(basename "${extension_dir}")"
 repository_platform="${BUILD_DIR}/repository/${DUCKDB_VERSION}/${platform}"
+prebuilt_repository_platform="${ARTIFACT_DIR}/repository/${DUCKDB_VERSION}/${platform}"
+if [[ ! -d "${prebuilt_repository_platform}" ]]; then
+  echo "The pinned DuckDB build extension repository is missing: ${prebuilt_repository_platform}" >&2
+  exit 1
+fi
 mkdir -p "${repository_platform}"
+# DuckDB's original build repository supplies core test dependencies such as
+# parquet. The CLI installation directory only contains dynamically installed
+# extensions, so copying it alone makes Delta fail to auto-install parquet from
+# LOCAL_EXTENSION_REPO inside unittest's isolated per-test HOME.
+cp -a "${prebuilt_repository_platform}/." "${repository_platform}/"
 cp -a "${extension_dir}/." "${repository_platform}/"
+if [[ ! -f "${repository_platform}/parquet.duckdb_extension" ]]; then
+  echo "Parquet dependency is missing from the signed local repository: ${repository_platform}" >&2
+  exit 1
+fi
 if ! compgen -G "${repository_platform}/*.duckdb_extension" >/dev/null; then
   echo "No installed extensions were staged under ${repository_platform}" >&2
   exit 1
