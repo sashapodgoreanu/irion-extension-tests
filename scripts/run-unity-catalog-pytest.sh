@@ -107,6 +107,16 @@ while IFS= read -r -d '' extension_binary; do
 done < <(find "${extension_dir}" -maxdepth 1 -type f -name '*.duckdb_extension' -print0)
 export LOCAL_EXTENSION_REPO="${BUILD_DIR}/repository"
 
+# Verify the official signed binary exposes the helper being tested. Unlike
+# the upstream linked unittest binary, our shared unittest dynamically LOADs
+# Unity Catalog, so the paired DV test needs an explicit LOAD before querying.
+dv_function_available="$("${DUCKDB_BIN}" -csv -noheader -c "LOAD unity_catalog; SELECT CAST(COUNT(*) > 0 AS INTEGER) FROM duckdb_functions() WHERE function_name = 'uc_read_deletion_vector';")"
+if [[ "${dv_function_available}" != "1" ]]; then
+  echo "Installed signed Unity Catalog extension does not register uc_read_deletion_vector" >&2
+  exit 1
+fi
+python3 "${SCRIPT_DIR}/prepare-unity-catalog-dv-test.py" "${UPSTREAM_ROOT}"
+
 echo "Unity Catalog suite image: ${DUCKTEST_UC_IMAGE}" | tee "${LOG_DIR}/pytest.log"
 docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
 (
