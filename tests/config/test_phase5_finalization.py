@@ -46,6 +46,10 @@ class Phase5FinalizationTest(unittest.TestCase):
         self.assertIn('BUILD_DIR=build/release', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
+        # Isolated unittest HOME needs Parquet dynamically from the local repo.
+        self.assertIn('prebuilt_repository_platform="${ARTIFACT_DIR}/repository/${DUCKDB_VERSION}/${platform}"', runner)
+        self.assertIn('cp -a "${prebuilt_repository_platform}/." "${repository_platform}/"', runner)
+        self.assertIn('parquet.duckdb_extension', runner)
 
         workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
         self.assertIn("uv pip install --python .venv/bin/python -r requirements/qa.txt", workflow)
