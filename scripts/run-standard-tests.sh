@@ -67,6 +67,17 @@ for required in \
   fi
 done
 
+# DuckLake's distributed v2.0.1 source SHA predates two fixes to its SQL tests
+# already merged into the official v2.0-cyanoptera branch (2026-11-20).
+# Synchronize EXACT upstream test files by Git blob hash; never skip failures.
+if [[ "${TEST_NAME}" == "ducklake" ]]; then
+  if [[ "${DUCKDB_VERSION}" != "v2.0.1" ]]; then
+    echo "DuckLake v2.0.1 fixture synchronization cannot run for ${DUCKDB_VERSION}" >&2
+    exit 1
+  fi
+  python3 "${SCRIPT_DIR}/sync-ducklake-v2-tests.py" "${UPSTREAM_ROOT}"
+fi
+
 # DuckDB's upstream Iceberg CI links the extension into the unittest binary, so
 # its log type is registered before SQLLogicTests call enable_logging('Iceberg').
 # Our shared runtime installs dynamic extensions instead. Explicitly load Iceberg
