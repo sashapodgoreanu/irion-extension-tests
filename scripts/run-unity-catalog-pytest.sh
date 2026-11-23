@@ -99,10 +99,10 @@ docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
   cd "${UPSTREAM_ROOT}"
   # Match the pinned upstream Integration Tests workflow. Its pytest driver
   # selects all default local suites and deselects Databricks unless requested.
+  # The unittest binary is built by the QA repository, not from this upstream checkout.
+  # Point its SQLLogicTest source root explicitly at the Unity Catalog checkout.
   PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
     BUILD_DIR=build/release \
     LD_LIBRARY_PATH="${PWD}/build/release/src" \
-    # The unittest binary is built by the QA repository, not from this upstream checkout.
-    # Point its SQLLogicTest source root explicitly at the Unity Catalog checkout.
     uv run pytest -p unity_catalog_http_error_plugin --unittest-args='--test-dir .' -n0 -s
 ) 2>&1 | tee -a "${LOG_DIR}/pytest.log"
