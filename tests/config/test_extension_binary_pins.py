@@ -60,19 +60,31 @@ class ExtensionBinaryPinsTest(unittest.TestCase):
         self.assertIn("matches_commit = (", mssql)
         self.assertIn("if not (matches_release or matches_commit):", mssql)
 
-    def test_bigquery_temporarily_disabled_globally_and_unlocked(self) -> None:
+    def test_bigquery_v014_published_for_duckdb_v201_and_locked(self) -> None:
         config = yaml.safe_load(
             (ROOT / "config/extensions.yml").read_text(encoding="utf-8")
         )
         lock = yaml.safe_load(
             (ROOT / "config/extension-binary-pins.yml").read_text(encoding="utf-8")
         )
-        self.assertFalse(config["testBatteries"]["bigquery"]["isEnabled"])
-        self.assertFalse(next(
+        self.assertTrue(config["testBatteries"]["bigquery"]["isEnabled"])
+        self.assertTrue(next(
             item["isUsed"] for item in config["defaultExtensions"]
             if item["name"] == "bigquery"
         ))
-        self.assertNotIn("bigquery", lock["batteries"])
+        self.assertEqual(
+            config["testBatteries"]["bigquery"]["pin"],
+            "440b30ba22396d0110662ee3a657de9cfeb8e6f3",
+        )
+        self.assertEqual(
+            lock["batteries"]["bigquery"],
+            {
+                "repository": "hafenkran/duckdb-bigquery",
+                "binaryVersion": "v0.14.0",
+                "sourceTag": "v0.14.0",
+                "releaseCommit": "440b30ba22396d0110662ee3a657de9cfeb8e6f3",
+            },
+        )
         self.assertTrue(config["testBatteries"]["mssql"]["isEnabled"])
 
     def test_iceberg_stays_disabled(self) -> None:
