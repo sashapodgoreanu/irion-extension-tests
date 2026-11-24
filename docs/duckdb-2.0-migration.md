@@ -24,14 +24,25 @@ both platform batteries.
 | `azure` | `bf93a0af8f28fff67c0084c438d20124fd810948` |
 | `unity_catalog` | `4cca9f7efd00930039134693e7cbd09fc4771acb` |
 
-The community BigQuery binary at published tag `v0.13.0` (commit
-`5439a6a58439af4c05064f80a28b159c5a1424e7`) could not be installed
-in the v2.0.1 Linux CI runner: the signed binary returned HTTP 404 from
-`community-extensions.duckdb.org/v2.0.1/linux_amd64` (run 45177552119).
-BigQuery is therefore **temporarily disabled** both in defaultExtensions and as
-a test battery. Its source pin remains in the disabled battery configuration,
-while the active binary lock omits it; no BigQuery compatibility is claimed.
-Re-enable only when a signed v2.0.1 binary is published and version-verified.
+BigQuery initially failed with HTTP 404 during Linux CI run
+[45177552119](https://github.com/sashapodgoreanu/irion-extension-tests/actions/runs/45177552119),
+before the compatible signed artifact was published. On November 22, 2026,
+the upstream project tagged **v0.14.0**, commit
+`440b30ba22396d0110662ee3a657de9cfeb8e6f3`, specifically for DuckDB
+**v2.0.1**. On November 23, the official DuckDB community-extensions
+[run 45200329148](https://github.com/duckdb/community-extensions/actions/runs/45200329148)
+successfully deployed `v2.0.1/linux_amd64/bigquery.duckdb_extension.gz`
+(the upstream project's own deploy job had skipped because it lacked GCP
+deploy credentials).
+
+BigQuery is now **re-enabled** in the shared defaults and its dedicated test
+battery. The source pin is the v0.14.0 release commit and the binary lock
+requires that release. Its GCP-backed SQL tests are executed when the GitHub
+repository secrets `GCS_SERVICE_ACCOUNT_KEY`, `BQ_TEST_PROJECT`,
+`BQ_TEST_DATASET`, and `BQ_TEST_EXPORT_URI` are available. The existing
+`external-cloud-account` prerequisite has an accepted-failure contract, so
+an absent external account must **not** be reported as a successful test pass.
+The migration PR runs Linux; Windows remains skipped.
 
 MSSQL remains at published `v0.3.0` (commit
 `bfd347ffa89dc520eb0fb82c857b3c7af12673dc`), subject to checking its
