@@ -27,7 +27,7 @@ defaultExtensions:
 - name: unity_catalog
   isUsed: true
 - name: bigquery
-  isUsed: false
+  isUsed: true
   installFrom: community
 testBatteries:
   httpfs:
@@ -327,12 +327,12 @@ testBatteries:
     - path: test/oss_local/table-plain/create_table.py
       reason: "DuckDB 2.0.0 SQL creation succeeded (pending 2.0.1 revalidation), but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
   bigquery:
-    # Temporarily disabled: v2.0.1 linux_amd64 community binary returns HTTP 404.
-    isEnabled: false
+    # v0.14.0 is published for v2.0.1/linux_amd64 in the official community repository.
+    isEnabled: true
     runner: standard
     source: remote
     repository: hafenkran/duckdb-bigquery
-    pin: 5439a6a58439af4c05064f80a28b159c5a1424e7
+    pin: 440b30ba22396d0110662ee3a657de9cfeb8e6f3
     submodules: recursive
     services: []
     prerequisites:
