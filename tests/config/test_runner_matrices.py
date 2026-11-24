@@ -27,6 +27,7 @@ EXPECTED = [
     "delta",
     "azure",
     "unity_catalog",
+    "bigquery",
     "mssql",
     "irion",
     "irion_extension_security",
