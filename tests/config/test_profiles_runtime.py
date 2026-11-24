@@ -138,7 +138,7 @@ class ServiceRuntimeTestCase(unittest.TestCase):
                 config["statically_loaded_extensions"], ["core_functions", "parquet"]
             )
             self.assertIn("LOAD httpfs;", config["on_new_connection"])
-            self.assertNotIn("LOAD bigquery;", config["on_new_connection"])
+            self.assertIn("LOAD bigquery;", config["on_new_connection"])
 
     def test_standard_runner_uses_profile_service_manager(self) -> None:
         script = STANDARD_RUNNER.read_text(encoding="utf-8")
