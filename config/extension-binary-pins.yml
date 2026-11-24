@@ -21,6 +21,11 @@ batteries:
   unity_catalog:
     repository: duckdb/unity_catalog
     binaryVersion: "4cca9f7efd"
+  bigquery:
+    repository: hafenkran/duckdb-bigquery
+    binaryVersion: "v0.14.0"
+    sourceTag: v0.14.0
+    releaseCommit: 440b30ba22396d0110662ee3a657de9cfeb8e6f3
   mssql:
     repository: hugr-lab/mssql-extension
     binaryVersion: "v0.3.0"
