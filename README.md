@@ -58,11 +58,14 @@ pins, profiles, extension requirements and service declarations.
 | `mssql` | MSSQL v0.3.0 tests with the upstream Docker SQL Server fixture and explicit trust for its self-signed test certificate. |
 | `irion`, `irion_extension_security` | Repository-owned SQLLogicTests. |
 
-BigQuery is temporarily disabled as a battery and as a shared default extension:
-the DuckDB v2.0.1 Linux community artifact returned HTTP 404 on 2026-11-23.
-Its configuration and upstream test pin are preserved for reactivation, but it
-is omitted from the active source/binary lock. This is not a BigQuery compatibility
-pass. Iceberg also remains disabled.
+BigQuery v0.14.0 is enabled as both a shared default extension and a
+dedicated cloud test battery for DuckDB v2.0.1. The v2.0.1/linux_amd64 signed
+community artifact was published on 2026-11-23 after the earlier HTTP 404.
+The active source/binary lock pins `hafenkran/duckdb-bigquery` to commit
+`440b30ba22396d0110662ee3a657de9cfeb8e6f3`. BigQuery cloud tests
+require the GCP repository secrets; missing credentials are reported as an
+accepted external-account failure rather than an executed test pass.
+Iceberg remains disabled.
 
 ## Configuration and documentation
 
