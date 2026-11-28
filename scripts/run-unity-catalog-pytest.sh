@@ -78,8 +78,22 @@ if [[ -z "${extension_dir}" ]]; then
 fi
 platform="$(basename "${extension_dir}")"
 repository_platform="${BUILD_DIR}/repository/${DUCKDB_VERSION}/${platform}"
+prebuilt_repository_platform="${ARTIFACT_DIR}/repository/${DUCKDB_VERSION}/${platform}"
+if [[ ! -d "${prebuilt_repository_platform}" ]]; then
+  echo "The pinned DuckDB build extension repository is missing: ${prebuilt_repository_platform}" >&2
+  exit 1
+fi
 mkdir -p "${repository_platform}"
+# DuckDB's original build repository supplies core test dependencies such as
+# parquet. The CLI installation directory only contains dynamically installed
+# extensions, so copying it alone makes Delta fail to auto-install parquet from
+# LOCAL_EXTENSION_REPO inside unittest's isolated per-test HOME.
+cp -a "${prebuilt_repository_platform}/." "${repository_platform}/"
 cp -a "${extension_dir}/." "${repository_platform}/"
+if [[ ! -f "${repository_platform}/parquet.duckdb_extension" ]]; then
+  echo "Parquet dependency is missing from the signed local repository: ${repository_platform}" >&2
+  exit 1
+fi
 if ! compgen -G "${repository_platform}/*.duckdb_extension" >/dev/null; then
   echo "No installed extensions were staged under ${repository_platform}" >&2
   exit 1
@@ -93,14 +107,26 @@ while IFS= read -r -d '' extension_binary; do
 done < <(find "${extension_dir}" -maxdepth 1 -type f -name '*.duckdb_extension' -print0)
 export LOCAL_EXTENSION_REPO="${BUILD_DIR}/repository"
 
+# Verify the official signed binary exposes the helper being tested. Unlike
+# the upstream linked unittest binary, our shared unittest dynamically LOADs
+# Unity Catalog, so the paired DV test needs an explicit LOAD before querying.
+dv_function_available="$("${DUCKDB_BIN}" -csv -noheader -c "LOAD unity_catalog; SELECT CAST(COUNT(*) > 0 AS INTEGER) FROM duckdb_functions() WHERE function_name = 'uc_read_deletion_vector';")"
+if [[ "${dv_function_available}" != "1" ]]; then
+  echo "Installed signed Unity Catalog extension does not register uc_read_deletion_vector" >&2
+  exit 1
+fi
+python3 "${SCRIPT_DIR}/prepare-unity-catalog-dv-test.py" "${UPSTREAM_ROOT}"
+
 echo "Unity Catalog suite image: ${DUCKTEST_UC_IMAGE}" | tee "${LOG_DIR}/pytest.log"
 docker pull "${DUCKTEST_UC_IMAGE}" 2>&1 | tee -a "${LOG_DIR}/pytest.log"
 (
   cd "${UPSTREAM_ROOT}"
   # Match the pinned upstream Integration Tests workflow. Its pytest driver
   # selects all default local suites and deselects Databricks unless requested.
+  # The unittest binary is built by the QA repository, not from this upstream checkout.
+  # Point its SQLLogicTest source root explicitly at the Unity Catalog checkout.
   PYTHONPATH="${SCRIPT_DIR}${PYTHONPATH:+:${PYTHONPATH}}" \
     BUILD_DIR=build/release \
     LD_LIBRARY_PATH="${PWD}/build/release/src" \
-    uv run pytest -p unity_catalog_http_error_plugin -n0 -s
+    uv run pytest -p unity_catalog_http_error_plugin --unittest-args='--test-dir .' -n0 -s
 ) 2>&1 | tee -a "${LOG_DIR}/pytest.log"

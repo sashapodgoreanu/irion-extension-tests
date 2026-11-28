@@ -1,30 +1,31 @@
-# Observed in the signed extension binaries installed by DuckDB v2.0.0
-# on Linux (GitHub Actions). Recheck using duckdb_extensions() on every upgrade.
-duckdbVersion: v2.0.0
+# Target revisions from the official DuckDB v2.0.1 source release manifest.
+# Pending validation: run duckdb_extensions() with the actual v2.0.1 CI binary.
+# The source SHA prefixes below are expectations, not yet observed versions.
+duckdbVersion: v2.0.1
 batteries:
   httpfs:
     repository: duckdb/duckdb-httpfs
-    binaryVersion: "77392a7207"
+    binaryVersion: "f71cfdb4bf"
   ducklake:
     repository: duckdb/ducklake
-    binaryVersion: "417a9117f5"
+    binaryVersion: "08089b16dc"
   postgres_scanner:
     repository: duckdb/duckdb-postgres
-    binaryVersion: "c0f5a3c0c4"
+    binaryVersion: "8b9d0bbe8d"
   delta:
     repository: duckdb/duckdb-delta
-    binaryVersion: "9dcfb65b99"
+    binaryVersion: "f41762b37b"
   azure:
     repository: duckdb/duckdb-azure
-    binaryVersion: "906e92458c"
+    binaryVersion: "bf93a0af8f"
   unity_catalog:
     repository: duckdb/unity_catalog
-    binaryVersion: "cc59382f52"
+    binaryVersion: "4cca9f7efd"
   bigquery:
     repository: hafenkran/duckdb-bigquery
-    binaryVersion: "v0.13.0"
-    sourceTag: v0.13.0
-    releaseCommit: 5439a6a58439af4c05064f80a28b159c5a1424e7
+    binaryVersion: "v0.14.0"
+    sourceTag: v0.14.0
+    releaseCommit: 440b30ba22396d0110662ee3a657de9cfeb8e6f3
   mssql:
     repository: hugr-lab/mssql-extension
     binaryVersion: "v0.3.0"

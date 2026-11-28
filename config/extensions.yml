@@ -4,7 +4,7 @@ runtime:
   architecture: x86_64
   githubRunner: ubuntu-24.04
 duckdb:
-  version: v2.0.0
+  version: v2.0.1
   ciToolsVersion: 969bc76276acec1c0a3922ff500d2ec3a1a3b037
 defaultExtensions:
 - name: httpfs
@@ -35,7 +35,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/duckdb-httpfs
-    pin: 77392a72077a85897db2519fae11e2c0da972b8a
+    pin: f71cfdb4bff85b9e15b1f3b842d9aa395aff0167
     submodules: recursive
     services:
     - name: http-server
@@ -79,7 +79,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/ducklake
-    pin: 417a9117f590e8141742ac0579d02f6a90162e37
+    pin: 08089b16dc8a18ce04abb6efd87e25cb4d64803a
     submodules: recursive
     services: []
     prerequisites: []
@@ -145,7 +145,7 @@ testBatteries:
     runner: postgres-scanner
     source: remote
     repository: duckdb/duckdb-postgres
-    pin: c0f5a3c0c4b68b02afbf669d36d7f0e503985c88
+    pin: 8b9d0bbe8de4c57fb90d9e2530f9ce39f8c4baf3
     submodules: recursive
     services:
     - name: postgres
@@ -183,7 +183,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/duckdb-delta
-    pin: 9dcfb65b99fcafaa068222c2490abc143da4cc8e
+    pin: f41762b37b0e14f742a46f58ba59c2e656e08812
     submodules: recursive
     services: []
     prerequisites: []
@@ -258,7 +258,7 @@ testBatteries:
     runner: standard
     source: remote
     repository: duckdb/duckdb-azure
-    pin: 906e92458c33309e5d9413e14a85aad7b4d2275f
+    pin: bf93a0af8f28fff67c0084c438d20124fd810948
     submodules: recursive
     services:
     - name: storage-emulator
@@ -302,7 +302,7 @@ testBatteries:
     runner: unity-catalog-pytest
     source: remote
     repository: duckdb/unity_catalog
-    pin: cc59382f5292997293a57c2ab336c9aa97c05f2d
+    pin: 4cca9f7efd00930039134693e7cbd09fc4771acb
     submodules: recursive
     services: []
     prerequisites: []
@@ -323,15 +323,16 @@ testBatteries:
       isUsed: true
     ignoredTests:
     - path: test/oss_local/table-cmt/create_table.py
-      reason: "DuckDB 2.0.0 SQL creation succeeds, but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
+      reason: "DuckDB 2.0.0 SQL creation succeeded (pending 2.0.1 revalidation), but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
     - path: test/oss_local/table-plain/create_table.py
-      reason: "DuckDB 2.0.0 SQL creation succeeds, but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
+      reason: "DuckDB 2.0.0 SQL creation succeeded (pending 2.0.1 revalidation), but the pinned Unity Catalog fixture returns TABLE_NOT_FOUND on REST lookup (Actions run 40198751069)."
   bigquery:
+    # v0.14.0 is published for v2.0.1/linux_amd64 in the official community repository.
     isEnabled: true
     runner: standard
     source: remote
     repository: hafenkran/duckdb-bigquery
-    pin: 5439a6a58439af4c05064f80a28b159c5a1424e7
+    pin: 440b30ba22396d0110662ee3a657de9cfeb8e6f3
     submodules: recursive
     services: []
     prerequisites:
@@ -390,11 +391,11 @@ testBatteries:
       isUsed: true
     ignoredTests:
     - path: test/sql/azure/azure_device_code.test
-      reason: Requires Azure credential-chain parameters pending revalidation against the DuckDB v2.0.0 Azure binary
+      reason: Requires Azure credential-chain parameters pending revalidation against the DuckDB v2.0.1 Azure binary
     - path: test/sql/ctas/ctas_auto_tablock.test
-      reason: Legacy MSSQL CTAS compatibility exclusion retained pending DuckDB v2.0.0 revalidation
+      reason: Legacy MSSQL CTAS compatibility exclusion retained pending DuckDB v2.0.1 revalidation
     - path: test/sql/ctas/ctas_if_not_exists.test
-      reason: Legacy MSSQL CTAS compatibility exclusion retained pending DuckDB v2.0.0 revalidation
+      reason: Legacy MSSQL CTAS compatibility exclusion retained pending DuckDB v2.0.1 revalidation
     - path: test/sql/catalog/ddl_if_not_exists.test
       reason: MSSQL returns a different SQL Server object-exists error message for this compatibility case
   irion:
@@ -432,7 +433,6 @@ testBatteries:
         description: Irion extension repository and community loading restrictions
         excludedExtensions:
         - mssql
-        - bigquery
         staticallyLoadedExtensions:
         - core_functions
         - parquet

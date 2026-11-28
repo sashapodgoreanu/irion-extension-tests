@@ -1,7 +1,7 @@
 # DuckDB extension compatibility tests
 
 This repository checks Irion's extensions and the DuckDB extensions they depend
-on. The migration branch targets DuckDB `v2.0.0`. Extension test sources are
+on. The current upgrade targets DuckDB `v2.0.1`. Extension test sources are
 checked out from their upstream repositories at the revisions in
 [`config/extensions.yml`](config/extensions.yml); upstream tests are not copied
 into this repository.
@@ -27,7 +27,7 @@ The pipeline works in this order:
 3. Check out each extension's upstream test repository at its configured pin.
 4. Install and load the shared and battery-specific extensions through the
    DuckDB CLI. The runner checks `duckdb_extensions()` for install/load state
-   and origin. The version lock ties upstream test pins to the DuckDB 2.0
+   and origin. The version lock ties upstream test pins to the DuckDB 2.0.1
    extension binaries; PostgreSQL Scanner and MSSQL also have runtime
    source-to-binary checks.
 5. Start the battery's local services, run its SQLLogicTest profiles, and
@@ -35,8 +35,9 @@ The pipeline works in this order:
 
 `config/runners.yml` controls matrix fail-fast behavior per platform. Linux sets
 `failFast: true`, so a battery failure cancels the remaining Linux jobs. Windows
-keeps its configured fail-fast setting, and its jobs are skipped for pull requests from
-`aggiornamento_duckdb_2_0` so this migration PR verifies Linux only.
+keeps its configured fail-fast setting. For pull requests from
+`upgrade/duckdb-v2.0.1`, Windows jobs are skipped so this patch release
+migration validates Linux only (manual Windows dispatch remains available).
 
 DuckDB builds belong to GitHub Actions. Do not run `scripts/build.sh` locally
 for this test suite.
@@ -54,16 +55,17 @@ pins, profiles, extension requirements and service declarations.
 | `delta` | Delta SQL tests and local fixtures. Two upstream tests requiring MinIO are explicitly excluded. |
 | `azure` | Local Azurite and Squid profiles plus the upstream cloud profile against the configured Azure test account. |
 | `unity_catalog` | Pinned upstream local pytest suite (OSS, functions, and IRC; Databricks is deselected by default) using its managed OSS Unity Catalog container. |
-| `bigquery` | BigQuery v0.13.0 SQL tests against the configured GCP project and dataset. |
 | `mssql` | MSSQL v0.3.0 tests with the upstream Docker SQL Server fixture and explicit trust for its self-signed test certificate. |
 | `irion`, `irion_extension_security` | Repository-owned SQLLogicTests. |
 
-The BigQuery battery uses the GCP project, dataset and service-account credentials
-configured for GitHub Actions. Its extension also remains in `defaultExtensions`,
-so it stays in the shared extension set except where a profile explicitly excludes
-it. Its source/binary lock is retained in
-[`config/extension-binary-pins.yml`](config/extension-binary-pins.yml). Iceberg
-is disabled and has no battery-specific extension requirements.
+BigQuery v0.14.0 is enabled as both a shared default extension and a
+dedicated cloud test battery for DuckDB v2.0.1. The v2.0.1/linux_amd64 signed
+community artifact was published on 2026-11-23 after the earlier HTTP 404.
+The active source/binary lock pins `hafenkran/duckdb-bigquery` to commit
+`440b30ba22396d0110662ee3a657de9cfeb8e6f3`. BigQuery cloud tests
+require the GCP repository secrets; missing credentials are reported as an
+accepted external-account failure rather than an executed test pass.
+Iceberg remains disabled.
 
 ## Configuration and documentation
 
@@ -79,5 +81,5 @@ is disabled and has no battery-specific extension requirements.
   verdicts.
 - [`test/README.md`](test/README.md) covers repository-owned SQLLogicTests.
 
-All upstream pins and exclusions are reviewed in configuration and CI. A
-passing Linux GitHub Actions run is the compatibility result for this branch.
+All upstream pins and exclusions are reviewed in configuration and CI. Passing Linux and Windows GitHub Actions runs provide independent compatibility
+results for this branch.

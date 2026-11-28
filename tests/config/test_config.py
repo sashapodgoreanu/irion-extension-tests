@@ -57,14 +57,14 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(
             plan.runtime.payload(),
             {
-                "duckdbVersion": "v2.0.0",
+                "duckdbVersion": "v2.0.1",
                 "ciToolsVersion": "969bc76276acec1c0a3922ff500d2ec3a1a3b037",
                 "operatingSystem": "linux",
                 "architecture": "x86_64",
                 "githubRunner": "ubuntu-24.04",
             },
         )
-        self.assertTrue(all(item["duckdbVersion"] == "v2.0.0" for item in matrix))
+        self.assertTrue(all(item["duckdbVersion"] == "v2.0.1" for item in matrix))
         self.assertTrue(all(item["runtime"] == plan.runtime.payload() for item in matrix))
         self.assertTrue(all("setup" not in item for item in matrix))
 
@@ -127,7 +127,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(azure["profiles"][1]["services"][1]["auth"], True)
 
         unity = next(case for case in matrix if case["name"] == "unity_catalog")
-        self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
+        self.assertEqual(unity["pin"], "4cca9f7efd00930039134693e7cbd09fc4771acb")
         self.assertEqual(unity["services"], [])
         self.assertEqual(unity["capabilities"], ["docker"])
         self.assertEqual([profile["name"] for profile in unity["profiles"]], ["oss"])
@@ -141,18 +141,18 @@ class ConfigTestCase(unittest.TestCase):
             ],
         )
 
+        # v0.14.0 is published for DuckDB 2.0.1; include the signed BigQuery
+        # extension across the shared compatibility baseline and cloud battery.
+        config = self.load_source()
+        self.assertTrue(config["testBatteries"]["bigquery"]["isEnabled"])
+        self.assertTrue(next(
+            ext["isUsed"] for ext in config["defaultExtensions"]
+            if ext["name"] == "bigquery"
+        ))
         bigquery = next(case for case in matrix if case["name"] == "bigquery")
-        self.assertEqual(bigquery["services"], [])
-        self.assertEqual(
-            bigquery["prerequisites"],
-            [
-                {"type": "google-bigquery"},
-                {"type": "external-cloud-account"},
-            ],
-        )
-        self.assertEqual(
-            bigquery["capabilities"], ["google-cloud-auth", "accepted-failure"]
-        )
+        self.assertEqual(bigquery["pin"], "440b30ba22396d0110662ee3a657de9cfeb8e6f3")
+        self.assertEqual(bigquery["capabilities"], ["google-cloud-auth", "accepted-failure"])
+        self.assertEqual(bigquery["profiles"][0]["tests"], "test/sql/*")
         self.assertNotIn("iceberg", [case["name"] for case in matrix])
         self.assertTrue(all(
             "iceberg" not in [ext["name"] for ext in case["extensions"]]
@@ -185,10 +185,7 @@ class ConfigTestCase(unittest.TestCase):
         self.assertEqual(mssql["capabilities"], ["docker-compose"])
 
         for case in matrix:
-            extension = next(
-                item for item in case["extensions"] if item["name"] == "bigquery"
-            )
-            self.assertEqual(extension["installFrom"], "community")
+            self.assertIn("bigquery", [item["name"] for item in case["extensions"]])
 
         compact_matrix = json.dumps(plan.matrix(), separators=(",", ":"))
         matrix_hash = hashlib.sha256(compact_matrix.encode("utf-8")).hexdigest()

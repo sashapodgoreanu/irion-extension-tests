@@ -287,7 +287,7 @@ class RunnerMatricesTestCase(unittest.TestCase):
         )
         self.assertEqual(
             windows_workflow["jobs"]["configure"]["if"],
-            "${{ github.event_name != 'pull_request' || github.head_ref != 'aggiornamento_duckdb_2_0' }}",
+            "${{ github.event_name != 'pull_request' || (github.head_ref != 'aggiornamento_duckdb_2_0' && github.head_ref != 'upgrade/duckdb-v2.0.1') }}",
         )
 
     def test_windows_wsl_argument_bridge_preserves_cli_payloads(self) -> None:

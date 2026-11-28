@@ -1,4 +1,99 @@
-# DuckDB 2.0.0 LTS migration
+# DuckDB 2.0 LTS migrations
+
+## DuckDB v2.0.1 patch upgrade (2026-11-23)
+
+Branch `upgrade/duckdb-v2.0.1` starts from `main`, which already contained
+v2.0.0. The DuckDB gitlink is updated to upstream release tag `v2.0.1`, commit
+`8d78114e90a53823803660bf821f6073ac87da8c`. The extension-ci-tools
+gitlink stays pinned to `969bc76276acec1c0a3922ff500d2ec3a1a3b037`:
+upstream provides neither a v2.0.1 tag nor a v2.0.1 branch.
+
+The following source SHAs come from the release-tagged DuckDB
+`.github/config/extensions/*.cmake` manifests. They are proposed expected
+binary revisions; **they are not yet observations from the built CI runtime**.
+Before validation, install the signed extensions with that runtime and compare
+`extension_version` and `installed_from` in `duckdb_extensions()`, then run
+both platform batteries.
+
+| Battery | Source revision in the DuckDB v2.0.1 release |
+| --- | --- |
+| `httpfs` | `f71cfdb4bff85b9e15b1f3b842d9aa395aff0167` |
+| `ducklake` | `08089b16dc8a18ce04abb6efd87e25cb4d64803a` |
+| `postgres_scanner` | `8b9d0bbe8de4c57fb90d9e2530f9ce39f8c4baf3` |
+| `delta` | `f41762b37b0e14f742a46f58ba59c2e656e08812` |
+| `azure` | `bf93a0af8f28fff67c0084c438d20124fd810948` |
+| `unity_catalog` | `4cca9f7efd00930039134693e7cbd09fc4771acb` |
+
+BigQuery initially failed with HTTP 404 during Linux CI run
+[45177552119](https://github.com/sashapodgoreanu/irion-extension-tests/actions/runs/45177552119),
+before the compatible signed artifact was published. On November 22, 2026,
+the upstream project tagged **v0.14.0**, commit
+`440b30ba22396d0110662ee3a657de9cfeb8e6f3`, specifically for DuckDB
+**v2.0.1**. On November 23, the official DuckDB community-extensions
+[run 45200329148](https://github.com/duckdb/community-extensions/actions/runs/45200329148)
+successfully deployed `v2.0.1/linux_amd64/bigquery.duckdb_extension.gz`
+(the upstream project's own deploy job had skipped because it lacked GCP
+deploy credentials).
+
+BigQuery is now **re-enabled** in the shared defaults and its dedicated test
+battery. The source pin is the v0.14.0 release commit and the binary lock
+requires that release. Its GCP-backed SQL tests are executed when the GitHub
+repository secrets `GCS_SERVICE_ACCOUNT_KEY`, `BQ_TEST_PROJECT`,
+`BQ_TEST_DATASET`, and `BQ_TEST_EXPORT_URI` are available. The existing
+`external-cloud-account` prerequisite has an accepted-failure contract, so
+an absent external account must **not** be reported as a successful test pass.
+The migration PR runs Linux; Windows remains skipped.
+
+MSSQL remains at published `v0.3.0` (commit
+`bfd347ffa89dc520eb0fb82c857b3c7af12673dc`), subject to checking its
+v2.0.1 installed binary. Iceberg remains disabled. For this migration PR,
+only the Linux workflow runs; the Windows workflow's pull-request configure
+job is skipped.
+
+Review DuckDB 2.0.1's stricter `SECRET` scope matching and changed behavior of
+multi-match `UPDATE ... FROM` / `MERGE` as part of test validation.
+
+### DuckLake nested-schema SQL regressions
+
+Linux run [#45207762712](https://github.com/sashapodgoreanu/irion-extension-tests/actions/runs/45207762712)
+compiled and installed DuckDB v2.0.1 successfully. DuckLake's pinned SQLite
+profile ran 1,024 test cases: **1,022 passed and 2 failed**. The isolated
+PostgreSQL catalog run reproduced the macro-resolution failure and stopped
+without weakening its fail-closed behavior.
+
+The DuckLake **binary and source pin remain**
+`08089b16dc8a18ce04abb6efd87e25cb4d64803a`, matching the DuckDB
+v2.0.1 release manifest. Both failures were subsequently corrected in the
+official DuckLake `v2.0-cyanoptera` branch on November 20, 2026:
+[upstream branch commit](https://github.com/duckdb/ducklake/commit/bc9e351d700844f643bbe4b233839f6e58518886).
+
+- `drop_macro_used_by_table.test`: `DEFAULT lake.k()` failed to resolve
+  the macro in `lake.b` from inside the nested `lake.a.b` schema. Upstream
+  correctly tests that this top-level schema macro **must not** be resolved
+  and that a macro in the complete `lake.a.b` schema **must** be resolved;
+  it also retains both dependent-`DROP MACRO` checks.
+- `nested_schema_version_gate.test`: DuckDB itself now rejects
+  `CREATE SCHEMA ducklake.s1.child` on DuckLake 1.0 with
+  `Catalog "ducklake" does not support nested schemas: s1.child`, instead
+  of the former DuckLake-specific wording. Upstream still asserts rejection
+  using the shared `does not support nested schemas` message.
+
+The QA runtime runs `scripts/sync-ducklake-v2-tests.py` before DuckLake
+tests, replacing **only those two original, pinned SQL test files** with
+the official upstream corrected versions. Both original and patched Git
+blob SHA-1s are checked; any unexpected source change is a hard failure.
+The extension binary, `config/extensions.yml` pin, remaining tests,
+profiles and security checks remain unchanged. Regression tests cover the
+exact file hashes and fail-closed behavior. This compatibility adaptation
+is specifically for DuckDB v2.0.1; another DuckDB runtime requires its own
+version-verified test suite.
+
+Release: https://github.com/duckdb/duckdb/releases/tag/v2.0.1
+
+---
+
+## Historical DuckDB v2.0.0 migration
+
 
 Target branch: `aggiornamento_duckdb_2_0` (created from `main`).
 Target DuckDB version: `v2.0.0`.

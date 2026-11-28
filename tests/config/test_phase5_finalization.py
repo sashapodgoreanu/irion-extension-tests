@@ -23,7 +23,7 @@ class Phase5FinalizationTest(unittest.TestCase):
         config = yaml.safe_load((ROOT / "config/extensions.yml").read_text(encoding="utf-8"))
         unity = config["testBatteries"]["unity_catalog"]
         self.assertEqual(unity["runner"], "unity-catalog-pytest")
-        self.assertEqual(unity["pin"], "cc59382f5292997293a57c2ab336c9aa97c05f2d")
+        self.assertEqual(unity["pin"], "4cca9f7efd00930039134693e7cbd09fc4771acb")
         self.assertEqual(unity["profiles"][0]["tests"], UNITY_LOCAL_TESTS)
         self.assertEqual(unity["services"], [])
         self.assertEqual(unity["profiles"][0]["services"], [])
@@ -39,12 +39,23 @@ class Phase5FinalizationTest(unittest.TestCase):
         )
 
         runner = (ROOT / "scripts/run-unity-catalog-pytest.sh").read_text(encoding="utf-8")
-        self.assertIn('uv run pytest -p unity_catalog_http_error_plugin -n0 -s', runner)
+        self.assertIn("--unittest-args='--test-dir .'", runner)
+        self.assertIn('uv run pytest -p unity_catalog_http_error_plugin', runner)
         self.assertIn('BUILD_DIR="${UPSTREAM_ROOT}/build/release"', runner)
         self.assertIn('LD_LIBRARY_PATH="${PWD}/build/release/src"', runner)
         self.assertIn('BUILD_DIR=build/release', runner)
         self.assertIn('ghcr.io/benfleis/ducktest-unitycatalog:ci', runner)
         self.assertIn('"${BUILD_DIR}/extension/${extension_name}"', runner)
+        # Isolated unittest HOME needs Parquet dynamically from the local repo.
+        self.assertIn('prebuilt_repository_platform="${ARTIFACT_DIR}/repository/${DUCKDB_VERSION}/${platform}"', runner)
+        self.assertIn('cp -a "${prebuilt_repository_platform}/." "${repository_platform}/"', runner)
+        self.assertIn('parquet.duckdb_extension', runner)
+        # The signed release is dynamically loaded, not built into unittest:
+        # require unity_catalog alone does not register non-autoloaded helpers.
+        self.assertIn('prepare-unity-catalog-dv-test.py', runner)
+        self.assertIn("uc_read_deletion_vector", runner)
+        self.assertIn("LOAD unity_catalog;", runner)
+
 
         workflow = (ROOT / ".github/workflows/qa-linux.yml").read_text(encoding="utf-8")
         self.assertIn("uv pip install --python .venv/bin/python -r requirements/qa.txt", workflow)

@@ -30,7 +30,7 @@ class IrionRuntimeTest(unittest.TestCase):
         self.assertEqual(
             irion["runtime"],
             {
-                "duckdbVersion": "v2.0.0",
+                "duckdbVersion": "v2.0.1",
                 "ciToolsVersion": "969bc76276acec1c0a3922ff500d2ec3a1a3b037",
                 "operatingSystem": "linux",
                 "architecture": "x86_64",
@@ -58,7 +58,7 @@ class IrionRuntimeTest(unittest.TestCase):
         )
         self.assertEqual(
             security["profiles"][0]["testConfig"]["excludedExtensions"],
-            ["mssql", "bigquery"],
+            ["mssql"],
         )
         self.assertEqual(irion["services"], [])
         self.assertEqual(irion["prerequisites"], [])
